@@ -44,31 +44,41 @@ class DesktopApi:
         diagnostics_exporter: DiagnosticsExporter,
         open_bluetooth_settings: Callable[[], None],
         diagnostics_output_dir: Path,
+        session_state=None,
     ) -> None:
         self.service = service
         self.app_state = app_state
         self.autostart_manager = autostart_manager
         self.notification_service = notification_service
+        self.session_state = session_state
         self._diagnostics_exporter = diagnostics_exporter
         self._open_bluetooth_settings = open_bluetooth_settings
         self._diagnostics_output_dir = diagnostics_output_dir
 
     def get_initial_state(self) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.snapshot()
         self._sync_from_service()
         return self.app_state.snapshot()
 
     def refresh_devices(self) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.refresh_devices()
         self.service.refresh_devices()
         self._sync_from_service()
         return self.app_state.snapshot()
 
     def connect_device(self, device_id: str) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.connect_device(device_id)
         self.service.connect(device_id)
         self.app_state.handle_connector_event({"event": "device_connected", "device_id": device_id})
         self._sync_from_service()
         return self.app_state.snapshot()
 
     def disconnect_device(self, device_id: str) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.disconnect_device(device_id)
         self.service.disconnect(device_id)
         self.app_state.handle_connector_event(
             {"event": "device_disconnected", "device_id": device_id, "state": "disconnected"}
@@ -77,23 +87,33 @@ class DesktopApi:
         return self.app_state.snapshot()
 
     def update_device_rule(self, device_id: str, rule_patch: dict[str, Any]) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.update_device_rule(device_id, rule_patch)
         self.app_state.update_device_rule(device_id, rule_patch)
         return self.app_state.snapshot()
 
     def reorder_device_priority(self, device_ids: list[str]) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.reorder_device_priority(device_ids)
         self.app_state.reorder_device_priority(device_ids)
         return self.app_state.snapshot()
 
     def set_autostart(self, enabled: bool) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.set_autostart(enabled)
         self.autostart_manager.set_enabled(enabled)
         self.app_state.config.startup.autostart = enabled
         return self.app_state.snapshot()
 
     def set_theme(self, mode: ThemeMode) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.set_theme(mode)
         self.app_state.config.ui.theme = mode
         return self.app_state.snapshot()
 
     def set_notification_policy(self, policy: NotificationPolicy) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.set_notification_policy(policy)
         self.notification_service.update_policy(policy)
         self.app_state.config.notification.policy = policy
         return self.app_state.snapshot()

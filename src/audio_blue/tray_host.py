@@ -76,11 +76,13 @@ class TrayHost:
         show_quick_panel: Callable[[], None] | None = None,
         show_main_window: Callable[[], None] | None = None,
         shutdown_ui: Callable[[], None] | None = None,
+        session_state=None,
     ) -> None:
         self._service = service
         self._config = config
         self._logger = logger
         self._background = background
+        self._session_state = session_state
         self._show_quick_panel = show_quick_panel or self._show_menu
         self._show_main_window = show_main_window or (lambda: None)
         self._shutdown_ui = shutdown_ui or (lambda: None)
@@ -133,7 +135,10 @@ class TrayHost:
 
     def _refresh_devices(self) -> None:
         try:
-            self._service.refresh_devices()
+            if self._session_state is not None:
+                self._session_state.refresh_devices()
+            else:
+                self._service.refresh_devices()
         except Exception:
             self._logger.exception("Failed to refresh devices.")
 
@@ -145,7 +150,12 @@ class TrayHost:
         self._command_map.clear()
         self._next_command_id = 1000
 
-        for entry in build_menu_entries(list(self._service.known_devices.values()), self._config.reconnect):
+        devices = (
+            self._session_state.list_devices()
+            if self._session_state is not None
+            else list(self._service.known_devices.values())
+        )
+        for entry in build_menu_entries(devices, self._config.reconnect):
             menu_flags = win32con.MF_STRING
             if not entry.enabled:
                 menu_flags |= win32con.MF_GRAYED
@@ -184,9 +194,15 @@ class TrayHost:
         elif entry.action == "open_control_center":
             self._show_main_window()
         elif entry.action == "connect_device" and entry.device_id:
-            self._service.connect(entry.device_id)
+            if self._session_state is not None:
+                self._session_state.connect_device(entry.device_id)
+            else:
+                self._service.connect(entry.device_id)
         elif entry.action == "disconnect_device" and entry.device_id:
-            self._service.disconnect(entry.device_id)
+            if self._session_state is not None:
+                self._session_state.disconnect_device(entry.device_id)
+            else:
+                self._service.disconnect(entry.device_id)
         elif entry.action == "open_bluetooth_settings":
             os.startfile("ms-settings:bluetooth")
         elif entry.action == "exit":

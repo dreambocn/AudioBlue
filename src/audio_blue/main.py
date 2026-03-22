@@ -16,6 +16,7 @@ from audio_blue.logging_util import configure_logging
 from audio_blue.app_state import AppStateStore
 from audio_blue.autostart_manager import AutostartManager
 from audio_blue.notification_service import NotificationService
+from audio_blue.session_state import SessionStateCoordinator
 from audio_blue.single_instance import SingleInstanceManager
 from audio_blue.tray_host import TrayHost
 
@@ -114,12 +115,23 @@ def create_default_host(
     logger,
     background: bool,
 ):
+    app_state = AppStateStore(config=config)
+    autostart_manager = AutostartManager()
+    notification_service = NotificationService(policy=config.notification.policy)
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=app_state,
+        autostart_manager=autostart_manager,
+        notification_service=notification_service,
+    )
+
     def build_tray_only_host() -> TrayHost:
         return TrayHost(
             service=service,
             config=config,
             logger=logger,
             background=background,
+            session_state=session_state,
         )
 
     try:
@@ -128,12 +140,13 @@ def create_default_host(
         ui_entrypoint = find_ui_entrypoint()
         desktop_api = DesktopApi(
             service=service,
-            app_state=AppStateStore(config=config),
-            autostart_manager=AutostartManager(),
-            notification_service=NotificationService(policy=config.notification.policy),
+            app_state=app_state,
+            autostart_manager=autostart_manager,
+            notification_service=notification_service,
             diagnostics_exporter=export_diagnostics_snapshot,
             open_bluetooth_settings=lambda: os.startfile("ms-settings:bluetooth"),
             diagnostics_output_dir=get_config_path().parent / "diagnostics",
+            session_state=session_state,
         )
         desktop_host = DesktopHost(api=desktop_api, ui_entrypoint=ui_entrypoint, webview_module=webview)
         return HybridAppHost(
@@ -146,6 +159,7 @@ def create_default_host(
                 show_quick_panel=desktop_host.show_quick_panel,
                 show_main_window=desktop_host.show_main_window,
                 shutdown_ui=desktop_host.shutdown,
+                session_state=session_state,
             ),
             fallback_host_factory=build_tray_only_host,
             logger=logger,
