@@ -32,7 +32,7 @@ class SessionStateCoordinator:
 
     def snapshot(self) -> dict[str, Any]:
         self._sync_from_service()
-        return self.app_state.snapshot()
+        return self._normalize_snapshot(self.app_state.snapshot())
 
     def list_devices(self):
         self._sync_from_service()
@@ -70,6 +70,10 @@ class SessionStateCoordinator:
         self.app_state.config.ui.theme = mode
         return self._publish_snapshot()
 
+    def set_language(self, language: str) -> dict[str, Any]:
+        setattr(self.app_state.config.ui, "language", language)
+        return self._publish_snapshot()
+
     def set_notification_policy(self, policy: str) -> dict[str, Any]:
         self.notification_service.update_policy(policy)
         self.app_state.config.notification.policy = policy
@@ -84,7 +88,7 @@ class SessionStateCoordinator:
         self.app_state.sync_devices(list(getattr(self.service, "known_devices", {}).values()))
 
     def _publish_snapshot(self) -> dict[str, Any]:
-        snapshot = self.app_state.snapshot()
+        snapshot = self._normalize_snapshot(self.app_state.snapshot())
         for callback in list(self._listeners):
             callback(snapshot)
         return snapshot
@@ -99,3 +103,9 @@ class SessionStateCoordinator:
                 self.handle_service_event(payload)
 
         setattr(self.service, "_state_callback", composed_callback)
+
+    def _normalize_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:
+        settings = snapshot.setdefault("settings", {})
+        ui_settings = settings.setdefault("ui", {})
+        ui_settings.setdefault("language", getattr(self.app_state.config.ui, "language", "system"))
+        return snapshot

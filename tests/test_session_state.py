@@ -90,3 +90,23 @@ def test_session_state_connect_disconnect_and_settings_share_single_snapshot_sou
     assert connected["devices"][0]["connectionState"] == "connected"
     assert disconnected["devices"][0]["connectionState"] == "disconnected"
     assert after_theme["settings"]["ui"]["theme"] == "dark"
+
+
+def test_session_state_emits_single_state_channel_for_refresh_connection_rules_and_settings():
+    service = ConnectorServiceStub()
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(config=AppConfig()),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(),
+    )
+    observed: list[dict] = []
+    session_state.subscribe(lambda snapshot: observed.append(snapshot))
+
+    session_state.refresh_devices()
+    session_state.connect_device("device-1")
+    session_state.update_device_rule("device-1", {"is_favorite": True})
+    session_state.set_theme("dark")
+
+    assert len(observed) >= 4
+    assert all("devices" in item for item in observed)

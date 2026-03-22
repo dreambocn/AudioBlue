@@ -181,3 +181,40 @@ def test_shutdown_destroys_existing_windows(tmp_path):
 
     assert host.main_window.destroy_called is True
 
+
+class SessionStateStub:
+    def __init__(self):
+        self.listener = None
+
+    def subscribe(self, callback):
+        self.listener = callback
+
+        def unsubscribe():
+            self.listener = None
+
+        return unsubscribe
+
+    def emit(self, payload):
+        if callable(self.listener):
+            self.listener(payload)
+
+
+def test_run_subscribes_state_push_channel_and_dispatches_browser_event(tmp_path):
+    index_path = tmp_path / "ui" / "dist" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
+    webview = WebviewModuleStub()
+    session_state = SessionStateStub()
+    api = create_api(tmp_path)
+    api.session_state = session_state
+    host = DesktopHost(
+        api=api,
+        ui_entrypoint=index_path,
+        webview_module=webview,
+    )
+
+    host.run()
+    session_state.emit({"devices": [{"deviceId": "device-1"}]})
+
+    assert host.main_window.scripts
+    assert "audioblue:state" in host.main_window.scripts[-1]

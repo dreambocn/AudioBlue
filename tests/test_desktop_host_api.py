@@ -92,3 +92,23 @@ def test_desktop_api_updates_rules_settings_and_exports_diagnostics(tmp_path):
     assert api.autostart_manager.is_enabled() is True
     assert export_path.endswith(".json")
     assert exported_paths and exported_paths[0].parent == tmp_path
+
+
+def test_desktop_api_set_language_updates_config_and_returns_snapshot(tmp_path):
+    service = ServiceStub()
+    app_state = AppStateStore(config=AppConfig())
+    api = DesktopApi(
+        service=service,
+        app_state=app_state,
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(),
+        diagnostics_exporter=lambda snapshot, path: path,
+        open_bluetooth_settings=lambda: None,
+        diagnostics_output_dir=tmp_path,
+    )
+    api.refresh_devices()
+
+    snapshot = api.set_language("zh-CN")
+
+    assert getattr(app_state.config.ui, "language", None) == "zh-CN"
+    assert snapshot["settings"]["ui"].get("language") == "zh-CN"

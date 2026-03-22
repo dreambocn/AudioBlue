@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import json
 from pathlib import Path
 from typing import Any, Callable, Protocol
 import sys
@@ -111,6 +112,16 @@ class DesktopApi:
         self.app_state.config.ui.theme = mode
         return self.app_state.snapshot()
 
+    def set_language(self, language: str) -> dict[str, Any]:
+        if language not in {"system", "zh-CN", "en-US"}:
+            raise ValueError("Unsupported language")
+        if self.session_state is not None:
+            return self.session_state.set_language(language)
+        setattr(self.app_state.config.ui, "language", language)
+        snapshot = self.app_state.snapshot()
+        snapshot.setdefault("settings", {}).setdefault("ui", {})["language"] = language
+        return snapshot
+
     def set_notification_policy(self, policy: NotificationPolicy) -> dict[str, Any]:
         if self.session_state is not None:
             return self.session_state.set_notification_policy(policy)
@@ -146,6 +157,7 @@ class DesktopHost:
         self.ui_entrypoint = ui_entrypoint
         self._webview = webview_module
         self.main_window = None
+        self._state_unsubscribe = None
 
     def create_windows(self) -> None:
         if self.main_window is not None:
@@ -170,8 +182,15 @@ class DesktopHost:
         self.create_windows()
         if self._webview is None:
             raise RuntimeError("Webview module is not available.")
+        session_state = getattr(self.api, "session_state", None)
 
-        self._webview.start(on_started, gui="edgechromium", http_server=False)
+        def on_started_wrapper() -> None:
+            if session_state is not None and hasattr(session_state, "subscribe"):
+                self._state_unsubscribe = session_state.subscribe(self.push_state)
+            if on_started is not None:
+                on_started()
+
+        self._webview.start(on_started_wrapper if on_started or session_state is not None else None, gui="edgechromium", http_server=False)
 
     def show_main_window(self) -> None:
         if self.main_window is None:
@@ -182,6 +201,10 @@ class DesktopHost:
         raise RuntimeError("Quick panel is not part of the runtime path.")
 
     def shutdown(self) -> None:
+        if callable(self._state_unsubscribe):
+            self._state_unsubscribe()
+            self._state_unsubscribe = None
+
         for window in (self.main_window,):
             if window is None or not hasattr(window, "destroy"):
                 continue
@@ -195,3 +218,14 @@ class DesktopHost:
                 window.destroy()
             except Exception:
                 continue
+
+    def push_state(self, snapshot: dict[str, Any]) -> None:
+        if self.main_window is None or not hasattr(self.main_window, "evaluate_js"):
+            return
+        payload = json.dumps(snapshot, ensure_ascii=False)
+        script = (
+            "window.dispatchEvent("
+            f"new CustomEvent('audioblue:state', {{ detail: {payload} }})"
+            ");"
+        )
+        self.main_window.evaluate_js(script)
