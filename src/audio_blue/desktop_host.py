@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from threading import Event, Lock, Thread
 from typing import Any, Callable, Protocol
 import sys
 
@@ -24,14 +23,15 @@ def find_ui_entrypoint(base_dir: Path | None = None) -> Path:
         root = Path(__file__).resolve().parents[2]
     candidates = [
         root / "ui" / "dist" / "index.html",
-        root / "dist" / "AudioBlue" / "ui" / "index.html",
-        root / "ui" / "index.html",
+        root / "dist" / "AudioBlue" / "_internal" / "ui" / "index.html",
         root / "_internal" / "ui" / "index.html",
     ]
     for candidate in candidates:
         if candidate.exists():
             return candidate
-    raise FileNotFoundError("Could not find built AudioBlue UI entrypoint.")
+    raise FileNotFoundError(
+        "Could not find built AudioBlue UI entrypoint. Run `npm run build` in the `ui` directory first."
+    )
 
 
 class DesktopApi:
@@ -127,11 +127,11 @@ class DesktopHost:
         self._webview = webview_module
         self.main_window = None
         self.quick_panel_window = None
-        self._thread: Thread | None = None
-        self._ready = Event()
-        self._start_lock = Lock()
 
     def create_windows(self) -> None:
+        if self.main_window is not None and self.quick_panel_window is not None:
+            return
+
         if self._webview is None:
             import webview  # type: ignore[import-not-found]
 
@@ -159,32 +159,34 @@ class DesktopHost:
             on_top=True,
         )
 
-    def start(self) -> None:
-        with self._start_lock:
-            if self._thread is not None:
-                return
-
-            self._thread = Thread(target=self._run_webview_loop, name="audio-blue-webview", daemon=True)
-            self._thread.start()
-        self._ready.wait(timeout=10)
-
-    def show_main_window(self) -> None:
-        self.start()
-        if self.main_window is not None:
-            self.main_window.show()
-
-    def show_quick_panel(self) -> None:
-        self.start()
-        if self.quick_panel_window is not None:
-            self.quick_panel_window.show()
-
-    def _run_webview_loop(self) -> None:
+    def run(self, on_started: Callable[[], None] | None = None) -> None:
         self.create_windows()
         if self._webview is None:
-            self._ready.set()
-            return
+            raise RuntimeError("Webview module is not available.")
 
-        def on_start() -> None:
-            self._ready.set()
+        self._webview.start(on_started, gui="edgechromium", http_server=False)
 
-        self._webview.start(on_start, gui="edgechromium", http_server=False)
+    def show_main_window(self) -> None:
+        if self.main_window is None:
+            raise RuntimeError("Main window has not been created.")
+        self.main_window.show()
+
+    def show_quick_panel(self) -> None:
+        if self.quick_panel_window is None:
+            raise RuntimeError("Quick panel window has not been created.")
+        self.quick_panel_window.show()
+
+    def shutdown(self) -> None:
+        for window in (self.quick_panel_window, self.main_window):
+            if window is None or not hasattr(window, "destroy"):
+                continue
+
+            window_events = getattr(window, "events", None)
+            shown_event = getattr(window_events, "shown", None)
+            if shown_event is not None and not shown_event.is_set():
+                continue
+
+            try:
+                window.destroy()
+            except Exception:
+                continue
