@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "pywebview>=6.1",
     "pywin32>=311",
     "winrt-windows-devices-enumeration>=3.2.1",
     "winrt-windows-foundation>=3.2.1",

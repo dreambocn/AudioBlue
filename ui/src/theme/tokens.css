@@ -1,0 +1,36 @@
+:root {
+  --ab-font: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+  --ab-radius-xl: 18px;
+  --ab-radius-lg: 14px;
+  --ab-radius-md: 10px;
+  --ab-shadow: 0 18px 38px rgba(15, 23, 42, 0.18);
+  --ab-motion: 160ms ease;
+}
+
+:root,
+:root[data-theme='system'],
+:root[data-theme='light'] {
+  --ab-bg: #eef3fb;
+  --ab-bg-accent: #f8fbff;
+  --ab-sidebar: rgba(255, 255, 255, 0.72);
+  --ab-card: rgba(255, 255, 255, 0.78);
+  --ab-card-border: rgba(255, 255, 255, 0.6);
+  --ab-text: #162033;
+  --ab-text-muted: #526078;
+  --ab-primary: #2a69ff;
+  --ab-primary-soft: rgba(42, 105, 255, 0.12);
+  --ab-outline: rgba(35, 60, 110, 0.16);
+}
+
+:root[data-theme='dark'] {
+  --ab-bg: #111726;
+  --ab-bg-accent: #172034;
+  --ab-sidebar: rgba(18, 26, 44, 0.78);
+  --ab-card: rgba(23, 32, 52, 0.78);
+  --ab-card-border: rgba(165, 189, 255, 0.16);
+  --ab-text: #ecf1ff;
+  --ab-text-muted: #9daac6;
+  --ab-primary: #7da5ff;
+  --ab-primary-soft: rgba(125, 165, 255, 0.18);
+  --ab-outline: rgba(125, 165, 255, 0.3);
+}
