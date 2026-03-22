@@ -10,18 +10,29 @@ from audio_blue.logging_util import configure_logging
 from audio_blue.tray_host import TrayHost
 
 
-def main() -> int:
-    config = load_config()
-    logger = configure_logging(get_config_path().with_name("audioblue.log"))
-    service = ConnectorService()
-    host = TrayHost(service=service, config=config, logger=logger)
+def restore_reconnect_devices(
+    service: ConnectorService,
+    config,
+    logger,
+) -> None:
+    if not config.reconnect or not config.last_devices:
+        return
 
-    for device_id in config.last_devices if config.reconnect else []:
+    service.refresh_devices()
+    for device_id in config.last_devices:
         try:
             service.connect(device_id)
         except Exception:
             logger.exception("Failed to reconnect device %s", device_id)
 
+
+def main() -> int:
+    config = load_config()
+    logger = configure_logging(get_config_path().with_name("audioblue.log"))
+    service = ConnectorService()
+    restore_reconnect_devices(service=service, config=config, logger=logger)
+
+    host = TrayHost(service=service, config=config, logger=logger)
     host.run()
     return 0
 

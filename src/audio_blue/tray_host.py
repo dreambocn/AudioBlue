@@ -57,6 +57,13 @@ def build_menu_entries(devices: list[DeviceSummary], reconnect_enabled: bool) ->
     return entries
 
 
+def build_exit_config(config: AppConfig, service: ConnectorService) -> AppConfig:
+    return AppConfig(
+        reconnect=config.reconnect,
+        last_devices=list(service.active_connections),
+    )
+
+
 class TrayHost:
     def __init__(
         self,
@@ -171,12 +178,7 @@ class TrayHost:
     def _on_destroy(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
         if self._notify_id is not None:
             win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, self._notify_id)
-        save_config(
-            AppConfig(
-                reconnect=self._config.reconnect,
-                last_devices=list(self._service.active_connections),
-            )
-        )
+        save_config(build_exit_config(self._config, self._service))
         self._service.shutdown()
         win32gui.PostQuitMessage(0)
         return 0

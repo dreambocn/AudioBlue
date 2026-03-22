@@ -3,6 +3,7 @@ from pathlib import Path
 
 from audio_blue.config import get_config_path, load_config, save_config
 from audio_blue.models import AppConfig
+from audio_blue.tray_host import build_exit_config
 
 
 def test_get_config_path_uses_local_app_data(monkeypatch):
@@ -56,3 +57,12 @@ def test_load_config_round_trips_saved_values(tmp_path):
     config = load_config(config_path)
 
     assert config == AppConfig(reconnect=True, last_devices=["device-1"])
+
+
+def test_build_exit_config_persists_active_connection_ids():
+    class ServiceStub:
+        active_connections = {"device-1": object(), "device-2": object()}
+
+    exit_config = build_exit_config(AppConfig(reconnect=True), ServiceStub())
+
+    assert exit_config == AppConfig(reconnect=True, last_devices=["device-1", "device-2"])
