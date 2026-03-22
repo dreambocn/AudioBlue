@@ -121,9 +121,14 @@ def _load_ui_preferences(payload: object) -> UiPreferences:
     if theme not in {"system", "light", "dark"}:
         theme = "system"
 
+    language = payload.get("language")
+    if language not in {"system", "zh-CN", "en-US"}:
+        language = "system"
+
     return UiPreferences(
         theme=theme,
         high_contrast=bool(payload.get("highContrast", False)),
+        language=language,
     )
 
 
@@ -167,4 +172,6 @@ def _serialize_ui_preferences(preferences: UiPreferences) -> dict[str, object]:
         payload["theme"] = preferences.theme
     if preferences.high_contrast:
         payload["highContrast"] = True
+    if preferences.language != UiPreferences().language:
+        payload["language"] = preferences.language
     return payload

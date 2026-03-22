@@ -2,7 +2,7 @@ from pathlib import Path
 
 from audio_blue.app_state import AppStateStore
 from audio_blue.desktop_host import DesktopApi
-from audio_blue.models import AppConfig, DeviceSummary
+from audio_blue.models import AppConfig, DeviceSummary, UiPreferences
 from audio_blue.notification_service import NotificationService
 
 
@@ -45,7 +45,7 @@ def test_desktop_api_refreshes_devices_and_updates_snapshot(tmp_path):
     service = ServiceStub()
     api = DesktopApi(
         service=service,
-        app_state=AppStateStore(config=AppConfig()),
+        app_state=AppStateStore(config=AppConfig(ui=UiPreferences(language="zh-CN"))),
         autostart_manager=AutostartManagerStub(),
         notification_service=NotificationService(),
         diagnostics_exporter=lambda snapshot, path: path,
@@ -57,6 +57,7 @@ def test_desktop_api_refreshes_devices_and_updates_snapshot(tmp_path):
 
     assert service.calls == ["refresh"]
     assert [device["deviceId"] for device in snapshot["devices"]] == ["device-1", "device-2"]
+    assert snapshot["settings"]["ui"]["language"] == "zh-CN"
 
 
 def test_desktop_api_updates_rules_settings_and_exports_diagnostics(tmp_path):
@@ -91,3 +92,23 @@ def test_desktop_api_updates_rules_settings_and_exports_diagnostics(tmp_path):
     assert api.autostart_manager.is_enabled() is True
     assert export_path.endswith(".json")
     assert exported_paths and exported_paths[0].parent == tmp_path
+
+
+def test_desktop_api_set_language_updates_config_and_returns_snapshot(tmp_path):
+    service = ServiceStub()
+    app_state = AppStateStore(config=AppConfig())
+    api = DesktopApi(
+        service=service,
+        app_state=app_state,
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(),
+        diagnostics_exporter=lambda snapshot, path: path,
+        open_bluetooth_settings=lambda: None,
+        diagnostics_output_dir=tmp_path,
+    )
+    api.refresh_devices()
+
+    snapshot = api.set_language("zh-CN")
+
+    assert getattr(app_state.config.ui, "language", None) == "zh-CN"
+    assert snapshot["settings"]["ui"].get("language") == "zh-CN"

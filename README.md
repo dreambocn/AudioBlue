@@ -5,12 +5,12 @@ AudioBlue 是一个仅面向 Windows 的蓝牙音频桌面工具。
 当前版本已经从最小托盘 MVP 升级为 **Python 后端 + WebView2 混合 UI**：
 
 - Python 负责 WinRT 蓝牙音频连接、规则引擎、托盘常驻、自启动、诊断与打包
-- React + TypeScript + Vite 负责 Win11 风格控制中心和托盘快速面板
+- React + TypeScript + Vite 负责 Win11 风格控制中心
 - `pywebview` 负责把本地构建后的前端界面嵌入桌面窗口
 
 ## 功能概览
 
-- 托盘常驻，左键打开快速面板，右键打开托盘菜单
+- 托盘常驻，左键打开或激活控制中心，右键打开托盘菜单
 - 主界面包含 `Overview`、`Devices`、`Automation`、`Settings`
 - 设备优先级与自动连接规则
 - 开机后台启动 `--background`
@@ -74,13 +74,16 @@ uv run python -m audio_blue.main --background
 
 ### 托盘
 
-- 左键托盘图标：打开快速面板
-- 右键托盘图标：打开降级菜单
-- 快速面板支持：
-  - 查看当前连接状态
-  - 快速连接或断开设备
-  - 打开主界面
-  - 打开 Windows 蓝牙设置
+- 左键托盘图标：打开或激活主界面 Control Center
+- 右键托盘图标：打开托盘菜单
+- 托盘菜单支持设备刷新、连接/断开、打开主界面、打开 Windows 蓝牙设置、退出
+
+### 壳层状态同步契约
+
+- Python 壳层通过同一状态通道向 WebView 推送快照：
+  - `window.dispatchEvent(new CustomEvent('audioblue:state', { detail: snapshot }))`
+- 设备刷新、连接状态变化、规则更新、设置更新都复用同一推送通道
+- 桥接接口包含 `set_language(language)`，支持 `system`、`zh-CN`、`en-US`
 
 ### 主界面
 
@@ -167,7 +170,7 @@ ISCC.exe .\installer\AudioBlue.iss
 
 这通常是使用了 `--background` 启动，或者你关闭了主窗口但应用仍在托盘常驻。可通过：
 
-- 左键托盘打开快速面板
+- 左键托盘直接打开主界面
 - 右键托盘选择 `Open Control Center`
 
 ### 主界面打不开

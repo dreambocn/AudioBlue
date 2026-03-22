@@ -1,6 +1,7 @@
 import logging
 
 import pywintypes
+import win32con
 
 from audio_blue.models import AppConfig
 from audio_blue.models import DeviceSummary
@@ -43,6 +44,26 @@ class ServiceStub:
 
     def shutdown(self):
         self.shutdown_called = True
+
+
+class SessionStateStub:
+    def __init__(self):
+        self.calls: list[str] = []
+        self._devices = [
+            DeviceSummary(device_id="device-1", name="Headphones", connection_state="connected"),
+        ]
+
+    def list_devices(self):
+        return list(self._devices)
+
+    def refresh_devices(self):
+        self.calls.append("refresh")
+
+    def connect_device(self, device_id: str):
+        self.calls.append(f"connect:{device_id}")
+
+    def disconnect_device(self, device_id: str):
+        self.calls.append(f"disconnect:{device_id}")
 
 
 def test_show_menu_tolerates_set_foreground_window_error(monkeypatch):
@@ -100,3 +121,39 @@ def test_on_destroy_calls_shutdown_ui_before_service_shutdown(monkeypatch):
 
     assert call_order == ["notify_delete", "shutdown_ui", "save_config", "quit:0"]
     assert service.shutdown_called is True
+
+
+def test_on_command_uses_session_state_for_device_actions():
+    state = SessionStateStub()
+    host = TrayHost(
+        service=ServiceStub(),
+        config=AppConfig(),
+        logger=logging.getLogger("tray-test"),
+        session_state=state,
+    )
+    host._command_map = {
+        1000: type("Entry", (), {"action": "connect_device", "device_id": "device-1"})(),
+        1001: type("Entry", (), {"action": "disconnect_device", "device_id": "device-1"})(),
+        1002: type("Entry", (), {"action": "refresh_devices", "device_id": None})(),
+    }
+
+    host._on_command(0, 0, 1000, 0)
+    host._on_command(0, 0, 1001, 0)
+    host._on_command(0, 0, 1002, 0)
+
+    assert state.calls == ["connect:device-1", "disconnect:device-1", "refresh"]
+
+
+def test_left_click_opens_main_window_instead_of_quick_panel():
+    called: list[str] = []
+    host = TrayHost(
+        service=ServiceStub(),
+        config=AppConfig(),
+        logger=logging.getLogger("tray-test"),
+        show_quick_panel=lambda: called.append("quick"),
+        show_main_window=lambda: called.append("main"),
+    )
+
+    host._on_notify(0, 0, 0, win32con.WM_LBUTTONUP)
+
+    assert called == ["main"]

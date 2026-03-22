@@ -15,12 +15,16 @@ class WebviewWindowStub:
         self.url = url
         self.show_called = False
         self.destroy_called = False
+        self.scripts: list[str] = []
 
     def show(self):
         self.show_called = True
 
     def destroy(self):
         self.destroy_called = True
+
+    def evaluate_js(self, script: str):
+        self.scripts.append(script)
 
 
 class WebviewModuleStub:
@@ -84,7 +88,7 @@ def test_find_ui_entrypoint_requires_built_assets_not_raw_vite_source(tmp_path):
         find_ui_entrypoint(tmp_path)
 
 
-def test_create_windows_uses_main_and_quick_panel_urls(tmp_path):
+def test_create_windows_only_builds_main_window(tmp_path):
     index_path = tmp_path / "ui" / "dist" / "index.html"
     index_path.parent.mkdir(parents=True)
     index_path.write_text("<html></html>", encoding="utf-8")
@@ -97,9 +101,8 @@ def test_create_windows_uses_main_and_quick_panel_urls(tmp_path):
 
     host.create_windows()
 
-    assert len(webview.calls) == 2
+    assert len(webview.calls) == 1
     assert webview.calls[0]["url"] == index_path.as_uri()
-    assert webview.calls[1]["url"] == f"{index_path.as_uri()}#quick-panel"
 
 
 def test_create_windows_does_not_pass_gui_to_create_window(tmp_path):
@@ -147,14 +150,18 @@ def test_show_main_window_requires_created_window(tmp_path):
         host.show_main_window()
 
 
-def test_show_quick_panel_requires_created_window(tmp_path):
+def test_show_quick_panel_is_not_supported(tmp_path):
+    index_path = tmp_path / "ui" / "dist" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
     host = DesktopHost(
         api=create_api(tmp_path),
-        ui_entrypoint=tmp_path / "ui" / "dist" / "index.html",
+        ui_entrypoint=index_path,
         webview_module=WebviewModuleStub(),
     )
+    host.create_windows()
 
-    with pytest.raises(RuntimeError, match="Quick panel window has not been created"):
+    with pytest.raises(RuntimeError, match="Quick panel is not part of the runtime path"):
         host.show_quick_panel()
 
 
@@ -172,5 +179,42 @@ def test_shutdown_destroys_existing_windows(tmp_path):
 
     host.shutdown()
 
-    assert host.quick_panel_window.destroy_called is True
     assert host.main_window.destroy_called is True
+
+
+class SessionStateStub:
+    def __init__(self):
+        self.listener = None
+
+    def subscribe(self, callback):
+        self.listener = callback
+
+        def unsubscribe():
+            self.listener = None
+
+        return unsubscribe
+
+    def emit(self, payload):
+        if callable(self.listener):
+            self.listener(payload)
+
+
+def test_run_subscribes_state_push_channel_and_dispatches_browser_event(tmp_path):
+    index_path = tmp_path / "ui" / "dist" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
+    webview = WebviewModuleStub()
+    session_state = SessionStateStub()
+    api = create_api(tmp_path)
+    api.session_state = session_state
+    host = DesktopHost(
+        api=api,
+        ui_entrypoint=index_path,
+        webview_module=webview,
+    )
+
+    host.run()
+    session_state.emit({"devices": [{"deviceId": "device-1"}]})
+
+    assert host.main_window.scripts
+    assert "audioblue:state" in host.main_window.scripts[-1]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import json
 from pathlib import Path
 from typing import Any, Callable, Protocol
 import sys
@@ -44,31 +45,41 @@ class DesktopApi:
         diagnostics_exporter: DiagnosticsExporter,
         open_bluetooth_settings: Callable[[], None],
         diagnostics_output_dir: Path,
+        session_state=None,
     ) -> None:
         self.service = service
         self.app_state = app_state
         self.autostart_manager = autostart_manager
         self.notification_service = notification_service
+        self.session_state = session_state
         self._diagnostics_exporter = diagnostics_exporter
         self._open_bluetooth_settings = open_bluetooth_settings
         self._diagnostics_output_dir = diagnostics_output_dir
 
     def get_initial_state(self) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.snapshot()
         self._sync_from_service()
         return self.app_state.snapshot()
 
     def refresh_devices(self) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.refresh_devices()
         self.service.refresh_devices()
         self._sync_from_service()
         return self.app_state.snapshot()
 
     def connect_device(self, device_id: str) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.connect_device(device_id)
         self.service.connect(device_id)
         self.app_state.handle_connector_event({"event": "device_connected", "device_id": device_id})
         self._sync_from_service()
         return self.app_state.snapshot()
 
     def disconnect_device(self, device_id: str) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.disconnect_device(device_id)
         self.service.disconnect(device_id)
         self.app_state.handle_connector_event(
             {"event": "device_disconnected", "device_id": device_id, "state": "disconnected"}
@@ -77,23 +88,43 @@ class DesktopApi:
         return self.app_state.snapshot()
 
     def update_device_rule(self, device_id: str, rule_patch: dict[str, Any]) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.update_device_rule(device_id, rule_patch)
         self.app_state.update_device_rule(device_id, rule_patch)
         return self.app_state.snapshot()
 
     def reorder_device_priority(self, device_ids: list[str]) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.reorder_device_priority(device_ids)
         self.app_state.reorder_device_priority(device_ids)
         return self.app_state.snapshot()
 
     def set_autostart(self, enabled: bool) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.set_autostart(enabled)
         self.autostart_manager.set_enabled(enabled)
         self.app_state.config.startup.autostart = enabled
         return self.app_state.snapshot()
 
     def set_theme(self, mode: ThemeMode) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.set_theme(mode)
         self.app_state.config.ui.theme = mode
         return self.app_state.snapshot()
 
+    def set_language(self, language: str) -> dict[str, Any]:
+        if language not in {"system", "zh-CN", "en-US"}:
+            raise ValueError("Unsupported language")
+        if self.session_state is not None:
+            return self.session_state.set_language(language)
+        setattr(self.app_state.config.ui, "language", language)
+        snapshot = self.app_state.snapshot()
+        snapshot.setdefault("settings", {}).setdefault("ui", {})["language"] = language
+        return snapshot
+
     def set_notification_policy(self, policy: NotificationPolicy) -> dict[str, Any]:
+        if self.session_state is not None:
+            return self.session_state.set_notification_policy(policy)
         self.notification_service.update_policy(policy)
         self.app_state.config.notification.policy = policy
         return self.app_state.snapshot()
@@ -126,10 +157,10 @@ class DesktopHost:
         self.ui_entrypoint = ui_entrypoint
         self._webview = webview_module
         self.main_window = None
-        self.quick_panel_window = None
+        self._state_unsubscribe = None
 
     def create_windows(self) -> None:
-        if self.main_window is not None and self.quick_panel_window is not None:
+        if self.main_window is not None:
             return
 
         if self._webview is None:
@@ -138,7 +169,6 @@ class DesktopHost:
             self._webview = webview
 
         main_url = self.ui_entrypoint.as_uri()
-        quick_panel_url = f"{main_url}#quick-panel"
         self.main_window = self._webview.create_window(
             "AudioBlue",
             url=main_url,
@@ -147,24 +177,20 @@ class DesktopHost:
             height=780,
             hidden=True,
         )
-        self.quick_panel_window = self._webview.create_window(
-            "AudioBlue Quick Panel",
-            url=quick_panel_url,
-            js_api=self.api,
-            width=420,
-            height=560,
-            hidden=True,
-            frameless=True,
-            easy_drag=True,
-            on_top=True,
-        )
 
     def run(self, on_started: Callable[[], None] | None = None) -> None:
         self.create_windows()
         if self._webview is None:
             raise RuntimeError("Webview module is not available.")
+        session_state = getattr(self.api, "session_state", None)
 
-        self._webview.start(on_started, gui="edgechromium", http_server=False)
+        def on_started_wrapper() -> None:
+            if session_state is not None and hasattr(session_state, "subscribe"):
+                self._state_unsubscribe = session_state.subscribe(self.push_state)
+            if on_started is not None:
+                on_started()
+
+        self._webview.start(on_started_wrapper if on_started or session_state is not None else None, gui="edgechromium", http_server=False)
 
     def show_main_window(self) -> None:
         if self.main_window is None:
@@ -172,12 +198,14 @@ class DesktopHost:
         self.main_window.show()
 
     def show_quick_panel(self) -> None:
-        if self.quick_panel_window is None:
-            raise RuntimeError("Quick panel window has not been created.")
-        self.quick_panel_window.show()
+        raise RuntimeError("Quick panel is not part of the runtime path.")
 
     def shutdown(self) -> None:
-        for window in (self.quick_panel_window, self.main_window):
+        if callable(self._state_unsubscribe):
+            self._state_unsubscribe()
+            self._state_unsubscribe = None
+
+        for window in (self.main_window,):
             if window is None or not hasattr(window, "destroy"):
                 continue
 
@@ -190,3 +218,14 @@ class DesktopHost:
                 window.destroy()
             except Exception:
                 continue
+
+    def push_state(self, snapshot: dict[str, Any]) -> None:
+        if self.main_window is None or not hasattr(self.main_window, "evaluate_js"):
+            return
+        payload = json.dumps(snapshot, ensure_ascii=False)
+        script = (
+            "window.dispatchEvent("
+            f"new CustomEvent('audioblue:state', {{ detail: {payload} }})"
+            ");"
+        )
+        self.main_window.evaluate_js(script)
