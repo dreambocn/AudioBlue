@@ -146,7 +146,6 @@ class DesktopHost:
             width=1180,
             height=780,
             hidden=True,
-            gui="edge",
         )
         self.quick_panel_window = self._webview.create_window(
             "AudioBlue Quick Panel",
@@ -158,7 +157,6 @@ class DesktopHost:
             frameless=True,
             easy_drag=True,
             on_top=True,
-            gui="edge",
         )
 
     def start(self) -> None:
@@ -189,4 +187,4 @@ class DesktopHost:
         def on_start() -> None:
             self._ready.set()
 
-        self._webview.start(on_start, gui="edge", http_server=False)
+        self._webview.start(on_start, gui="edgechromium", http_server=False)

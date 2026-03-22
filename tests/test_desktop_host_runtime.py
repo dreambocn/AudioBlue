@@ -19,10 +19,16 @@ class WebviewWindowStub:
 class WebviewModuleStub:
     def __init__(self):
         self.calls: list[dict[str, object]] = []
+        self.start_call: dict[str, object] | None = None
 
     def create_window(self, title: str, url: str, **kwargs):
         self.calls.append({"title": title, "url": url, "kwargs": kwargs})
         return WebviewWindowStub(title=title, url=url)
+
+    def start(self, func, *args, **kwargs):
+        self.start_call = {"func": func, "args": args, "kwargs": kwargs}
+        if func is not None:
+            func()
 
 
 def create_api(tmp_path: Path):
@@ -73,3 +79,36 @@ def test_create_windows_uses_main_and_quick_panel_urls(tmp_path):
     assert len(webview.calls) == 2
     assert webview.calls[0]["url"] == index_path.as_uri()
     assert webview.calls[1]["url"] == f"{index_path.as_uri()}#quick-panel"
+
+
+def test_create_windows_does_not_pass_gui_to_create_window(tmp_path):
+    index_path = tmp_path / "ui" / "dist" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
+    webview = WebviewModuleStub()
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=index_path,
+        webview_module=webview,
+    )
+
+    host.create_windows()
+
+    assert all("gui" not in call["kwargs"] for call in webview.calls)
+
+
+def test_run_webview_loop_prefers_edgechromium_and_no_http_server(tmp_path):
+    index_path = tmp_path / "ui" / "dist" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
+    webview = WebviewModuleStub()
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=index_path,
+        webview_module=webview,
+    )
+
+    host._run_webview_loop()
+
+    assert webview.start_call is not None
+    assert webview.start_call["kwargs"] == {"gui": "edgechromium", "http_server": False}

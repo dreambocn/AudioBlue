@@ -136,6 +136,9 @@ class TrayHost:
             self._logger.exception("Failed to refresh devices.")
 
     def _show_menu(self) -> None:
+        if self._hwnd is None:
+            return
+
         menu = win32gui.CreatePopupMenu()
         self._command_map.clear()
         self._next_command_id = 1000
@@ -153,7 +156,10 @@ class TrayHost:
             win32gui.AppendMenu(menu, menu_flags, command_id, entry.label)
 
         cursor_x, cursor_y = win32gui.GetCursorPos()
-        win32gui.SetForegroundWindow(self._hwnd)
+        try:
+            win32gui.SetForegroundWindow(self._hwnd)
+        except Exception:
+            self._logger.debug("Failed to foreground tray host before opening menu.", exc_info=True)
         win32gui.TrackPopupMenu(menu, win32con.TPM_LEFTALIGN, cursor_x, cursor_y, 0, self._hwnd, None)
 
     def _on_notify(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
