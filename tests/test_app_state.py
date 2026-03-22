@@ -38,7 +38,7 @@ def test_app_state_tracks_failures_and_rule_updates():
     assert snapshot["lastFailure"]["deviceId"] == "device-1"
     assert snapshot["lastFailure"]["state"] == "timeout"
     assert snapshot["lastFailure"]["code"] == "connection.timeout"
-    assert "message" not in snapshot["lastFailure"]
+    assert snapshot["lastFailure"]["message"] == humanize_connection_failure("timeout")
     assert snapshot["settings"]["ui"]["language"] == "zh-CN"
     assert snapshot["devices"][0]["lastSeenAt"] == "2026-03-23T09:30:00+00:00"
     assert snapshot["deviceRules"]["device-1"] == {

@@ -43,6 +43,7 @@ class AppStateStore:
                 "deviceId": device_id,
                 "state": state,
                 "code": f"connection.{state}",
+                "message": humanize_connection_failure(state),
             }
 
     def update_device_rule(self, device_id: str, rule_patch: dict[str, Any]) -> DeviceRule:
