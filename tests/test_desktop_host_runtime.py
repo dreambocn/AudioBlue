@@ -1,4 +1,7 @@
+import threading
 from pathlib import Path
+
+import pytest
 
 from audio_blue.desktop_host import DesktopApi, DesktopHost, find_ui_entrypoint
 from audio_blue.app_state import AppStateStore
@@ -11,9 +14,13 @@ class WebviewWindowStub:
         self.title = title
         self.url = url
         self.show_called = False
+        self.destroy_called = False
 
     def show(self):
         self.show_called = True
+
+    def destroy(self):
+        self.destroy_called = True
 
 
 class WebviewModuleStub:
@@ -26,7 +33,12 @@ class WebviewModuleStub:
         return WebviewWindowStub(title=title, url=url)
 
     def start(self, func, *args, **kwargs):
-        self.start_call = {"func": func, "args": args, "kwargs": kwargs}
+        self.start_call = {
+            "func": func,
+            "args": args,
+            "kwargs": kwargs,
+            "thread_name": threading.current_thread().name,
+        }
         if func is not None:
             func()
 
@@ -63,6 +75,15 @@ def test_find_ui_entrypoint_accepts_pyinstaller_internal_ui_index(tmp_path):
     assert resolved == index_path
 
 
+def test_find_ui_entrypoint_requires_built_assets_not_raw_vite_source(tmp_path):
+    index_path = tmp_path / "ui" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError, match="npm run build"):
+        find_ui_entrypoint(tmp_path)
+
+
 def test_create_windows_uses_main_and_quick_panel_urls(tmp_path):
     index_path = tmp_path / "ui" / "dist" / "index.html"
     index_path.parent.mkdir(parents=True)
@@ -97,7 +118,7 @@ def test_create_windows_does_not_pass_gui_to_create_window(tmp_path):
     assert all("gui" not in call["kwargs"] for call in webview.calls)
 
 
-def test_run_webview_loop_prefers_edgechromium_and_no_http_server(tmp_path):
+def test_run_starts_webview_in_current_thread_with_edgechromium(tmp_path):
     index_path = tmp_path / "ui" / "dist" / "index.html"
     index_path.parent.mkdir(parents=True)
     index_path.write_text("<html></html>", encoding="utf-8")
@@ -108,7 +129,48 @@ def test_run_webview_loop_prefers_edgechromium_and_no_http_server(tmp_path):
         webview_module=webview,
     )
 
-    host._run_webview_loop()
+    host.run()
 
     assert webview.start_call is not None
+    assert webview.start_call["thread_name"] == threading.current_thread().name
     assert webview.start_call["kwargs"] == {"gui": "edgechromium", "http_server": False}
+
+
+def test_show_main_window_requires_created_window(tmp_path):
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=tmp_path / "ui" / "dist" / "index.html",
+        webview_module=WebviewModuleStub(),
+    )
+
+    with pytest.raises(RuntimeError, match="Main window has not been created"):
+        host.show_main_window()
+
+
+def test_show_quick_panel_requires_created_window(tmp_path):
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=tmp_path / "ui" / "dist" / "index.html",
+        webview_module=WebviewModuleStub(),
+    )
+
+    with pytest.raises(RuntimeError, match="Quick panel window has not been created"):
+        host.show_quick_panel()
+
+
+def test_shutdown_destroys_existing_windows(tmp_path):
+    index_path = tmp_path / "ui" / "dist" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
+    webview = WebviewModuleStub()
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=index_path,
+        webview_module=webview,
+    )
+    host.create_windows()
+
+    host.shutdown()
+
+    assert host.quick_panel_window.destroy_called is True
+    assert host.main_window.destroy_called is True

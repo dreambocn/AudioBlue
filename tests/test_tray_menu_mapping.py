@@ -38,6 +38,11 @@ def test_build_menu_entries_adds_one_entry_per_device_with_stateful_labels():
 class ServiceStub:
     def __init__(self):
         self.known_devices = {}
+        self.active_connections = {}
+        self.shutdown_called = False
+
+    def shutdown(self):
+        self.shutdown_called = True
 
 
 def test_show_menu_tolerates_set_foreground_window_error(monkeypatch):
@@ -65,3 +70,33 @@ def test_show_menu_tolerates_set_foreground_window_error(monkeypatch):
     host._show_menu()
 
     assert calls == ["tracked"]
+
+
+def test_on_destroy_calls_shutdown_ui_before_service_shutdown(monkeypatch):
+    service = ServiceStub()
+    call_order: list[str] = []
+    host = TrayHost(
+        service=service,
+        config=AppConfig(),
+        logger=logging.getLogger("tray-test"),
+        shutdown_ui=lambda: call_order.append("shutdown_ui"),
+    )
+    host._notify_id = ("notify",)
+
+    monkeypatch.setattr(
+        "audio_blue.tray_host.win32gui.Shell_NotifyIcon",
+        lambda *args: call_order.append("notify_delete"),
+    )
+    monkeypatch.setattr(
+        "audio_blue.tray_host.save_config",
+        lambda config: call_order.append("save_config"),
+    )
+    monkeypatch.setattr(
+        "audio_blue.tray_host.win32gui.PostQuitMessage",
+        lambda code: call_order.append(f"quit:{code}"),
+    )
+
+    host._on_destroy(0, 0, 0, 0)
+
+    assert call_order == ["notify_delete", "shutdown_ui", "save_config", "quit:0"]
+    assert service.shutdown_called is True

@@ -75,6 +75,7 @@ class TrayHost:
         background: bool = False,
         show_quick_panel: Callable[[], None] | None = None,
         show_main_window: Callable[[], None] | None = None,
+        shutdown_ui: Callable[[], None] | None = None,
     ) -> None:
         self._service = service
         self._config = config
@@ -82,6 +83,7 @@ class TrayHost:
         self._background = background
         self._show_quick_panel = show_quick_panel or self._show_menu
         self._show_main_window = show_main_window or (lambda: None)
+        self._shutdown_ui = shutdown_ui or (lambda: None)
         self._command_map: dict[int, MenuEntry] = {}
         self._next_command_id = 1000
         self._hwnd: int | None = None
@@ -195,6 +197,7 @@ class TrayHost:
     def _on_destroy(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
         if self._notify_id is not None:
             win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, self._notify_id)
+        self._shutdown_ui()
         save_config(build_exit_config(self._config, self._service))
         self._service.shutdown()
         win32gui.PostQuitMessage(0)

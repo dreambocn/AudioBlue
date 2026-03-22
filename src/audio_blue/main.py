@@ -6,6 +6,7 @@ import argparse
 from collections.abc import Sequence
 from logging import Logger
 import os
+from threading import Lock, Thread
 
 from audio_blue.config import get_config_path, load_config
 from audio_blue.connector_service import ConnectorService
@@ -45,6 +46,67 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def is_hybrid_ui_unavailable_error(exc: BaseException) -> bool:
+    try:
+        from webview.errors import WebViewException  # type: ignore[import-not-found]
+    except ModuleNotFoundError:
+        WebViewException = tuple()  # type: ignore[assignment]
+
+    if isinstance(exc, (FileNotFoundError, ModuleNotFoundError, ImportError)):
+        return True
+    if WebViewException and isinstance(exc, WebViewException):
+        return True
+
+    message = f"{type(exc).__module__}.{type(exc).__name__}: {exc}".lower()
+    indicators = (
+        "webview2",
+        "pywebview",
+        "pythonnet",
+        "microsoft.web.webview2",
+        "edgechromium",
+        "run `npm run build`",
+        "could not find built audioblue ui entrypoint",
+        "clr",
+    )
+    return any(indicator in message for indicator in indicators)
+
+
+class HybridAppHost:
+    def __init__(
+        self,
+        *,
+        desktop_host: DesktopHost,
+        tray_host_factory,
+        fallback_host_factory,
+        logger: Logger,
+    ) -> None:
+        self._desktop_host = desktop_host
+        self._tray_host_factory = tray_host_factory
+        self._fallback_host_factory = fallback_host_factory
+        self._logger = logger
+        self._tray_thread: Thread | None = None
+        self._tray_lock = Lock()
+
+    def _start_tray_host(self) -> None:
+        with self._tray_lock:
+            if self._tray_thread is not None:
+                return
+
+            tray_host = self._tray_host_factory()
+            self._tray_thread = Thread(target=tray_host.run, name="audio-blue-tray", daemon=True)
+            self._tray_thread.start()
+
+    def run(self) -> None:
+        try:
+            self._desktop_host.run(on_started=self._start_tray_host)
+        except Exception as exc:
+            if not is_hybrid_ui_unavailable_error(exc):
+                raise
+            self._logger.warning("Hybrid desktop UI unavailable (%s). Falling back to tray-only mode.", exc)
+            fallback_host = self._fallback_host_factory()
+            fallback_host.run()
+
+
 def create_default_host(
     *,
     service,
@@ -52,6 +114,14 @@ def create_default_host(
     logger,
     background: bool,
 ):
+    def build_tray_only_host() -> TrayHost:
+        return TrayHost(
+            service=service,
+            config=config,
+            logger=logger,
+            background=background,
+        )
+
     try:
         import webview  # type: ignore[import-not-found]
 
@@ -66,22 +136,23 @@ def create_default_host(
             diagnostics_output_dir=get_config_path().parent / "diagnostics",
         )
         desktop_host = DesktopHost(api=desktop_api, ui_entrypoint=ui_entrypoint, webview_module=webview)
-        return TrayHost(
-            service=service,
-            config=config,
+        return HybridAppHost(
+            desktop_host=desktop_host,
+            tray_host_factory=lambda: TrayHost(
+                service=service,
+                config=config,
+                logger=logger,
+                background=background,
+                show_quick_panel=desktop_host.show_quick_panel,
+                show_main_window=desktop_host.show_main_window,
+                shutdown_ui=desktop_host.shutdown,
+            ),
+            fallback_host_factory=build_tray_only_host,
             logger=logger,
-            background=background,
-            show_quick_panel=desktop_host.show_quick_panel,
-            show_main_window=desktop_host.show_main_window,
         )
-    except (FileNotFoundError, ModuleNotFoundError) as exc:
+    except (FileNotFoundError, ModuleNotFoundError, ImportError) as exc:
         logger.warning("Hybrid desktop UI unavailable (%s). Falling back to tray-only mode.", exc)
-        return TrayHost(
-            service=service,
-            config=config,
-            logger=logger,
-            background=background,
-        )
+        return build_tray_only_host()
 
 
 def run_app(
