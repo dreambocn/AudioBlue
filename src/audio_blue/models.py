@@ -22,6 +22,7 @@ class ConnectionAttempt:
     succeeded: bool
     state: str
     failure_reason: str | None = None
+    failure_code: str | None = None
     happened_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 

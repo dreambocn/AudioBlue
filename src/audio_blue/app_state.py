@@ -41,8 +41,8 @@ class AppStateStore:
             self._apply_device_state(device_id=device_id, state=state, trigger="manual")
             self._last_failure = {
                 "deviceId": device_id,
-                "message": humanize_connection_failure(state),
                 "state": state,
+                "code": f"connection.{state}",
             }
 
     def update_device_rule(self, device_id: str, rule_patch: dict[str, Any]) -> DeviceRule:
@@ -88,6 +88,7 @@ class AppStateStore:
             succeeded=state == "connected",
             state=state,
             failure_reason=None if state == "connected" else humanize_connection_failure(state),
+            failure_code=None if state == "connected" else f"connection.{state}",
         )
         self._devices[device_id] = replace(
             device,
@@ -103,12 +104,15 @@ class AppStateStore:
             "connectionState": device.connection_state,
             "capabilities": asdict(device.capabilities),
         }
+        if device.last_seen_at is not None:
+            payload["lastSeenAt"] = device.last_seen_at.isoformat()
         if device.last_connection_attempt is not None:
             payload["lastConnectionAttempt"] = {
                 "trigger": device.last_connection_attempt.trigger,
                 "succeeded": device.last_connection_attempt.succeeded,
                 "state": device.last_connection_attempt.state,
                 "failureReason": device.last_connection_attempt.failure_reason,
+                "failureCode": device.last_connection_attempt.failure_code,
             }
         return payload
 

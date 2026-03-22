@@ -2,7 +2,7 @@ from pathlib import Path
 
 from audio_blue.app_state import AppStateStore
 from audio_blue.desktop_host import DesktopApi
-from audio_blue.models import AppConfig, DeviceSummary
+from audio_blue.models import AppConfig, DeviceSummary, UiPreferences
 from audio_blue.notification_service import NotificationService
 
 
@@ -45,7 +45,7 @@ def test_desktop_api_refreshes_devices_and_updates_snapshot(tmp_path):
     service = ServiceStub()
     api = DesktopApi(
         service=service,
-        app_state=AppStateStore(config=AppConfig()),
+        app_state=AppStateStore(config=AppConfig(ui=UiPreferences(language="zh-CN"))),
         autostart_manager=AutostartManagerStub(),
         notification_service=NotificationService(),
         diagnostics_exporter=lambda snapshot, path: path,
@@ -57,6 +57,7 @@ def test_desktop_api_refreshes_devices_and_updates_snapshot(tmp_path):
 
     assert service.calls == ["refresh"]
     assert [device["deviceId"] for device in snapshot["devices"]] == ["device-1", "device-2"]
+    assert snapshot["settings"]["ui"]["language"] == "zh-CN"
 
 
 def test_desktop_api_updates_rules_settings_and_exports_diagnostics(tmp_path):
