@@ -1,6 +1,8 @@
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type NotificationPolicy = 'silent' | 'failures' | 'all'
 export type DeviceRuleMode = 'manual' | 'startup' | 'appear'
+export type LanguagePreference = 'system' | 'zh-CN' | 'en-US'
+export type BridgeMode = 'native' | 'mock' | 'unavailable'
 
 export interface DeviceRule {
   mode: DeviceRuleMode
@@ -35,6 +37,7 @@ export interface StartupPreferences {
 
 export interface UiPreferences {
   themeMode: ThemeMode
+  language: LanguagePreference
   showAudioOnly: boolean
   diagnosticsMode: boolean
 }
@@ -49,6 +52,10 @@ export interface DiagnosticsState {
   lastExportPath?: string
 }
 
+export interface RuntimeState {
+  bridgeMode: BridgeMode
+}
+
 export interface AppState {
   devices: DeviceViewModel[]
   prioritizedDeviceIds: string[]
@@ -58,6 +65,7 @@ export interface AppState {
   ui: UiPreferences
   notifications: NotificationPreferences
   diagnostics: DiagnosticsState
+  runtime: RuntimeState
 }
 
 export type AppRoute = 'overview' | 'devices' | 'automation' | 'settings'

@@ -1,5 +1,12 @@
 import type { BackendBridge, BridgeEvent } from './types'
-import type { AppState, DeviceViewModel, DeviceRule, NotificationPolicy, ThemeMode } from '../types'
+import type {
+  AppState,
+  DeviceViewModel,
+  DeviceRule,
+  LanguagePreference,
+  NotificationPolicy,
+  ThemeMode,
+} from '../types'
 
 const createInitialState = (): AppState => ({
   devices: [
@@ -69,6 +76,7 @@ const createInitialState = (): AppState => ({
   },
   ui: {
     themeMode: 'system',
+    language: 'system',
     showAudioOnly: true,
     diagnosticsMode: false,
   },
@@ -78,6 +86,9 @@ const createInitialState = (): AppState => ({
   diagnostics: {
     lastProbe: 'Bluetooth service OK',
     probeResult: 'No critical warnings.',
+  },
+  runtime: {
+    bridgeMode: 'mock',
   },
 })
 
@@ -187,6 +198,16 @@ export const createMockBridge = (): BackendBridge => {
         ui: {
           ...state.ui,
           themeMode: mode,
+        },
+      }
+      emitSettings()
+    },
+    async setLanguage(language: LanguagePreference) {
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          language,
         },
       }
       emitSettings()

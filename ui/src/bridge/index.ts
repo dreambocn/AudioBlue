@@ -1,6 +1,6 @@
 import { createMockBridge } from './mockBridge'
 import type { BackendBridge, BridgeEvent } from './types'
-import type { AppState, DeviceRuleMode } from '../types'
+import type { AppState, DeviceRuleMode, LanguagePreference } from '../types'
 
 type PyWebviewApi = {
   get_initial_state?: () => Promise<unknown>
@@ -11,6 +11,7 @@ type PyWebviewApi = {
   reorder_device_priority?: (deviceIds: string[]) => Promise<unknown>
   set_autostart?: (enabled: boolean) => Promise<unknown>
   set_theme?: (mode: string) => Promise<unknown>
+  set_language?: (language: string) => Promise<unknown>
   set_notification_policy?: (policy: string) => Promise<unknown>
   open_bluetooth_settings?: () => Promise<void>
   export_diagnostics?: () => Promise<string>
@@ -122,6 +123,7 @@ const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
     },
     ui: {
       themeMode: String(snapshot.settings?.ui?.theme ?? 'system') as AppState['ui']['themeMode'],
+      language: String(snapshot.settings?.ui?.language ?? 'system') as AppState['ui']['language'],
       showAudioOnly: true,
       diagnosticsMode: false,
     },
@@ -133,6 +135,9 @@ const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
       probeResult: snapshot.lastFailure?.message
         ? 'Recent connection issue captured.'
         : 'No critical warnings.',
+    },
+    runtime: {
+      bridgeMode: 'native',
     },
   }
 }
@@ -179,6 +184,13 @@ const createPyWebviewBridge = (api: PyWebviewApi): BackendBridge => {
     return normalized
   }
 
+  if (typeof window !== 'undefined') {
+    window.addEventListener('audioblue:state', (event: Event) => {
+      const customEvent = event as CustomEvent<unknown>
+      applySnapshot(customEvent.detail)
+    })
+  }
+
   return {
     async getInitialState() {
       return applySnapshot(await api.get_initial_state?.())
@@ -203,6 +215,25 @@ const createPyWebviewBridge = (api: PyWebviewApi): BackendBridge => {
     },
     async setTheme(mode) {
       applySnapshot(await api.set_theme?.(mode))
+    },
+    async setLanguage(language: LanguagePreference) {
+      if (api.set_language) {
+        applySnapshot(await api.set_language(language))
+        return
+      }
+
+      const snapshot = (await api.get_initial_state?.()) as RawSnapshot | undefined
+      const fallbackSnapshot = {
+        ...(snapshot ?? {}),
+        settings: {
+          ...(snapshot?.settings ?? {}),
+          ui: {
+            ...(snapshot?.settings?.ui ?? {}),
+            language,
+          },
+        },
+      }
+      applySnapshot(fallbackSnapshot)
     },
     async setNotificationPolicy(policy) {
       applySnapshot(await api.set_notification_policy?.(policy))
@@ -236,6 +267,7 @@ const createUnavailableState = (): AppState => ({
   },
   ui: {
     themeMode: 'system',
+    language: 'system',
     showAudioOnly: true,
     diagnosticsMode: false,
   },
@@ -245,6 +277,9 @@ const createUnavailableState = (): AppState => ({
   diagnostics: {
     lastProbe: 'Bridge unavailable',
     probeResult: 'Native desktop bridge is not available in this runtime.',
+  },
+  runtime: {
+    bridgeMode: 'unavailable',
   },
 })
 
@@ -263,6 +298,7 @@ const createUnavailableBridge = (): BackendBridge => {
     async reorderDevicePriority() {},
     async setAutostart() {},
     async setTheme() {},
+    async setLanguage() {},
     async setNotificationPolicy() {},
     async openBluetoothSettings() {},
     async exportDiagnostics() {

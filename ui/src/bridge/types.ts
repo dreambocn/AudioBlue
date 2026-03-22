@@ -1,4 +1,4 @@
-import type { AppState, DeviceRule, NotificationPolicy, ThemeMode } from '../types'
+import type { AppState, DeviceRule, LanguagePreference, NotificationPolicy, ThemeMode } from '../types'
 
 export type BridgeEvent =
   | { type: 'devices_changed'; devices: AppState['devices'] }
@@ -17,6 +17,7 @@ export interface BackendBridge {
   reorderDevicePriority(deviceIds: string[]): Promise<void>
   setAutostart(enabled: boolean): Promise<void>
   setTheme(mode: ThemeMode): Promise<void>
+  setLanguage(language: LanguagePreference): Promise<void>
   setNotificationPolicy(policy: NotificationPolicy): Promise<void>
   openBluetoothSettings(): Promise<void>
   exportDiagnostics(): Promise<string>
