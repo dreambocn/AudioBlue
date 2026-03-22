@@ -3,16 +3,13 @@ from __future__ import annotations
 from dataclasses import asdict, replace
 from typing import Any
 
+from audio_blue.localization import connection_failure_message
 from audio_blue.models import AppConfig, ConnectionAttempt, DeviceRule, DeviceSummary
 from audio_blue.rules_engine import RulesEngine
 
 
 def humanize_connection_failure(state: str) -> str:
-    return {
-        "timeout": "Connection timed out before audio could start.",
-        "denied": "Windows denied the audio connection request.",
-        "error": "AudioBlue could not connect to the device.",
-    }.get(state, "AudioBlue could not connect to the device.")
+    return connection_failure_message(state, language="en-US")
 
 
 class AppStateStore:
