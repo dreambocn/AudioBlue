@@ -156,7 +156,6 @@ def create_default_host(
                 config=config,
                 logger=logger,
                 background=background,
-                show_quick_panel=desktop_host.show_quick_panel,
                 show_main_window=desktop_host.show_main_window,
                 shutdown_ui=desktop_host.shutdown,
                 session_state=session_state,

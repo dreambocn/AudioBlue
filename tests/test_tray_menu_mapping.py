@@ -1,6 +1,7 @@
 import logging
 
 import pywintypes
+import win32con
 
 from audio_blue.models import AppConfig
 from audio_blue.models import DeviceSummary
@@ -141,3 +142,18 @@ def test_on_command_uses_session_state_for_device_actions():
     host._on_command(0, 0, 1002, 0)
 
     assert state.calls == ["connect:device-1", "disconnect:device-1", "refresh"]
+
+
+def test_left_click_opens_main_window_instead_of_quick_panel():
+    called: list[str] = []
+    host = TrayHost(
+        service=ServiceStub(),
+        config=AppConfig(),
+        logger=logging.getLogger("tray-test"),
+        show_quick_panel=lambda: called.append("quick"),
+        show_main_window=lambda: called.append("main"),
+    )
+
+    host._on_notify(0, 0, 0, win32con.WM_LBUTTONUP)
+
+    assert called == ["main"]

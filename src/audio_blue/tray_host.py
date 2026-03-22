@@ -176,7 +176,7 @@ class TrayHost:
 
     def _on_notify(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
         if lparam == win32con.WM_LBUTTONUP:
-            self._show_quick_panel()
+            self._show_main_window()
         elif lparam in (win32con.WM_RBUTTONUP, win32con.WM_CONTEXTMENU):
             self._show_menu()
         return 0

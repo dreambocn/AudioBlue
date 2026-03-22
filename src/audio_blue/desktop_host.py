@@ -146,10 +146,9 @@ class DesktopHost:
         self.ui_entrypoint = ui_entrypoint
         self._webview = webview_module
         self.main_window = None
-        self.quick_panel_window = None
 
     def create_windows(self) -> None:
-        if self.main_window is not None and self.quick_panel_window is not None:
+        if self.main_window is not None:
             return
 
         if self._webview is None:
@@ -158,7 +157,6 @@ class DesktopHost:
             self._webview = webview
 
         main_url = self.ui_entrypoint.as_uri()
-        quick_panel_url = f"{main_url}#quick-panel"
         self.main_window = self._webview.create_window(
             "AudioBlue",
             url=main_url,
@@ -166,17 +164,6 @@ class DesktopHost:
             width=1180,
             height=780,
             hidden=True,
-        )
-        self.quick_panel_window = self._webview.create_window(
-            "AudioBlue Quick Panel",
-            url=quick_panel_url,
-            js_api=self.api,
-            width=420,
-            height=560,
-            hidden=True,
-            frameless=True,
-            easy_drag=True,
-            on_top=True,
         )
 
     def run(self, on_started: Callable[[], None] | None = None) -> None:
@@ -192,12 +179,10 @@ class DesktopHost:
         self.main_window.show()
 
     def show_quick_panel(self) -> None:
-        if self.quick_panel_window is None:
-            raise RuntimeError("Quick panel window has not been created.")
-        self.quick_panel_window.show()
+        raise RuntimeError("Quick panel is not part of the runtime path.")
 
     def shutdown(self) -> None:
-        for window in (self.quick_panel_window, self.main_window):
+        for window in (self.main_window,):
             if window is None or not hasattr(window, "destroy"):
                 continue
 
