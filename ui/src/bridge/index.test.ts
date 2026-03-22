@@ -7,6 +7,7 @@ import type { BridgeEvent } from './types'
 afterEach(() => {
   delete window.pywebview
   delete window.audioblueBridge
+  vi.unstubAllEnvs()
 })
 
 
@@ -120,5 +121,22 @@ describe('resolveBridge', () => {
         ui: expect.objectContaining({ themeMode: 'dark' }),
       }),
     })
+  })
+
+  it('returns unavailable bridge by default when no native bridge is present', async () => {
+    const bridge = resolveBridge()
+    const state = await bridge.getInitialState()
+
+    expect(state.devices).toEqual([])
+    expect(state.connection.status).toBe('disconnected')
+  })
+
+  it('uses mock bridge only when explicitly enabled in dev', async () => {
+    vi.stubEnv('VITE_AUDIOBLUE_ENABLE_MOCK_BRIDGE', 'true')
+
+    const bridge = resolveBridge()
+    const state = await bridge.getInitialState()
+
+    expect(state.devices.length).toBeGreaterThan(0)
   })
 })

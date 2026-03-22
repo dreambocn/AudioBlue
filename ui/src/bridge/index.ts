@@ -222,6 +222,61 @@ const createPyWebviewBridge = (api: PyWebviewApi): BackendBridge => {
   }
 }
 
+const createUnavailableState = (): AppState => ({
+  devices: [],
+  prioritizedDeviceIds: [],
+  recentActivity: [],
+  connection: {
+    status: 'disconnected',
+  },
+  startup: {
+    autostart: false,
+    backgroundStart: false,
+    delaySeconds: 0,
+  },
+  ui: {
+    themeMode: 'system',
+    showAudioOnly: true,
+    diagnosticsMode: false,
+  },
+  notifications: {
+    policy: 'failures',
+  },
+  diagnostics: {
+    lastProbe: 'Bridge unavailable',
+    probeResult: 'Native desktop bridge is not available in this runtime.',
+  },
+})
+
+const createUnavailableBridge = (): BackendBridge => {
+  const listeners = new Set<(event: BridgeEvent) => void>()
+  return {
+    async getInitialState() {
+      return createUnavailableState()
+    },
+    async refreshDevices() {
+      return []
+    },
+    async connectDevice() {},
+    async disconnectDevice() {},
+    async updateDeviceRule() {},
+    async reorderDevicePriority() {},
+    async setAutostart() {},
+    async setTheme() {},
+    async setNotificationPolicy() {},
+    async openBluetoothSettings() {},
+    async exportDiagnostics() {
+      return ''
+    },
+    onEvent(handler) {
+      listeners.add(handler)
+      return () => {
+        listeners.delete(handler)
+      }
+    },
+  }
+}
+
 export const resolveBridge = (): BackendBridge => {
   if (window.audioblueBridge) {
     return window.audioblueBridge
@@ -231,7 +286,12 @@ export const resolveBridge = (): BackendBridge => {
     return createPyWebviewBridge(window.pywebview.api)
   }
 
-  return createMockBridge()
+  const isMockEnabled = import.meta.env.DEV && import.meta.env.VITE_AUDIOBLUE_ENABLE_MOCK_BRIDGE === 'true'
+  if (isMockEnabled) {
+    return createMockBridge()
+  }
+
+  return createUnavailableBridge()
 }
 
 export * from './types'
