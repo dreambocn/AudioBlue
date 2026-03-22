@@ -10,6 +10,8 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "pywin32>=311",
     "winrt-windows-devices-enumeration>=3.2.1",
+    "winrt-windows-foundation>=3.2.1",
+    "winrt-windows-foundation-collections>=3.2.1",
     "winrt-windows-media-audio>=3.2.1",
 ]
 
