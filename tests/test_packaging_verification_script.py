@@ -52,6 +52,34 @@ Root: HKCU; Subkey: "Software\\Microsoft\\Windows\\CurrentVersion\\Run"; ValueDa
     assert report["issues"] == []
 
 
+def test_collect_packaging_report_accepts_pyinstaller_internal_ui_layout(tmp_path):
+    module = load_module()
+
+    dist_root = tmp_path / "dist"
+    app_dir = dist_root / "AudioBlue"
+    internal_ui_dir = app_dir / "_internal" / "ui"
+    internal_ui_dir.mkdir(parents=True)
+    (app_dir / "audioblue.exe").write_text("stub", encoding="utf-8")
+    (internal_ui_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+
+    installer_script = tmp_path / "installer" / "AudioBlue.iss"
+    installer_script.parent.mkdir(parents=True)
+    installer_script.write_text(
+        """
+[Setup]
+AppName=AudioBlue
+
+[Registry]
+Root: HKCU; Subkey: "Software\\Microsoft\\Windows\\CurrentVersion\\Run"; ValueData: """ + '"""{app}\\audioblue.exe --background"""',
+        encoding="utf-8",
+    )
+
+    report = module.collect_packaging_report(dist_root=dist_root, installer_script=installer_script)
+
+    assert report["ok"] is True
+    assert report["issues"] == []
+
+
 def test_main_returns_nonzero_when_assets_invalid(tmp_path):
     module = load_module()
 

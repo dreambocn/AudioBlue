@@ -62,4 +62,8 @@ class AutostartManager:
 
     def build_command(self) -> str:
         executable = self._executable_path or Path(__file__).resolve().parents[2] / "audioblue.exe"
-        return f'"{executable}" --background'
+        return build_autostart_command(executable)
+
+
+def build_autostart_command(executable_path: Path | str) -> str:
+    return f'"{executable_path}" --background'

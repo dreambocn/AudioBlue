@@ -7,6 +7,7 @@ def test_build_menu_entries_includes_static_actions_and_toggle():
     labels = [entry.label for entry in entries]
 
     assert labels[:2] == ["Refresh Devices", "Reconnect On Next Start"]
+    assert "Open Control Center" in labels
     assert "Bluetooth Settings" in labels
     assert labels[-1] == "Exit"
     toggle = next(entry for entry in entries if entry.action == "toggle_reconnect")

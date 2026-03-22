@@ -13,12 +13,15 @@ def collect_packaging_report(
     issues: list[str] = []
     app_root = dist_root / "AudioBlue"
     executable_path = app_root / "audioblue.exe"
-    ui_index_path = app_root / "ui" / "index.html"
+    ui_index_candidates = [
+        app_root / "ui" / "index.html",
+        app_root / "_internal" / "ui" / "index.html",
+    ]
 
     if not executable_path.exists():
         issues.append(f"Missing packaged executable: {executable_path}")
-    if not ui_index_path.exists():
-        issues.append(f"Missing packaged UI entrypoint: {ui_index_path}")
+    if not any(path.exists() for path in ui_index_candidates):
+        issues.append(f"Missing packaged UI entrypoint: {ui_index_candidates[0]}")
     if not installer_script.exists():
         issues.append(f"Missing installer scaffold: {installer_script}")
     else:

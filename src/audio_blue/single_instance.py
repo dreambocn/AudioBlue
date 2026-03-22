@@ -56,3 +56,14 @@ class SingleInstanceManager:
         if self._held:
             self._coordinator.release(self._name)
             self._held = False
+
+
+def try_acquire(name: str = "AudioBlue", coordinator: InstanceCoordinator | None = None) -> bool:
+    return SingleInstanceManager(coordinator=coordinator, name=name).acquire()
+
+
+def signal_existing_instance(
+    name: str = "AudioBlue",
+    coordinator: InstanceCoordinator | None = None,
+) -> None:
+    (coordinator or Win32InstanceCoordinator()).signal_existing(name)

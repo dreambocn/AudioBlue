@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event, Lock, Thread
 from typing import Any, Callable, Protocol
+import sys
 
 from audio_blue.app_state import AppStateStore
 from audio_blue.diagnostics import build_diagnostics_snapshot
@@ -11,6 +13,25 @@ from audio_blue.models import NotificationPolicy, ThemeMode
 
 class DiagnosticsExporter(Protocol):
     def __call__(self, snapshot: dict[str, object], path: Path) -> Path: ...
+
+
+def find_ui_entrypoint(base_dir: Path | None = None) -> Path:
+    if base_dir is not None:
+        root = base_dir
+    elif getattr(sys, "frozen", False):
+        root = Path(sys.executable).resolve().parent
+    else:
+        root = Path(__file__).resolve().parents[2]
+    candidates = [
+        root / "ui" / "dist" / "index.html",
+        root / "dist" / "AudioBlue" / "ui" / "index.html",
+        root / "ui" / "index.html",
+        root / "_internal" / "ui" / "index.html",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError("Could not find built AudioBlue UI entrypoint.")
 
 
 class DesktopApi:
@@ -106,10 +127,15 @@ class DesktopHost:
         self._webview = webview_module
         self.main_window = None
         self.quick_panel_window = None
+        self._thread: Thread | None = None
+        self._ready = Event()
+        self._start_lock = Lock()
 
     def create_windows(self) -> None:
         if self._webview is None:
-            return
+            import webview  # type: ignore[import-not-found]
+
+            self._webview = webview
 
         main_url = self.ui_entrypoint.as_uri()
         quick_panel_url = f"{main_url}#quick-panel"
@@ -135,10 +161,32 @@ class DesktopHost:
             gui="edge",
         )
 
+    def start(self) -> None:
+        with self._start_lock:
+            if self._thread is not None:
+                return
+
+            self._thread = Thread(target=self._run_webview_loop, name="audio-blue-webview", daemon=True)
+            self._thread.start()
+        self._ready.wait(timeout=10)
+
     def show_main_window(self) -> None:
+        self.start()
         if self.main_window is not None:
             self.main_window.show()
 
     def show_quick_panel(self) -> None:
+        self.start()
         if self.quick_panel_window is not None:
             self.quick_panel_window.show()
+
+    def _run_webview_loop(self) -> None:
+        self.create_windows()
+        if self._webview is None:
+            self._ready.set()
+            return
+
+        def on_start() -> None:
+            self._ready.set()
+
+        self._webview.start(on_start, gui="edge", http_server=False)

@@ -1,8 +1,12 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import App from './App'
 import { createMockBridge } from './bridge/mockBridge'
+
+afterEach(() => {
+  window.location.hash = ''
+})
 
 describe('AudioBlue Control Center integration', () => {
   it('renders shell navigation and overview by default', async () => {
@@ -41,5 +45,14 @@ describe('AudioBlue Control Center integration', () => {
     await waitFor(() => {
       expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
     })
+  })
+
+  it('renders the compact quick panel surface for tray entrypoint', async () => {
+    window.location.hash = '#quick-panel'
+
+    render(<App bridge={createMockBridge()} />)
+
+    expect(await screen.findByLabelText('Tray quick panel')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Overview' })).not.toBeInTheDocument()
   })
 })

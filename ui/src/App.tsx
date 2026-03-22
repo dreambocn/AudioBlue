@@ -6,6 +6,7 @@ import { AutomationPage } from './pages/AutomationPage'
 import { DevicesPage } from './pages/DevicesPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { TrayQuickPanelView } from './tray/TrayQuickPanelView'
 import type { AppRoute, AppState, DeviceRule, DeviceViewModel, NotificationPolicy, ThemeMode } from './types'
 import './App.css'
 
@@ -63,7 +64,7 @@ interface AppProps {
   bridge?: BackendBridge
 }
 
-function App({ bridge = defaultBridge }: AppProps) {
+function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
   const [route, setRoute] = useState<AppRoute>('overview')
   const [state, setState] = useState<AppState | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -247,7 +248,14 @@ function App({ bridge = defaultBridge }: AppProps) {
       <main className="content-shell">
         <header className="command-bar">
           <h2>{navItems.find((item) => item.key === route)?.label}</h2>
-          <button type="button" className="secondary-button" onClick={() => bridge.refreshDevices()}>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={async () => {
+              const devices = await bridge.refreshDevices()
+              setState((current) => (current ? { ...current, devices } : current))
+            }}
+          >
             Refresh Devices
           </button>
         </header>
@@ -294,6 +302,15 @@ function App({ bridge = defaultBridge }: AppProps) {
       </aside>
     </div>
   )
+}
+
+function App({ bridge = defaultBridge }: AppProps) {
+  const isQuickPanel = window.location.hash === '#quick-panel'
+  if (isQuickPanel) {
+    return <TrayQuickPanelView bridge={bridge} />
+  }
+
+  return <ControlCenterShell bridge={bridge} />
 }
 
 export default App

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import Callable
 
 import win32api
 import win32con
@@ -28,6 +29,7 @@ def build_menu_entries(devices: list[DeviceSummary], reconnect_enabled: bool) ->
     entries = [
         MenuEntry(action="refresh_devices", label="Refresh Devices"),
         MenuEntry(action="toggle_reconnect", label="Reconnect On Next Start", checked=reconnect_enabled),
+        MenuEntry(action="open_control_center", label="Open Control Center"),
     ]
 
     for device in devices:
@@ -58,8 +60,8 @@ def build_menu_entries(devices: list[DeviceSummary], reconnect_enabled: bool) ->
 
 
 def build_exit_config(config: AppConfig, service: ConnectorService) -> AppConfig:
-    return AppConfig(
-        reconnect=config.reconnect,
+    return replace(
+        config,
         last_devices=list(service.active_connections),
     )
 
@@ -70,10 +72,16 @@ class TrayHost:
         service: ConnectorService,
         config: AppConfig,
         logger: logging.Logger,
+        background: bool = False,
+        show_quick_panel: Callable[[], None] | None = None,
+        show_main_window: Callable[[], None] | None = None,
     ) -> None:
         self._service = service
         self._config = config
         self._logger = logger
+        self._background = background
+        self._show_quick_panel = show_quick_panel or self._show_menu
+        self._show_main_window = show_main_window or (lambda: None)
         self._command_map: dict[int, MenuEntry] = {}
         self._next_command_id = 1000
         self._hwnd: int | None = None
@@ -117,6 +125,8 @@ class TrayHost:
         win32gui.Shell_NotifyIcon(win32gui.NIM_ADD, self._notify_id)
 
         self._refresh_devices()
+        if not self._background:
+            self._show_main_window()
         win32gui.PumpMessages()
 
     def _refresh_devices(self) -> None:
@@ -131,10 +141,7 @@ class TrayHost:
         self._next_command_id = 1000
 
         for entry in build_menu_entries(list(self._service.known_devices.values()), self._config.reconnect):
-            if self._command_map:
-                menu_flags = win32con.MF_STRING
-            else:
-                menu_flags = win32con.MF_STRING
+            menu_flags = win32con.MF_STRING
             if not entry.enabled:
                 menu_flags |= win32con.MF_GRAYED
             if entry.checked:
@@ -150,7 +157,9 @@ class TrayHost:
         win32gui.TrackPopupMenu(menu, win32con.TPM_LEFTALIGN, cursor_x, cursor_y, 0, self._hwnd, None)
 
     def _on_notify(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
-        if lparam in (win32con.WM_RBUTTONUP, win32con.WM_LBUTTONUP, win32con.WM_CONTEXTMENU):
+        if lparam == win32con.WM_LBUTTONUP:
+            self._show_quick_panel()
+        elif lparam in (win32con.WM_RBUTTONUP, win32con.WM_CONTEXTMENU):
             self._show_menu()
         return 0
 
@@ -164,6 +173,8 @@ class TrayHost:
             self._refresh_devices()
         elif entry.action == "toggle_reconnect":
             self._config.reconnect = not self._config.reconnect
+        elif entry.action == "open_control_center":
+            self._show_main_window()
         elif entry.action == "connect_device" and entry.device_id:
             self._service.connect(entry.device_id)
         elif entry.action == "disconnect_device" and entry.device_id:
