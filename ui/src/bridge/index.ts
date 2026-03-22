@@ -85,7 +85,7 @@ const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
       supportsAudio: Boolean(
         device.capabilities?.supportsAudioPlayback ??
           device.capabilities?.supports_audio_playback ??
-          true,
+          false,
       ),
       lastSeen: device.lastSeenAt ? 'Recently seen' : 'Unknown',
       lastResult:

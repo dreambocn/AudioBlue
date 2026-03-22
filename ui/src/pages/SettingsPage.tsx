@@ -1,8 +1,10 @@
-import type { AppState, NotificationPolicy, ThemeMode } from '../types'
+import { useI18n } from '../i18n'
+import type { AppState, LanguagePreference, NotificationPolicy, ThemeMode } from '../types'
 
 interface SettingsPageProps {
   state: AppState
   onThemeChange: (theme: ThemeMode) => void
+  onLanguageChange: (language: LanguagePreference) => void
   onAutostartChange: (enabled: boolean) => void
   onNotificationPolicyChange: (policy: NotificationPolicy) => void
   onExportDiagnostics: () => void
@@ -11,10 +13,12 @@ interface SettingsPageProps {
 export function SettingsPage({
   state,
   onThemeChange,
+  onLanguageChange,
   onAutostartChange,
   onNotificationPolicyChange,
   onExportDiagnostics,
 }: SettingsPageProps) {
+  const { t } = useI18n()
   return (
     <section className="page-grid">
       <article className="surface-card">
@@ -30,6 +34,21 @@ export function SettingsPage({
               <option value="system">System</option>
               <option value="light">Light</option>
               <option value="dark">Dark</option>
+            </select>
+          </label>
+
+          <label className="field-row">
+            <span>{t('settings.language')}</span>
+            <select
+              aria-label="Language"
+              value={state.ui.language}
+              onChange={(event) =>
+                onLanguageChange(event.target.value as LanguagePreference)
+              }
+            >
+              <option value="system">{t('settings.language.system')}</option>
+              <option value="zh-CN">{t('settings.language.zh-CN')}</option>
+              <option value="en-US">{t('settings.language.en-US')}</option>
             </select>
           </label>
 

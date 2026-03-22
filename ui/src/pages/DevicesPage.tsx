@@ -1,4 +1,5 @@
 import { DeviceCard } from '../components/DeviceCard'
+import { useI18n } from '../i18n'
 import type { DeviceViewModel } from '../types'
 
 interface DevicesPageProps {
@@ -14,6 +15,8 @@ export function DevicesPage({
   onDisconnect,
   onToggleFavorite,
 }: DevicesPageProps) {
+  const { t } = useI18n()
+
   return (
     <section className="page-grid">
       <article className="surface-card">
@@ -22,15 +25,21 @@ export function DevicesPage({
       </article>
 
       <div className="device-grid">
-        {devices.map((device) => (
-          <DeviceCard
-            key={device.id}
-            device={device}
-            onConnect={onConnect}
-            onDisconnect={onDisconnect}
-            onToggleFavorite={onToggleFavorite}
-          />
-        ))}
+        {devices.length === 0 ? (
+          <article className="surface-card">
+            <p className="muted">{t('devices.empty')}</p>
+          </article>
+        ) : (
+          devices.map((device) => (
+            <DeviceCard
+              key={device.id}
+              device={device}
+              onConnect={onConnect}
+              onDisconnect={onDisconnect}
+              onToggleFavorite={onToggleFavorite}
+            />
+          ))
+        )}
       </div>
     </section>
   )

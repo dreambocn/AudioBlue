@@ -6,9 +6,23 @@ export type LanguagePreference = 'system' | SupportedLanguage
 const messages: Record<SupportedLanguage, Record<string, string>> = {
   'zh-CN': {
     'common.none': '无',
+    'devices.empty': '未发现可用音频设备。',
+    'automation.empty': '没有可自动化的音频设备。',
+    'overview.currentDevice': '当前设备',
+    'settings.language': '语言',
+    'settings.language.system': '跟随系统',
+    'settings.language.zh-CN': '中文',
+    'settings.language.en-US': 'English',
   },
   'en-US': {
     'common.none': 'None',
+    'devices.empty': 'No supported audio devices found.',
+    'automation.empty': 'No audio devices available for automation.',
+    'overview.currentDevice': 'Current device',
+    'settings.language': 'Language',
+    'settings.language.system': 'System',
+    'settings.language.zh-CN': 'Chinese',
+    'settings.language.en-US': 'English',
   },
 }
 

@@ -1,4 +1,5 @@
 import type { DeviceViewModel } from '../types'
+import { useI18n } from '../i18n'
 
 interface AutomationPageProps {
   devices: DeviceViewModel[]
@@ -6,13 +7,14 @@ interface AutomationPageProps {
 }
 
 export function AutomationPage({ devices, onToggleAppearRule }: AutomationPageProps) {
+  const { t } = useI18n()
   const primaryDevice = devices[0]
 
   if (!primaryDevice) {
     return (
       <section className="surface-card">
         <h2>Automation</h2>
-        <p className="muted">No devices discovered yet.</p>
+        <p className="muted">{t('automation.empty')}</p>
       </section>
     )
   }
