@@ -7,6 +7,7 @@ from typing import Literal
 AutoConnectTrigger = Literal["startup", "reappear"]
 NotificationPolicy = Literal["silent", "failures", "all"]
 ThemeMode = Literal["system", "light", "dark"]
+LanguageMode = Literal["system", "zh-CN", "en-US"]
 
 
 @dataclass(slots=True)
@@ -21,6 +22,7 @@ class ConnectionAttempt:
     succeeded: bool
     state: str
     failure_reason: str | None = None
+    failure_code: str | None = None
     happened_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -56,6 +58,7 @@ class StartupPreferences:
 class UiPreferences:
     theme: ThemeMode = "system"
     high_contrast: bool = False
+    language: LanguageMode = "system"
 
 
 @dataclass(slots=True)

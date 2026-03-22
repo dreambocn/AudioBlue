@@ -30,6 +30,12 @@ def test_app_config_defaults_include_extended_preferences():
     assert config.device_rules == {}
 
 
+def test_ui_preferences_default_language_is_system():
+    preferences = UiPreferences()
+
+    assert preferences.language == "system"
+
+
 def test_device_capabilities_defaults_to_audio_playback_support():
     capabilities = DeviceCapabilities()
 
