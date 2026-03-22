@@ -1,0 +1,59 @@
+# -*- mode: python ; coding: utf-8 -*-
+
+
+a = Analysis(
+    ['src\\audio_blue\\main.py'],
+    pathex=[],
+    binaries=[],
+    datas=[],
+    hiddenimports=[
+        'audio_blue',
+        'audio_blue.config',
+        'audio_blue.connector_service',
+        'audio_blue.logging_util',
+        'audio_blue.models',
+        'audio_blue.tray_host',
+        'win32api',
+        'win32con',
+        'win32gui',
+        'winrt.windows.devices.enumeration',
+        'winrt.windows.foundation',
+        'winrt.windows.foundation.collections',
+        'winrt.windows.media.audio',
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+    optimize=0,
+)
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='AudioBlue',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='AudioBlue',
+)
