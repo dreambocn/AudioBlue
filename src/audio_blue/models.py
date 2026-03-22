@@ -7,6 +7,7 @@ from typing import Literal
 AutoConnectTrigger = Literal["startup", "reappear"]
 NotificationPolicy = Literal["silent", "failures", "all"]
 ThemeMode = Literal["system", "light", "dark"]
+LanguageMode = Literal["system", "zh-CN", "en-US"]
 
 
 @dataclass(slots=True)
@@ -56,6 +57,7 @@ class StartupPreferences:
 class UiPreferences:
     theme: ThemeMode = "system"
     high_contrast: bool = False
+    language: LanguageMode = "system"
 
 
 @dataclass(slots=True)
