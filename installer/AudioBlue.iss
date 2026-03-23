@@ -8,6 +8,7 @@ AppVersion=0.1.0
 AppPublisher=AudioBlue Team
 DefaultDirName={autopf}\AudioBlue
 DefaultGroupName=AudioBlue
+SetupIconFile=..\assets\branding\audioblue-icon.ico
 UninstallDisplayIcon={app}\audioblue.exe
 OutputDir=..\dist\installer
 OutputBaseFilename=AudioBlue-Setup

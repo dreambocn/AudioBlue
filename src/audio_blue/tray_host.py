@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, replace
+from pathlib import Path
+import sys
 from typing import Callable
 
 import win32api
@@ -15,6 +17,25 @@ from audio_blue.localization import tray_label
 from audio_blue.models import AppConfig, DeviceSummary
 
 WMAPP_NOTIFYCALLBACK = win32con.WM_APP + 1
+
+
+def find_app_icon_path(base_dir: Path | None = None) -> Path:
+    if base_dir is not None:
+        root = base_dir
+    elif getattr(sys, "frozen", False):
+        root = Path(sys.executable).resolve().parent
+    else:
+        root = Path(__file__).resolve().parents[2]
+
+    candidates = [
+        root / "assets" / "branding" / "audioblue-icon.ico",
+        root / "_internal" / "assets" / "branding" / "audioblue-icon.ico",
+        root / "dist" / "AudioBlue" / "_internal" / "assets" / "branding" / "audioblue-icon.ico",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
 
 
 @dataclass(slots=True)
@@ -155,7 +176,7 @@ class TrayHost:
             None,
         )
 
-        icon = win32gui.LoadIcon(0, win32con.IDI_APPLICATION)
+        icon = self._load_tray_icon()
         self._notify_id = (
             self._hwnd,
             0,
@@ -170,6 +191,22 @@ class TrayHost:
         if not self._background:
             self._show_main_window()
         win32gui.PumpMessages()
+
+    def _load_tray_icon(self):
+        icon_path = find_app_icon_path()
+        if icon_path.exists():
+            try:
+                return win32gui.LoadImage(
+                    0,
+                    str(icon_path),
+                    win32con.IMAGE_ICON,
+                    0,
+                    0,
+                    win32con.LR_LOADFROMFILE | win32con.LR_DEFAULTSIZE,
+                )
+            except Exception:
+                self._logger.debug("Failed to load custom tray icon.", exc_info=True)
+        return win32gui.LoadIcon(0, win32con.IDI_APPLICATION)
 
     def _refresh_devices(self) -> None:
         try:

@@ -7,6 +7,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('ui\\dist', 'ui'),
+        ('assets\\branding', 'assets\\branding'),
     ],
     hiddenimports=[
         'audio_blue',
@@ -56,6 +57,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
+    icon='assets\\branding\\audioblue-icon.ico',
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,

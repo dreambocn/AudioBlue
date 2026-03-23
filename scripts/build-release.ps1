@@ -74,6 +74,24 @@ function Invoke-CheckedCommand {
     }
 }
 
+function Clear-NpmTransientDirectories {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$UiRoot
+    )
+
+    $transientDirectories = @(
+        (Join-Path $UiRoot 'node_modules\.tmp')
+        (Join-Path $UiRoot 'node_modules\.vite')
+    )
+
+    foreach ($directory in $transientDirectories) {
+        if (Test-Path $directory) {
+            Remove-Item -Recurse -Force $directory -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 $resolvedProjectRoot = (Resolve-Path $ProjectRoot).Path
 $uiRoot = Join-Path $resolvedProjectRoot 'ui'
 $pyprojectPath = Join-Path $resolvedProjectRoot 'pyproject.toml'
@@ -100,6 +118,7 @@ Write-Step '同步 Python 依赖'
 Invoke-CheckedCommand -Command 'uv sync --frozen --all-groups' -WorkingDirectory $resolvedProjectRoot
 
 Write-Step '同步前端依赖'
+Clear-NpmTransientDirectories -UiRoot $uiRoot
 Invoke-CheckedCommand -Command 'npm ci' -WorkingDirectory $uiRoot
 
 Write-Step '执行 Python 测试'
