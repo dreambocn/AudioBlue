@@ -13,9 +13,24 @@ AudioBlue 是一个仅面向 Windows 的蓝牙音频桌面工具。
 - 托盘常驻，左键打开或激活控制中心，右键打开托盘菜单
 - 主界面包含 `Overview`、`Devices`、`Automation`、`Settings`
 - 设备优先级与自动连接规则
+- SQLite 本地持久化，保存配置、规则、设备缓存、连接历史、诊断快照与日志
 - 开机后台启动 `--background`
 - 诊断导出与安装器校验脚本
 - `PyInstaller + Inno Setup` 分发路径
+
+## 场景说明
+
+AudioBlue 当前面向 **“远端设备把音频播放到本机”** 的场景，也就是：
+
+- 本机作为 **A2DP sink**
+- 远端手机 / 平板 / 电脑作为 **A2DP source**
+- 前端和探针显示的是 **可向本机投放音频的 source 设备**
+
+这意味着：
+
+- 你在前端看不到普通蓝牙耳机 / 音箱并不一定是异常
+- 如果当前没有命中的 A2DP source，界面会明确显示“没有匹配到 source 设备”
+- `scripts\feasibility_probe.py` 与运行时使用同一套 selector，因此 probe 结果应与 Control Center 设备枚举口径一致
 
 ## 环境要求
 
@@ -44,6 +59,13 @@ npm install
 Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
 uv run python scripts\feasibility_probe.py
 ```
+
+当前 probe 会输出：
+
+- `device_selector`
+- `matched_device_count`
+- `devices`
+- `errors`
 
 ### 2. 构建前端资源
 
@@ -100,6 +122,8 @@ uv run python -m audio_blue.main --background
   - 启动时自动连接
   - 设备再次出现时自动连接
 - 收藏设备和优先级更靠前的设备会优先尝试
+- 启动时与设备再次出现时都会执行自动连接
+- 回退顺序为：规则命中候选 → 收藏 / 优先级排序 → `last_devices` reconnect fallback
 
 ## 测试
 
@@ -160,9 +184,23 @@ ISCC.exe .\installer\AudioBlue.iss
 
 ## 运行时文件
 
-- 配置：`%LocalAppData%\AudioBlue\config.json`
-- 日志：`%LocalAppData%\AudioBlue\audioblue.log`
+- SQLite 数据库：`%LocalAppData%\AudioBlue\audioblue.db`
 - 诊断导出目录：`%LocalAppData%\AudioBlue\diagnostics\`
+
+### 旧版本迁移
+
+首次升级到当前版本时，AudioBlue 会自动迁移以下旧文件到 SQLite：
+
+- `config.json`
+- `audioblue.log`
+- `diagnostics\*.json`
+
+迁移完成后：
+
+- SQLite 成为唯一常规真源
+- 旧文件不会继续作为运行时主数据源
+- 旧文件会保留为 `*.legacy.bak` 备份
+- 日志 / 连接历史 / 诊断记录默认按 **90 天滚动清理**
 
 ## 常见问题
 
