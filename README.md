@@ -1,231 +1,142 @@
 # AudioBlue
 
-AudioBlue 是一个仅面向 Windows 的蓝牙音频桌面工具。
+[![Release](https://img.shields.io/github/v/release/dreambocn/AudioBlue?display_name=tag)](https://github.com/dreambocn/AudioBlue/releases)
+[![License](https://img.shields.io/github/license/dreambocn/AudioBlue)](https://github.com/dreambocn/AudioBlue/blob/main/LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)](https://github.com/dreambocn/AudioBlue)
 
-当前版本已经从最小托盘 MVP 升级为 **Python 后端 + WebView2 混合 UI**：
+Windows Bluetooth audio playback desktop utility with a Python backend and a WebView2 control center.  
+一个面向 Windows 的蓝牙音频桌面工具，使用 Python 后端与 WebView2 控制中心提供现代桌面体验。
 
-- Python 负责 WinRT 蓝牙音频连接、规则引擎、托盘常驻、自启动、诊断与打包
-- React + TypeScript + Vite 负责 Win11 风格控制中心
-- `pywebview` 负责把本地构建后的前端界面嵌入桌面窗口
+![AudioBlue hero](ui/src/assets/hero.png)
 
-## 功能概览
+## Highlights
 
-- 托盘常驻，左键打开或激活控制中心，右键打开托盘菜单
-- 主界面包含 `Overview`、`Devices`、`Automation`、`Settings`
-- 设备优先级与自动连接规则
-- SQLite 本地持久化，保存配置、规则、设备缓存、连接历史、诊断快照与日志
-- 开机后台启动 `--background`
-- 诊断导出与安装器校验脚本
-- `PyInstaller + Inno Setup` 分发路径
+- **Windows-first desktop app**：为 Windows 10 2004+ / Windows 11 的蓝牙音频场景构建。  
+  面向本机作为 **A2DP sink**、远端设备向本机投放音频的使用方式。
+- **Hybrid architecture**：Python 负责 WinRT 设备连接、托盘、自启动、诊断与打包。  
+  React + TypeScript + Vite 负责 Win11 风格控制中心界面。
+- **Persistent automation**：使用 SQLite 保存设备规则、优先级、连接历史与诊断快照。  
+  支持再次出现自动连接、启动时重连与设备优先级策略。
+- **Release-ready packaging**：内置 PyInstaller、Inno Setup 与发布校验脚本。  
+  支持本地构建安装器，也支持 GitHub Actions 基于 `v*` tag 自动发布。
 
-## 场景说明
+## Architecture
 
-AudioBlue 当前面向 **“远端设备把音频播放到本机”** 的场景，也就是：
+AudioBlue 当前由三个主要层组成：
 
-- 本机作为 **A2DP sink**
-- 远端手机 / 平板 / 电脑作为 **A2DP source**
-- 前端和探针显示的是 **可向本机投放音频的 source 设备**
+- **Desktop backend / 桌面后端**：`src/audio_blue` 中的 Python 代码负责蓝牙设备枚举、连接、规则引擎、托盘宿主、自启动与诊断导出。
+- **Control center UI / 控制中心界面**：`ui` 中的 React 应用负责设备列表、自动连接设置、主题与语言切换。
+- **Packaging pipeline / 打包链路**：PyInstaller 产出目录版，Inno Setup 生成安装器，`scripts/build-release.ps1` 与 GitHub Actions 统一发布入口。
 
-这意味着：
+## Quick Start
 
-- 你在前端看不到普通蓝牙耳机 / 音箱并不一定是异常
-- 如果当前没有命中的 A2DP source，界面会明确显示“没有匹配到 source 设备”
-- `scripts\feasibility_probe.py` 与运行时使用同一套 selector，因此 probe 结果应与 Control Center 设备枚举口径一致
+### Runtime requirements / 运行要求
 
-## 环境要求
-
-- Windows 11 或支持 `AudioPlaybackConnection` 的 Windows 10 2004+
+- Windows 11，或支持 `AudioPlaybackConnection` 的 Windows 10 2004+
 - [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
-- `uv 0.10+`
 - Python `3.12`
-- Node.js / npm
-- 可用的蓝牙音频设备
+- `uv`
+- Node.js + npm
 
-## 首次安装开发依赖
+### Install dependencies / 安装依赖
 
 ```powershell
 Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
 uv python install 3.12
-uv sync
+uv sync --all-groups
 Set-Location '.\ui'
 npm install
 ```
 
-## 开发流程
-
-### 1. 检查 WinRT 可用性
-
-```powershell
-Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
-uv run python scripts\feasibility_probe.py
-```
-
-当前 probe 会输出：
-
-- `device_selector`
-- `matched_device_count`
-- `devices`
-- `errors`
-
-### 2. 构建前端资源
-
-桌面宿主默认读取 `ui\dist\index.html`，所以在运行 Python 应用前先构建前端：
+### Run the app / 启动应用
 
 ```powershell
 Set-Location 'E:\Development\Project\PythonProjects\AudioBlue\ui'
 npm run build
-```
 
-### 3. 启动应用
-
-前台启动：
-
-```powershell
 Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
 uv run python -m audio_blue.main
 ```
 
-后台托盘启动：
+后台托盘模式：
 
 ```powershell
 Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
 uv run python -m audio_blue.main --background
 ```
 
-## 如何使用
+## Interface Overview
 
-### 托盘
+- **Overview**：查看当前连接状态、最近活动与快捷控制区。
+- **Devices**：管理当前可见设备、收藏状态与历史设备。
+- **Automation**：配置设备再次出现时自动连接，以及自动连接尝试顺序。
+- **Settings**：切换主题、语言、通知、自启动并导出诊断信息。
 
-- 左键托盘图标：打开或激活主界面 Control Center
-- 右键托盘图标：打开托盘菜单
-- 托盘菜单支持设备刷新、连接/断开、打开主界面、打开 Windows 蓝牙设置、退出
+## Development
 
-### 壳层状态同步契约
+开发、调试、测试与本地打包的完整说明见：
 
-- Python 壳层通过同一状态通道向 WebView 推送快照：
-  - `window.dispatchEvent(new CustomEvent('audioblue:state', { detail: snapshot }))`
-- 设备刷新、连接状态变化、规则更新、设置更新都复用同一推送通道
-- 桥接接口包含 `set_language(language)`，支持 `system`、`zh-CN`、`en-US`
+- [Development Guide / 开发指南](docs/DEVELOPMENT.md)
+- [Releasing Guide / 发布指南](docs/RELEASING.md)
 
-### 主界面
-
-- `Overview`：查看当前连接状态和最近活动
-- `Devices`：管理设备、连接、断开、收藏
-- `Automation`：配置优先级和“设备再次出现时自动连接”
-- `Settings`：切换主题、通知策略、自启动、导出诊断
-
-### 自动连接
-
-- 自动连接由规则引擎决定，不只是“重连上次设备”
-- 规则包含：
-  - 手动模式
-  - 启动时自动连接
-  - 设备再次出现时自动连接
-- 收藏设备和优先级更靠前的设备会优先尝试
-- 启动时与设备再次出现时都会执行自动连接
-- 回退顺序为：规则命中候选 → 收藏 / 优先级排序 → `last_devices` reconnect fallback
-
-## 测试
-
-### Python 测试
+常用命令：
 
 ```powershell
 Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
 uv run pytest -q
-```
 
-### 前端测试
-
-```powershell
 Set-Location 'E:\Development\Project\PythonProjects\AudioBlue\ui'
 npm test
-```
-
-## 打包
-
-### 1. 构建前端
-
-```powershell
-Set-Location 'E:\Development\Project\PythonProjects\AudioBlue\ui'
 npm run build
 ```
 
-### 2. 生成 PyInstaller 目录版
+## Packaging & Release
+
+### Local packaging / 本地打包
 
 ```powershell
 Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
-uv run pyinstaller AudioBlue.spec --noconfirm
+.\scripts\build-release.ps1
 ```
 
-输出目录：
+默认会执行：
 
-- `dist\AudioBlue\AudioBlue.exe`
-- `dist\AudioBlue\_internal\ui\index.html`
+- Python 与前端依赖同步
+- Python / 前端测试
+- 前端构建
+- PyInstaller 目录版打包
+- Inno Setup 安装器构建
+- SHA256 摘要生成
 
-### 3. 校验打包产物
+### GitHub Release / GitHub 自动发布
 
-```powershell
-Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
-uv run python scripts\verify_packaging_assets.py --dist-root dist --installer-script installer\AudioBlue.iss --format text
-```
+- 推送 `v*` tag 会触发 `.github/workflows/release.yml`
+- 工作流会在 Windows runner 上构建安装器
+- 生成的 `AudioBlue-Setup.exe` 与 `SHA256SUMS.txt` 会上传到 GitHub Release
 
-### 4. 构建 Inno Setup 安装器
+下载入口：
 
-如果本机已安装 Inno Setup：
+- [GitHub Releases](https://github.com/dreambocn/AudioBlue/releases)
 
-```powershell
-Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
-ISCC.exe .\installer\AudioBlue.iss
-```
+## FAQ
 
-安装器人工验证清单见：
+### Why are common Bluetooth headsets not listed? / 为什么普通蓝牙耳机不一定会出现在设备列表里？
 
-- `installer\VERIFICATION_CHECKLIST.md`
+AudioBlue 当前聚焦于 **远端设备把音频播放到本机** 的场景。  
+因此界面中显示的是可以向本机投放音频的 **A2DP source** 设备，而不是所有蓝牙音频外设。
 
-## 运行时文件
+### Why is there only a tray icon after startup? / 为什么启动后可能只有托盘图标？
 
-- SQLite 数据库：`%LocalAppData%\AudioBlue\audioblue.db`
-- 诊断导出目录：`%LocalAppData%\AudioBlue\diagnostics\`
+如果使用 `--background` 启动，或关闭主窗口但没有退出应用，AudioBlue 会继续在托盘中常驻。  
+此时可以通过左键托盘图标重新打开控制中心。
 
-### 旧版本迁移
+### What should I check if the main window does not open? / 主界面打不开时先检查什么？
 
-首次升级到当前版本时，AudioBlue 会自动迁移以下旧文件到 SQLite：
-
-- `config.json`
-- `audioblue.log`
-- `diagnostics\*.json`
-
-迁移完成后：
-
-- SQLite 成为唯一常规真源
-- 旧文件不会继续作为运行时主数据源
-- 旧文件会保留为 `*.legacy.bak` 备份
-- 日志 / 连接历史 / 诊断记录默认按 **90 天滚动清理**
-
-## 常见问题
-
-### 启动后只有托盘没有主界面
-
-这通常是使用了 `--background` 启动，或者你关闭了主窗口但应用仍在托盘常驻。可通过：
-
-- 左键托盘直接打开主界面
-- 右键托盘选择 `Open Control Center`
-
-### 主界面打不开
-
-先检查：
-
-- 是否已安装 WebView2 Runtime
-- 是否已先执行 `npm run build`
+- WebView2 Runtime 是否已安装
+- 是否已经构建 `ui\dist`
 - 打包版中是否存在 `dist\AudioBlue\_internal\ui\index.html`
 
-### 打包校验失败
+## License
 
-优先运行：
-
-```powershell
-Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
-uv run python scripts\verify_packaging_assets.py --dist-root dist --installer-script installer\AudioBlue.iss --format text
-```
-
-它会指出缺失的可执行文件、前端入口或安装脚本。
+This project is licensed under the MIT License.  
+本项目采用 [MIT License](LICENSE) 开源协议。
