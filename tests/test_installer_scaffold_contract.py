@@ -35,3 +35,10 @@ def test_inno_scaffold_wires_background_autostart_command():
     assert r"Software\Microsoft\Windows\CurrentVersion\Run" in content
     assert "--background" in content
     assert 'Filename: "{app}\\audioblue.exe"' in content
+
+
+def test_inno_scaffold_uses_repo_root_relative_dist_paths():
+    content = read_inno_script()
+
+    assert 'OutputDir=..\\dist\\installer' in content
+    assert 'Source: "..\\dist\\AudioBlue\\*"' in content

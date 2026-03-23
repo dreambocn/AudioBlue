@@ -9,7 +9,7 @@ AppPublisher=AudioBlue Team
 DefaultDirName={autopf}\AudioBlue
 DefaultGroupName=AudioBlue
 UninstallDisplayIcon={app}\audioblue.exe
-OutputDir=dist\installer
+OutputDir=..\dist\installer
 OutputBaseFilename=AudioBlue-Setup
 Compression=lzma
 SolidCompression=yes
@@ -22,7 +22,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Name: "autostart"; Description: "Start AudioBlue when signing in to Windows"; GroupDescription: "Startup:"; Flags: checkedonce
 
 [Files]
-Source: "dist\AudioBlue\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion createallsubdirs
+Source: "..\dist\AudioBlue\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion createallsubdirs
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "AudioBlue"; ValueData: """{app}\audioblue.exe"" --background"; Tasks: autostart
