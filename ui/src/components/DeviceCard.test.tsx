@@ -39,7 +39,7 @@ describe('DeviceCard', () => {
       </LanguageProvider>,
     )
 
-    await user.click(screen.getByRole('button', { name: /connect/i }))
+    await user.click(screen.getByRole('button', { name: /connect|连接/i }))
 
     expect(onConnect).toHaveBeenCalledWith('device-1')
     expect(onDisconnect).not.toHaveBeenCalled()

@@ -56,11 +56,11 @@ describe('resolveBridge', () => {
           ],
           deviceRules: {
             'device-1': {
-              isFavorite: true,
-              isIgnored: false,
+              is_favorite: true,
+              is_ignored: false,
               priority: 1,
-              autoConnectOnStartup: true,
-              autoConnectOnReappear: false,
+              auto_connect_on_startup: true,
+              auto_connect_on_reappear: false,
             },
           },
           lastFailure: null,
@@ -131,6 +131,10 @@ describe('resolveBridge', () => {
       autoConnectOnAppear: true,
       mode: 'appear',
     })
+    await bridge.updateDeviceRule('device-1', {
+      isFavorite: true,
+      isIgnored: true,
+    })
     await bridge.setLanguage('zh-CN')
     window.dispatchEvent(new CustomEvent('audioblue:state', { detail: pushSnapshot }))
     unsubscribe()
@@ -146,7 +150,13 @@ describe('resolveBridge', () => {
       auto_connect_on_reappear: true,
       auto_connect_on_startup: false,
     })
+    expect(pywebviewApi?.update_device_rule).toHaveBeenCalledWith('device-1', {
+      is_favorite: true,
+      is_ignored: true,
+    })
     expect(pywebviewApi?.set_language).toHaveBeenCalledWith('zh-CN')
+    expect(state.devices[0].isFavorite).toBe(true)
+    expect(state.devices[0].isIgnored).toBe(false)
     expect(listeners).toContainEqual({
       type: 'settings_changed',
       settings: expect.objectContaining({

@@ -10,6 +10,11 @@ export interface DeviceRule {
   autoConnectOnAppear: boolean
 }
 
+export interface DeviceRulePatch extends Partial<DeviceRule> {
+  isFavorite?: boolean
+  isIgnored?: boolean
+}
+
 export interface DeviceViewModel {
   id: string
   name: string
@@ -56,6 +61,8 @@ export interface DiagnosticsState {
 export interface RuntimeState {
   bridgeMode: BridgeMode
 }
+
+export type A2dpSourceAvailability = 'unavailable' | 'no-source' | 'available'
 
 export interface AppState {
   devices: DeviceViewModel[]

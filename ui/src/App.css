@@ -150,6 +150,20 @@
   padding-left: 18px;
 }
 
+.a2dp-status-card h3 {
+  margin-top: 0;
+}
+
+.priority-list-item {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.priority-button {
+  padding: 2px 8px;
+}
+
 .settings-grid {
   display: grid;
   gap: 12px;

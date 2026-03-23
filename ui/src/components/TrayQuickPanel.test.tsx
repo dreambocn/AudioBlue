@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { TrayQuickPanel } from './TrayQuickPanel'
+import { LanguageProvider } from '../i18n'
 import type { DeviceViewModel } from '../types'
 
 const connectedDevice: DeviceViewModel = {
@@ -27,15 +28,22 @@ describe('TrayQuickPanel', () => {
     const onDisconnect = vi.fn()
 
     render(
-      <TrayQuickPanel
-        currentDevice={connectedDevice}
-        autoConnectEnabled
-        onDisconnect={onDisconnect}
-        onConnect={vi.fn()}
-        onToggleAutoConnect={vi.fn()}
-        onOpenControlCenter={vi.fn()}
-        onOpenBluetoothSettings={vi.fn()}
-      />,
+      <LanguageProvider preference="en-US">
+        <TrayQuickPanel
+          currentDevice={connectedDevice}
+          autoConnectEnabled
+          sourceAvailability="available"
+          bridgeMode="native"
+          totalDevices={1}
+          matchedSourceDevices={[connectedDevice]}
+          debugDevices={[connectedDevice]}
+          onDisconnect={onDisconnect}
+          onConnect={vi.fn()}
+          onToggleAutoConnect={vi.fn()}
+          onOpenControlCenter={vi.fn()}
+          onOpenBluetoothSettings={vi.fn()}
+        />
+      </LanguageProvider>,
     )
 
     expect(screen.getByText('Connected to Galaxy Buds')).toBeVisible()

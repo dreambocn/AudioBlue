@@ -16,10 +16,10 @@ export function DeviceCard({
 }: DeviceCardProps) {
   const { t } = useI18n()
   const statusLabel = device.isConnected
-    ? 'Connected'
+    ? t('device.status.connected')
     : device.isConnecting
-      ? 'Connecting…'
-      : 'Available'
+      ? t('device.status.connecting')
+      : t('device.status.available')
 
   return (
     <article className="surface-card device-card">
@@ -28,10 +28,14 @@ export function DeviceCard({
         <button
           type="button"
           className="chip-button"
-          aria-label={`${device.isFavorite ? 'Remove' : 'Add'} ${device.name} ${device.isFavorite ? 'from' : 'to'} favorites`}
+          aria-label={
+            device.isFavorite
+              ? t('device.favorite.remove', { name: device.name })
+              : t('device.favorite.add', { name: device.name })
+          }
           onClick={() => onToggleFavorite(device.id, !device.isFavorite)}
         >
-          {device.isFavorite ? '★ Favorite' : '☆ Favorite'}
+          {device.isFavorite ? t('device.favorite.on') : t('device.favorite.off')}
         </button>
       </header>
 
@@ -39,17 +43,17 @@ export function DeviceCard({
       {device.isConnected && !device.presentInLastScan ? (
         <p className="muted">{t('devices.retainedHint')}</p>
       ) : null}
-      <p className="muted">Last seen: {device.lastSeen}</p>
-      <p className="muted">Last result: {device.lastResult}</p>
+      <p className="muted">{t('device.lastSeen', { value: device.lastSeen })}</p>
+      <p className="muted">{t('device.lastResult', { value: device.lastResult })}</p>
 
       <div className="device-card-actions">
         {device.isConnected ? (
           <button type="button" className="secondary-button" onClick={() => onDisconnect(device.id)}>
-            Disconnect
+            {t('device.action.disconnect')}
           </button>
         ) : (
           <button type="button" className="primary-button" onClick={() => onConnect(device.id)}>
-            Connect
+            {t('device.action.connect')}
           </button>
         )}
       </div>

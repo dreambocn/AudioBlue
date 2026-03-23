@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { resolveBridge } from '../bridge'
 import type { BackendBridge } from '../bridge/types'
 import { TrayQuickPanel } from '../components/TrayQuickPanel'
+import { LanguageProvider } from '../i18n'
 import type { AppState } from '../types'
 
 interface TrayQuickPanelViewProps {
@@ -47,23 +48,37 @@ export function TrayQuickPanelView({
   const activeDevice = state.devices.find(
     (device) => device.id === state.connection.currentDeviceId,
   )
+  const audioDevices = state.devices.filter((device) => device.supportsAudio)
+  const sourceAvailability =
+    state.runtime.bridgeMode === 'unavailable'
+      ? 'unavailable'
+      : audioDevices.length === 0
+        ? 'no-source'
+        : 'available'
 
   return (
-    <TrayQuickPanel
-      currentDevice={activeDevice}
-      autoConnectEnabled={state.devices.some((device) => device.rule.autoConnectOnAppear)}
-      onConnect={(id) => bridge.connectDevice(id)}
-      onDisconnect={(id) => bridge.disconnectDevice(id)}
-      onToggleAutoConnect={(enabled) =>
-        activeDevice
-          ? bridge.updateDeviceRule(activeDevice.id, {
-              autoConnectOnAppear: enabled,
-              mode: enabled ? 'appear' : 'manual',
-            })
-          : Promise.resolve()
-      }
-      onOpenControlCenter={onOpenControlCenter}
-      onOpenBluetoothSettings={() => bridge.openBluetoothSettings()}
-    />
+    <LanguageProvider preference={state.ui.language}>
+      <TrayQuickPanel
+        currentDevice={activeDevice}
+        autoConnectEnabled={state.devices.some((device) => device.rule.autoConnectOnAppear)}
+        sourceAvailability={sourceAvailability}
+        bridgeMode={state.runtime.bridgeMode}
+        totalDevices={state.devices.length}
+        matchedSourceDevices={audioDevices}
+        debugDevices={state.devices}
+        onConnect={(id) => bridge.connectDevice(id)}
+        onDisconnect={(id) => bridge.disconnectDevice(id)}
+        onToggleAutoConnect={(enabled) =>
+          activeDevice
+            ? bridge.updateDeviceRule(activeDevice.id, {
+                autoConnectOnAppear: enabled,
+                mode: enabled ? 'appear' : 'manual',
+              })
+            : Promise.resolve()
+        }
+        onOpenControlCenter={onOpenControlCenter}
+        onOpenBluetoothSettings={() => bridge.openBluetoothSettings()}
+      />
+    </LanguageProvider>
   )
 }

@@ -2,15 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import { resolveBridge } from './bridge'
 import type { BackendBridge, BridgeEvent } from './bridge/types'
 import { TrayQuickPanel } from './components/TrayQuickPanel'
-import { LanguageProvider } from './i18n'
+import { LanguageProvider, useI18n } from './i18n'
 import { AutomationPage } from './pages/AutomationPage'
 import { DevicesPage } from './pages/DevicesPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { SettingsPage } from './pages/SettingsPage'
 import type {
+  A2dpSourceAvailability,
   AppRoute,
   AppState,
-  DeviceRule,
+  DeviceRulePatch,
   DeviceViewModel,
   LanguagePreference,
   NotificationPolicy,
@@ -20,17 +21,17 @@ import './App.css'
 
 const defaultBridge = resolveBridge()
 
-const navItems: { key: AppRoute; label: string }[] = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'devices', label: 'Devices' },
-  { key: 'automation', label: 'Automation' },
-  { key: 'settings', label: 'Settings' },
+const navItems: { key: AppRoute; labelKey: string }[] = [
+  { key: 'overview', labelKey: 'nav.overview' },
+  { key: 'devices', labelKey: 'nav.devices' },
+  { key: 'automation', labelKey: 'nav.automation' },
+  { key: 'settings', labelKey: 'nav.settings' },
 ]
 
 const updateDeviceRule = (
   devices: DeviceViewModel[],
   deviceId: string,
-  patch: Partial<DeviceRule>,
+  patch: DeviceRulePatch,
 ) =>
   devices.map((device) =>
     device.id === deviceId
@@ -40,6 +41,18 @@ const updateDeviceRule = (
         }
       : device,
   )
+
+const reorderDevicesByPriority = (
+  devices: DeviceViewModel[],
+  prioritizedDeviceIds: string[],
+) => {
+  const byId = new Map(devices.map((device) => [device.id, device]))
+  const prioritized = prioritizedDeviceIds
+    .map((id) => byId.get(id))
+    .filter((device): device is DeviceViewModel => Boolean(device))
+  const remaining = devices.filter((device) => !prioritizedDeviceIds.includes(device.id))
+  return [...prioritized, ...remaining]
+}
 
 const applyBridgeEvent = (state: AppState, event: BridgeEvent): AppState => {
   switch (event.type) {
@@ -53,6 +66,11 @@ const applyBridgeEvent = (state: AppState, event: BridgeEvent): AppState => {
       return {
         ...state,
         devices: updateDeviceRule(state.devices, event.deviceId, event.rule),
+      }
+    case 'priorities_changed':
+      return {
+        ...state,
+        prioritizedDeviceIds: event.prioritizedDeviceIds,
       }
     case 'settings_changed':
       return {
@@ -70,6 +88,157 @@ const applyBridgeEvent = (state: AppState, event: BridgeEvent): AppState => {
 
 interface AppProps {
   bridge?: BackendBridge
+}
+
+interface ControlCenterContentProps {
+  route: AppRoute
+  state: AppState
+  visibleDevices: DeviceViewModel[]
+  audioDevices: DeviceViewModel[]
+  activeDevice?: DeviceViewModel
+  sourceAvailability: A2dpSourceAvailability
+  bridge: BackendBridge
+  setRoute: (route: AppRoute) => void
+  onConnect: (deviceId: string) => Promise<void>
+  onDisconnect: (deviceId: string) => Promise<void>
+  onToggleFavorite: (deviceId: string, nextFavorite: boolean) => Promise<void>
+  onToggleAppearRule: (deviceId: string, enabled: boolean) => Promise<void>
+  onReorderPriority: (deviceIds: string[]) => Promise<void>
+  onThemeChange: (theme: ThemeMode) => Promise<void>
+  onAutostartChange: (enabled: boolean) => Promise<void>
+  onNotificationPolicyChange: (policy: NotificationPolicy) => Promise<void>
+  onLanguageChange: (language: LanguagePreference) => Promise<void>
+  onExportDiagnostics: () => Promise<void>
+  onOpenBluetoothSettings: () => Promise<void>
+}
+
+function ControlCenterContent({
+  route,
+  state,
+  visibleDevices,
+  audioDevices,
+  activeDevice,
+  sourceAvailability,
+  bridge,
+  setRoute,
+  onConnect,
+  onDisconnect,
+  onToggleFavorite,
+  onToggleAppearRule,
+  onReorderPriority,
+  onThemeChange,
+  onAutostartChange,
+  onNotificationPolicyChange,
+  onLanguageChange,
+  onExportDiagnostics,
+  onOpenBluetoothSettings,
+}: ControlCenterContentProps) {
+  const { t } = useI18n()
+
+  return (
+    <div className="app-root">
+      <aside className="left-nav">
+        <h1>AudioBlue</h1>
+        <p className="muted">{t('app.subtitle')}</p>
+        <nav aria-label="Main Navigation">
+          {navItems.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`nav-button ${route === item.key ? 'active' : ''}`}
+              onClick={() => setRoute(item.key)}
+            >
+              {t(item.labelKey)}
+            </button>
+          ))}
+        </nav>
+      </aside>
+
+      <main className="content-shell">
+        <header className="command-bar">
+          <h2>{t(navItems.find((item) => item.key === route)?.labelKey ?? 'nav.overview')}</h2>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={async () => {
+              await bridge.refreshDevices()
+            }}
+          >
+            {t('command.refreshDevices')}
+          </button>
+        </header>
+
+        {route === 'overview' ? (
+          <OverviewPage
+            state={state}
+            sourceAvailability={sourceAvailability}
+            bridgeMode={state.runtime.bridgeMode}
+            totalDevices={state.devices.length}
+            matchedSourceDevices={audioDevices}
+            debugDevices={state.devices}
+          />
+        ) : null}
+        {route === 'devices' ? (
+          <DevicesPage
+            devices={visibleDevices}
+            sourceAvailability={sourceAvailability}
+            bridgeMode={state.runtime.bridgeMode}
+            totalDevices={state.devices.length}
+            matchedSourceDevices={audioDevices}
+            debugDevices={state.devices}
+            onConnect={onConnect}
+            onDisconnect={onDisconnect}
+            onToggleFavorite={onToggleFavorite}
+          />
+        ) : null}
+        {route === 'automation' ? (
+          <AutomationPage
+            devices={audioDevices}
+            sourceAvailability={sourceAvailability}
+            bridgeMode={state.runtime.bridgeMode}
+            totalDevices={state.devices.length}
+            matchedSourceDevices={audioDevices}
+            debugDevices={state.devices}
+            onToggleAppearRule={onToggleAppearRule}
+            onReorderPriority={onReorderPriority}
+          />
+        ) : null}
+        {route === 'settings' ? (
+          <SettingsPage
+            state={state}
+            onThemeChange={onThemeChange}
+            onLanguageChange={onLanguageChange}
+            onAutostartChange={onAutostartChange}
+            onNotificationPolicyChange={onNotificationPolicyChange}
+            onExportDiagnostics={onExportDiagnostics}
+          />
+        ) : null}
+      </main>
+
+      <aside className="right-panel">
+        <TrayQuickPanel
+          currentDevice={activeDevice}
+          autoConnectEnabled={audioDevices.some((device) => device.rule.autoConnectOnAppear)}
+          sourceAvailability={sourceAvailability}
+          bridgeMode={state.runtime.bridgeMode}
+          totalDevices={state.devices.length}
+          matchedSourceDevices={audioDevices}
+          debugDevices={state.devices}
+          onConnect={onConnect}
+          onDisconnect={onDisconnect}
+          onToggleAutoConnect={(enabled) => {
+            const firstDevice = audioDevices[0]
+            if (!firstDevice) {
+              return
+            }
+            void onToggleAppearRule(firstDevice.id, enabled)
+          }}
+          onOpenControlCenter={() => setRoute('devices')}
+          onOpenBluetoothSettings={onOpenBluetoothSettings}
+        />
+      </aside>
+    </div>
+  )
 }
 
 function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
@@ -117,17 +286,35 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
     )
   }, [state])
 
-  const audioDevices = useMemo(
-    () => state?.devices.filter((device) => device.supportsAudio) ?? [],
+  const orderedDevices = useMemo(
+    () =>
+      state
+        ? reorderDevicesByPriority(state.devices, state.prioritizedDeviceIds)
+        : [],
     [state],
+  )
+
+  const audioDevices = useMemo(
+    () => orderedDevices.filter((device) => device.supportsAudio),
+    [orderedDevices],
   )
 
   const visibleDevices = useMemo(
     () =>
-      state?.devices.filter((device) => device.isConnected || device.supportsAudio) ??
+      orderedDevices.filter((device) => device.isConnected || device.supportsAudio) ??
       [],
-    [state],
+    [orderedDevices],
   )
+
+  const sourceAvailability = useMemo<A2dpSourceAvailability>(() => {
+    if (!state || state.runtime.bridgeMode === 'unavailable') {
+      return 'unavailable'
+    }
+    if (audioDevices.length === 0) {
+      return 'no-source'
+    }
+    return 'available'
+  }, [audioDevices.length, state])
 
   const handleConnect = async (deviceId: string) => {
     await bridge.connectDevice(deviceId)
@@ -138,15 +325,7 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
   }
 
   const handleToggleFavorite = async (deviceId: string, nextFavorite: boolean) => {
-    if (!state) {
-      return
-    }
-    setState({
-      ...state,
-      devices: state.devices.map((device) =>
-        device.id === deviceId ? { ...device, isFavorite: nextFavorite } : device,
-      ),
-    })
+    await bridge.updateDeviceRule(deviceId, { isFavorite: nextFavorite })
   }
 
   const handleToggleAppearRule = async (deviceId: string, enabled: boolean) => {
@@ -158,6 +337,10 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
 
   const handleThemeChange = async (theme: ThemeMode) => {
     await bridge.setTheme(theme)
+  }
+
+  const handleReorderPriority = async (deviceIds: string[]) => {
+    await bridge.reorderDevicePriority(deviceIds)
   }
 
   const handleAutostartChange = async (enabled: boolean) => {
@@ -197,83 +380,27 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
 
   return (
     <LanguageProvider preference={state.ui.language}>
-      <div className="app-root">
-        <aside className="left-nav">
-          <h1>AudioBlue</h1>
-          <p className="muted">Win11 Hybrid Control Center</p>
-          <nav aria-label="Main Navigation">
-            {navItems.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                className={`nav-button ${route === item.key ? 'active' : ''}`}
-                onClick={() => setRoute(item.key)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </nav>
-        </aside>
-
-        <main className="content-shell">
-          <header className="command-bar">
-            <h2>{navItems.find((item) => item.key === route)?.label}</h2>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={async () => {
-                await bridge.refreshDevices()
-              }}
-            >
-              Refresh Devices
-            </button>
-          </header>
-
-          {route === 'overview' ? <OverviewPage state={state} /> : null}
-          {route === 'devices' ? (
-            <DevicesPage
-              devices={visibleDevices}
-              onConnect={handleConnect}
-              onDisconnect={handleDisconnect}
-              onToggleFavorite={handleToggleFavorite}
-            />
-          ) : null}
-          {route === 'automation' ? (
-            <AutomationPage
-              devices={audioDevices}
-              onToggleAppearRule={handleToggleAppearRule}
-            />
-          ) : null}
-          {route === 'settings' ? (
-            <SettingsPage
-              state={state}
-              onThemeChange={handleThemeChange}
-              onLanguageChange={handleLanguageChange}
-              onAutostartChange={handleAutostartChange}
-              onNotificationPolicyChange={handleNotificationPolicyChange}
-              onExportDiagnostics={handleExportDiagnostics}
-            />
-          ) : null}
-        </main>
-
-        <aside className="right-panel">
-          <TrayQuickPanel
-            currentDevice={activeDevice}
-            autoConnectEnabled={audioDevices.some((device) => device.rule.autoConnectOnAppear)}
-            onConnect={handleConnect}
-            onDisconnect={handleDisconnect}
-            onToggleAutoConnect={(enabled) => {
-              const firstDevice = audioDevices[0]
-              if (!firstDevice) {
-                return
-              }
-              void handleToggleAppearRule(firstDevice.id, enabled)
-            }}
-            onOpenControlCenter={() => setRoute('devices')}
-            onOpenBluetoothSettings={handleOpenBluetoothSettings}
-          />
-        </aside>
-      </div>
+      <ControlCenterContent
+        route={route}
+        state={state}
+        visibleDevices={visibleDevices}
+        audioDevices={audioDevices}
+        activeDevice={activeDevice}
+        sourceAvailability={sourceAvailability}
+        bridge={bridge}
+        setRoute={setRoute}
+        onConnect={handleConnect}
+        onDisconnect={handleDisconnect}
+        onToggleFavorite={handleToggleFavorite}
+        onToggleAppearRule={handleToggleAppearRule}
+        onReorderPriority={handleReorderPriority}
+        onThemeChange={handleThemeChange}
+        onAutostartChange={handleAutostartChange}
+        onNotificationPolicyChange={handleNotificationPolicyChange}
+        onLanguageChange={handleLanguageChange}
+        onExportDiagnostics={handleExportDiagnostics}
+        onOpenBluetoothSettings={handleOpenBluetoothSettings}
+      />
     </LanguageProvider>
   )
 }

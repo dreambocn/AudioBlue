@@ -1,6 +1,6 @@
 import { createMockBridge } from './mockBridge'
 import type { BackendBridge, BridgeEvent } from './types'
-import type { AppState, DeviceRuleMode, LanguagePreference } from '../types'
+import type { AppState, DeviceRuleMode, DeviceRulePatch, LanguagePreference } from '../types'
 
 type PyWebviewApi = {
   get_initial_state?: () => Promise<unknown>
@@ -29,8 +29,12 @@ declare global {
 }
 
 const normalizeRule = (rawRule: Record<string, any> | undefined) => {
-  const autoConnectOnStartup = Boolean(rawRule?.autoConnectOnStartup)
-  const autoConnectOnAppear = Boolean(rawRule?.autoConnectOnReappear)
+  const autoConnectOnStartup = Boolean(
+    rawRule?.autoConnectOnStartup ?? rawRule?.auto_connect_on_startup,
+  )
+  const autoConnectOnAppear = Boolean(
+    rawRule?.autoConnectOnReappear ?? rawRule?.auto_connect_on_reappear,
+  )
   const mode: DeviceRuleMode = autoConnectOnAppear
     ? 'appear'
     : autoConnectOnStartup
@@ -44,7 +48,7 @@ const normalizeRule = (rawRule: Record<string, any> | undefined) => {
   }
 }
 
-const toPythonRulePatch = (rulePatch: Record<string, unknown>) => {
+const toPythonRulePatch = (rulePatch: DeviceRulePatch) => {
   const nextPatch: Record<string, unknown> = {}
 
   if ('autoConnectOnStartup' in rulePatch) {
@@ -65,6 +69,14 @@ const toPythonRulePatch = (rulePatch: Record<string, unknown>) => {
     }
   }
 
+  if ('isFavorite' in rulePatch) {
+    nextPatch.is_favorite = Boolean(rulePatch.isFavorite)
+  }
+
+  if ('isIgnored' in rulePatch) {
+    nextPatch.is_ignored = Boolean(rulePatch.isIgnored)
+  }
+
   return nextPatch
 }
 
@@ -80,15 +92,19 @@ const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
       name: String(device.name),
       isConnected: connectionState === 'connected',
       isConnecting: connectionState === 'connecting',
-      isFavorite: Boolean(ruleMap[device.deviceId]?.isFavorite),
-      isIgnored: Boolean(ruleMap[device.deviceId]?.isIgnored),
+      isFavorite: Boolean(
+        ruleMap[device.deviceId]?.isFavorite ?? ruleMap[device.deviceId]?.is_favorite,
+      ),
+      isIgnored: Boolean(
+        ruleMap[device.deviceId]?.isIgnored ?? ruleMap[device.deviceId]?.is_ignored,
+      ),
       supportsAudio: Boolean(
         device.capabilities?.supportsAudioPlayback ??
           device.capabilities?.supports_audio_playback ??
           false,
       ),
       presentInLastScan: Boolean(device.presentInLastScan ?? true),
-      lastSeen: device.lastSeenAt ? 'Recently seen' : 'Unknown',
+      lastSeen: device.lastSeenAt ? String(device.lastSeenAt) : 'Unknown',
       lastResult:
         lastAttempt?.failureReason ??
         (connectionState === 'connected' ? 'Connected' : 'Ready to connect'),
@@ -152,6 +168,12 @@ const emitState = (
   )
   listeners.forEach((listener) =>
     listener({ type: 'connection_changed', connection: structuredClone(state.connection) }),
+  )
+  listeners.forEach((listener) =>
+    listener({
+      type: 'priorities_changed',
+      prioritizedDeviceIds: structuredClone(state.prioritizedDeviceIds),
+    }),
   )
   listeners.forEach((listener) =>
     listener({

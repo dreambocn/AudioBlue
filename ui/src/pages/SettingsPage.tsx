@@ -22,25 +22,25 @@ export function SettingsPage({
   return (
     <section className="page-grid">
       <article className="surface-card">
-        <h2>Settings</h2>
+        <h2>{t('settings.title')}</h2>
         <div className="settings-grid">
           <label className="field-row">
-            <span>Theme mode</span>
+            <span>{t('settings.theme')}</span>
             <select
-              aria-label="Theme mode"
+              aria-label={t('settings.theme')}
               value={state.ui.themeMode}
               onChange={(event) => onThemeChange(event.target.value as ThemeMode)}
             >
-              <option value="system">System</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
+              <option value="system">{t('settings.theme.system')}</option>
+              <option value="light">{t('settings.theme.light')}</option>
+              <option value="dark">{t('settings.theme.dark')}</option>
             </select>
           </label>
 
           <label className="field-row">
             <span>{t('settings.language')}</span>
             <select
-              aria-label="Language"
+              aria-label={t('settings.language')}
               value={state.ui.language}
               onChange={(event) =>
                 onLanguageChange(event.target.value as LanguagePreference)
@@ -53,7 +53,7 @@ export function SettingsPage({
           </label>
 
           <label className="toggle-row">
-            <span>Start with Windows</span>
+            <span>{t('settings.startWithWindows')}</span>
             <input
               type="checkbox"
               checked={state.startup.autostart}
@@ -62,38 +62,42 @@ export function SettingsPage({
           </label>
 
           <label className="field-row">
-            <span>Notification policy</span>
+            <span>{t('settings.notificationPolicy')}</span>
             <select
               value={state.notifications.policy}
               onChange={(event) =>
                 onNotificationPolicyChange(event.target.value as NotificationPolicy)
               }
             >
-              <option value="silent">Silent</option>
-              <option value="failures">Only failures</option>
-              <option value="all">All notifications</option>
+              <option value="silent">{t('settings.notification.silent')}</option>
+              <option value="failures">{t('settings.notification.failures')}</option>
+              <option value="all">{t('settings.notification.all')}</option>
             </select>
           </label>
         </div>
       </article>
 
       <article className="surface-card">
-        <h3>Diagnostics</h3>
+        <h3>{t('settings.diagnostics')}</h3>
         <p className="muted">{state.diagnostics.lastProbe}</p>
         <p className="muted">{state.diagnostics.probeResult}</p>
         <button type="button" className="secondary-button" onClick={onExportDiagnostics}>
-          Export diagnostics
+          {t('settings.diagnostics.export')}
         </button>
         {state.diagnostics.lastExportPath ? (
-          <p className="muted">Exported to: {state.diagnostics.lastExportPath}</p>
+          <p className="muted">
+            {t('settings.diagnostics.exportedTo', {
+              path: state.diagnostics.lastExportPath,
+            })}
+          </p>
         ) : null}
       </article>
 
       <article className="surface-card">
-        <h3>Updates</h3>
-        <p className="muted">Check for updates is reserved for the installer channel.</p>
+        <h3>{t('settings.updates')}</h3>
+        <p className="muted">{t('settings.updates.hint')}</p>
         <button type="button" className="secondary-button" disabled>
-          Check for updates (coming soon)
+          {t('settings.updates.button')}
         </button>
       </article>
     </section>

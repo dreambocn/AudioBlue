@@ -2,7 +2,7 @@ import type { BackendBridge, BridgeEvent } from './types'
 import type {
   AppState,
   DeviceViewModel,
-  DeviceRule,
+  DeviceRulePatch,
   LanguagePreference,
   NotificationPolicy,
   ThemeMode,
@@ -160,17 +160,38 @@ export const createMockBridge = (): BackendBridge => {
       emit({ type: 'devices_changed', devices: structuredClone(state.devices) })
       emit({ type: 'connection_changed', connection: structuredClone(state.connection) })
     },
-    async updateDeviceRule(deviceId: string, rulePatch: Partial<DeviceRule>) {
+    async updateDeviceRule(deviceId: string, rulePatch: DeviceRulePatch) {
       state = {
         ...state,
         devices: state.devices.map((device) =>
           device.id === deviceId
-            ? { ...device, rule: { ...device.rule, ...rulePatch } }
+            ? {
+                ...device,
+                isFavorite:
+                  typeof rulePatch.isFavorite === 'boolean'
+                    ? rulePatch.isFavorite
+                    : device.isFavorite,
+                isIgnored:
+                  typeof rulePatch.isIgnored === 'boolean'
+                    ? rulePatch.isIgnored
+                    : device.isIgnored,
+                rule: {
+                  ...device.rule,
+                  ...(rulePatch.mode ? { mode: rulePatch.mode } : {}),
+                  ...(typeof rulePatch.autoConnectOnStartup === 'boolean'
+                    ? { autoConnectOnStartup: rulePatch.autoConnectOnStartup }
+                    : {}),
+                  ...(typeof rulePatch.autoConnectOnAppear === 'boolean'
+                    ? { autoConnectOnAppear: rulePatch.autoConnectOnAppear }
+                    : {}),
+                },
+              }
             : device,
         ),
       }
       const target = state.devices.find((device) => device.id === deviceId)
       if (target) {
+        emit({ type: 'devices_changed', devices: structuredClone(state.devices) })
         emit({
           type: 'rules_changed',
           deviceId,
@@ -184,6 +205,10 @@ export const createMockBridge = (): BackendBridge => {
         prioritizedDeviceIds: [...deviceIds],
       }
       emit({ type: 'devices_changed', devices: structuredClone(state.devices) })
+      emit({
+        type: 'priorities_changed',
+        prioritizedDeviceIds: structuredClone(state.prioritizedDeviceIds),
+      })
     },
     async setAutostart(enabled: boolean) {
       state = {
