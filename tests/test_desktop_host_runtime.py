@@ -14,17 +14,35 @@ class WebviewWindowStub:
         self.title = title
         self.url = url
         self.show_called = False
+        self.hide_called = False
         self.destroy_called = False
         self.scripts: list[str] = []
+        self.events = type("Events", (), {})()
+        self.events.closing = ClosingEventStub()
 
     def show(self):
         self.show_called = True
+
+    def hide(self):
+        self.hide_called = True
 
     def destroy(self):
         self.destroy_called = True
 
     def evaluate_js(self, script: str):
         self.scripts.append(script)
+
+
+class ClosingEventStub:
+    def __init__(self):
+        self.handlers: list[object] = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+    def fire(self):
+        return [handler() for handler in self.handlers]
 
 
 class WebviewModuleStub:
@@ -180,6 +198,25 @@ def test_shutdown_destroys_existing_windows(tmp_path):
     host.shutdown()
 
     assert host.main_window.destroy_called is True
+
+
+def test_main_window_close_hides_window_instead_of_exiting(tmp_path):
+    index_path = tmp_path / "ui" / "dist" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
+    webview = WebviewModuleStub()
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=index_path,
+        webview_module=webview,
+    )
+    host.create_windows()
+
+    results = host.main_window.events.closing.fire()
+
+    assert results == [False]
+    assert host.main_window.hide_called is True
+    assert host.main_window.destroy_called is False
 
 
 class SessionStateStub:

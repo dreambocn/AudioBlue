@@ -1,4 +1,5 @@
 import type { DeviceViewModel } from '../types'
+import { useI18n } from '../i18n'
 
 interface DeviceCardProps {
   device: DeviceViewModel
@@ -13,6 +14,7 @@ export function DeviceCard({
   onDisconnect,
   onToggleFavorite,
 }: DeviceCardProps) {
+  const { t } = useI18n()
   const statusLabel = device.isConnected
     ? 'Connected'
     : device.isConnecting
@@ -34,6 +36,9 @@ export function DeviceCard({
       </header>
 
       <p className="muted">{statusLabel}</p>
+      {device.isConnected && !device.presentInLastScan ? (
+        <p className="muted">{t('devices.retainedHint')}</p>
+      ) : null}
       <p className="muted">Last seen: {device.lastSeen}</p>
       <p className="muted">Last result: {device.lastResult}</p>
 

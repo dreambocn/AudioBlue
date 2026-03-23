@@ -73,7 +73,7 @@ describe('AudioBlue Control Center integration', () => {
     })
   })
 
-  it('filters unsupported devices and shows empty states', async () => {
+  it('keeps the connected device visible even when it is not a supported scan candidate', async () => {
     const bridge = createStaticBridge({
       devices: [
         {
@@ -84,6 +84,7 @@ describe('AudioBlue Control Center integration', () => {
           isFavorite: false,
           isIgnored: false,
           supportsAudio: false,
+          presentInLastScan: false,
           lastSeen: 'Unknown',
           lastResult: 'Connected',
           rule: {
@@ -124,12 +125,12 @@ describe('AudioBlue Control Center integration', () => {
 
     render(<App bridge={bridge} />)
 
-    expect(await screen.findByText('当前设备: 无')).toBeVisible()
+    expect(await screen.findByText('当前设备: Keyboard')).toBeVisible()
     await userEvent.click(screen.getByRole('button', { name: 'Devices' }))
-    expect(await screen.findByText('未发现可用音频设备。')).toBeVisible()
+    expect(await screen.findByText('Keyboard')).toBeVisible()
+    expect(await screen.findByText('已连接，当前未在扫描结果中出现')).toBeVisible()
     await userEvent.click(screen.getByRole('button', { name: 'Automation' }))
     expect(await screen.findByText('没有可自动化的音频设备。')).toBeVisible()
-    expect(screen.queryByText('Keyboard')).not.toBeInTheDocument()
   })
 
   it('ignores quick panel hash and keeps control center route', async () => {

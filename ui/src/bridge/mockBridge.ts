@@ -18,6 +18,7 @@ const createInitialState = (): AppState => ({
       isFavorite: true,
       isIgnored: false,
       supportsAudio: true,
+      presentInLastScan: true,
       lastSeen: '2m ago',
       lastResult: 'Ready to connect',
       rule: {
@@ -34,6 +35,7 @@ const createInitialState = (): AppState => ({
       isFavorite: false,
       isIgnored: false,
       supportsAudio: true,
+      presentInLastScan: true,
       lastSeen: 'now',
       lastResult: 'Connected',
       rule: {
@@ -50,6 +52,7 @@ const createInitialState = (): AppState => ({
       isFavorite: false,
       isIgnored: true,
       supportsAudio: true,
+      presentInLastScan: true,
       lastSeen: '1h ago',
       lastResult: 'Ignored',
       rule: {

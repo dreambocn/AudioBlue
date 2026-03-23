@@ -7,6 +7,7 @@ const messages: Record<SupportedLanguage, Record<string, string>> = {
   'zh-CN': {
     'common.none': '无',
     'devices.empty': '未发现可用音频设备。',
+    'devices.retainedHint': '已连接，当前未在扫描结果中出现',
     'automation.empty': '没有可自动化的音频设备。',
     'overview.currentDevice': '当前设备',
     'settings.language': '语言',
@@ -17,6 +18,7 @@ const messages: Record<SupportedLanguage, Record<string, string>> = {
   'en-US': {
     'common.none': 'None',
     'devices.empty': 'No supported audio devices found.',
+    'devices.retainedHint': 'Connected, but not present in the latest scan.',
     'automation.empty': 'No audio devices available for automation.',
     'overview.currentDevice': 'Current device',
     'settings.language': 'Language',

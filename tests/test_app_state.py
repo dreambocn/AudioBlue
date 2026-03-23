@@ -80,3 +80,21 @@ def test_app_state_connection_attempt_uses_failure_code_as_stable_contract():
     attempt = snapshot["devices"][0]["lastConnectionAttempt"]
     assert attempt["state"] == "denied"
     assert attempt["failureCode"] == "connection.denied"
+
+
+def test_app_state_snapshot_includes_scan_visibility_flag():
+    store = AppStateStore(config=AppConfig())
+    store.sync_devices(
+        [
+            DeviceSummary(
+                device_id="device-1",
+                name="Phone",
+                connection_state="connected",
+                present_in_last_scan=False,
+            )
+        ]
+    )
+
+    snapshot = store.snapshot()
+
+    assert snapshot["devices"][0]["presentInLastScan"] is False
