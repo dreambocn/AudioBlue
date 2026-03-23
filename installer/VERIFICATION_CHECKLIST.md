@@ -1,8 +1,8 @@
 # AudioBlue Installer Verification Checklist
 
 ## Build Inputs
-- `dist/AudioBlue/audioblue.exe` exists.
-- `dist/AudioBlue/ui/index.html` exists.
+- `dist/AudioBlue/AudioBlue.exe` exists.
+- `dist/AudioBlue/_internal/ui/index.html` exists.
 - `installer/AudioBlue.iss` references `--background` for autostart.
 
 ## Installer Build
@@ -12,7 +12,7 @@
 ## Install Flow
 - Fresh install creates Start Menu shortcuts.
 - Desktop shortcut remains disabled by default unless selected.
-- "Launch after install" starts `audioblue.exe`.
+- "Launch after install" starts `AudioBlue.exe`.
 
 ## Runtime Behavior
 - Autostart task writes Windows Run key for current user.
@@ -22,4 +22,4 @@
 ## Troubleshooting
 - If WebView2 runtime is missing, installer/app shows actionable guidance.
 - Packaging verification helper reports no issues:
-  - `uv run python scripts/verify_packaging_assets.py --format text`
+  - `uv run python scripts/verify_packaging_assets.py --dist-root dist --installer-script installer\AudioBlue.iss --format text`

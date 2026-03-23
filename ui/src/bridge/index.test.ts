@@ -12,6 +12,23 @@ afterEach(() => {
 
 
 describe('resolveBridge', () => {
+  it('reuses the same bridge instance while the runtime mode is unchanged', () => {
+    const unavailableBridge = resolveBridge()
+
+    expect(resolveBridge()).toBe(unavailableBridge)
+
+    window.pywebview = {
+      api: {
+        get_initial_state: vi.fn(async () => ({})),
+      },
+    } as typeof window.pywebview
+
+    const nativeBridge = resolveBridge()
+
+    expect(nativeBridge).not.toBe(unavailableBridge)
+    expect(resolveBridge()).toBe(nativeBridge)
+  })
+
   it('adapts pywebview api snapshots into UI state and events', async () => {
     const listeners: Array<BridgeEvent | Record<string, unknown>> = []
     const pushSnapshot = {
@@ -189,7 +206,7 @@ describe('resolveBridge', () => {
     expect(state.ui.language).toBe('en-US')
     expect(state.ui.themeMode).toBe('dark')
     expect(state.devices[0].id).toBe('device-1')
-    expect((state as any).deviceHistory[0]).toEqual(
+    expect(state.deviceHistory[0]).toEqual(
       expect.objectContaining({
         id: 'archived-1',
         name: 'Archived Speaker',

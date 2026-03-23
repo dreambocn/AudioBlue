@@ -26,7 +26,8 @@ type PyWebviewApi = {
   export_diagnostics?: () => Promise<string>
 }
 
-type RawSnapshot = Record<string, any>
+type RawRecord = Record<string, unknown>
+type RawSnapshot = RawRecord
 
 declare global {
   interface Window {
@@ -37,7 +38,18 @@ declare global {
   }
 }
 
-const normalizeRule = (rawRule: Record<string, any> | undefined) => {
+const asRecord = (value: unknown): RawRecord =>
+  typeof value === 'object' && value !== null ? (value as RawRecord) : {}
+
+const asRecordMap = (value: unknown): Record<string, RawRecord> =>
+  Object.fromEntries(
+    Object.entries(asRecord(value)).map(([key, entry]) => [key, asRecord(entry)]),
+  )
+
+const getPriority = (rawRule: RawRecord): number =>
+  typeof rawRule.priority === 'number' ? rawRule.priority : Number.MAX_SAFE_INTEGER
+
+const normalizeRule = (rawRule: RawRecord = {}) => {
   const autoConnectOnStartup = Boolean(
     rawRule?.autoConnectOnStartup ?? rawRule?.auto_connect_on_startup,
   )
@@ -53,7 +65,7 @@ const normalizeRule = (rawRule: Record<string, any> | undefined) => {
   }
 }
 
-const normalizeHistoryEntry = (rawHistory: Record<string, any>): DeviceHistoryEntry => {
+const normalizeHistoryEntry = (rawHistory: RawRecord): DeviceHistoryEntry => {
   const rawLastConnectionAt =
     rawHistory.lastConnectionAt ?? rawHistory.last_connection_at
   const lastConnectionState = String(
@@ -63,7 +75,7 @@ const normalizeHistoryEntry = (rawHistory: Record<string, any>): DeviceHistoryEn
     rawHistory.lastConnectionTrigger ?? rawHistory.last_connection_trigger
   const lastFailureReason =
     rawHistory.lastFailureReason ?? rawHistory.last_failure_reason
-  const rawSavedRule = (rawHistory.savedRule ?? rawHistory.saved_rule ?? {}) as Record<string, any>
+  const rawSavedRule = asRecord(rawHistory.savedRule ?? rawHistory.saved_rule)
 
   return {
     id: String(rawHistory.deviceId ?? rawHistory.device_id),
@@ -137,46 +149,54 @@ const toPythonRulePatch = (rulePatch: DeviceRulePatch) => {
 }
 
 const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
-  const ruleMap = (snapshot.deviceRules ?? {}) as Record<string, Record<string, any>>
+  const ruleMap = asRecordMap(snapshot.deviceRules)
   const rawDevices = Array.isArray(snapshot.devices) ? snapshot.devices : []
-  const devices = rawDevices.map((device: Record<string, any>) => {
-    const rule = normalizeRule(ruleMap[device.deviceId])
+  const settings = asRecord(snapshot.settings)
+  const startupSettings = asRecord(settings.startup)
+  const uiSettings = asRecord(settings.ui)
+  const notificationSettings = asRecord(settings.notification)
+  const lastFailure = asRecord(snapshot.lastFailure)
+  const devices = rawDevices.map((rawDevice) => {
+    const device = asRecord(rawDevice)
+    const deviceId = String(device.deviceId ?? device.device_id ?? '')
+    const rule = normalizeRule(ruleMap[deviceId])
     const connectionState = String(device.connectionState ?? 'disconnected')
-    const lastAttempt = device.lastConnectionAttempt ?? null
+    const lastAttempt = asRecord(device.lastConnectionAttempt)
+    const capabilities = asRecord(device.capabilities)
+    const failureReason =
+      typeof lastAttempt.failureReason === 'string' ? lastAttempt.failureReason : undefined
     return {
-      id: String(device.deviceId),
+      id: deviceId,
       name: String(device.name),
       isConnected: connectionState === 'connected',
       isConnecting: connectionState === 'connecting',
       isFavorite: Boolean(
-        ruleMap[device.deviceId]?.isFavorite ?? ruleMap[device.deviceId]?.is_favorite,
+        ruleMap[deviceId]?.isFavorite ?? ruleMap[deviceId]?.is_favorite,
       ),
       isIgnored: Boolean(
-        ruleMap[device.deviceId]?.isIgnored ?? ruleMap[device.deviceId]?.is_ignored,
+        ruleMap[deviceId]?.isIgnored ?? ruleMap[deviceId]?.is_ignored,
       ),
       supportsAudio: Boolean(
-        device.capabilities?.supportsAudioPlayback ??
-          device.capabilities?.supports_audio_playback ??
+        capabilities.supportsAudioPlayback ??
+          capabilities.supports_audio_playback ??
           false,
       ),
       presentInLastScan: Boolean(device.presentInLastScan ?? true),
       lastSeen: device.lastSeenAt ? String(device.lastSeenAt) : 'Unknown',
       lastResult:
-        lastAttempt?.failureReason ??
+        failureReason ??
         (connectionState === 'connected' ? 'Connected' : 'Ready to connect'),
       rule,
     }
   })
   const rawHistory = Array.isArray(snapshot.deviceHistory ?? snapshot.device_history)
-    ? (snapshot.deviceHistory ?? snapshot.device_history)
+    ? ((snapshot.deviceHistory ?? snapshot.device_history) as unknown[])
     : []
-  const deviceHistory = rawHistory.map((entry: Record<string, any>) =>
-    normalizeHistoryEntry(entry),
-  )
+  const deviceHistory = rawHistory.map((entry) => normalizeHistoryEntry(asRecord(entry)))
 
   const connectedDevice = devices.find((device) => device.isConnected)
   const prioritizedFromRules = Object.entries(ruleMap)
-    .sort(([, left], [, right]) => (left.priority ?? Number.MAX_SAFE_INTEGER) - (right.priority ?? Number.MAX_SAFE_INTEGER))
+    .sort(([, left], [, right]) => getPriority(left) - getPriority(right))
     .map(([deviceId]) => deviceId)
   const remainingDeviceIds = devices
     .map((device) => device.id)
@@ -186,39 +206,39 @@ const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
     devices,
     deviceHistory,
     prioritizedDeviceIds: [...prioritizedFromRules, ...remainingDeviceIds],
-    recentActivity: snapshot.lastFailure?.message
-      ? [String(snapshot.lastFailure.message)]
+    recentActivity: lastFailure.message
+      ? [String(lastFailure.message)]
       : ['Ready to manage Bluetooth audio devices.'],
     connection: {
       status: connectedDevice ? 'connected' : 'disconnected',
       currentDeviceId: connectedDevice?.id,
-      lastFailure: snapshot.lastFailure?.message
-        ? String(snapshot.lastFailure.message)
+      lastFailure: lastFailure.message
+        ? String(lastFailure.message)
         : undefined,
     },
     startup: {
-      autostart: Boolean(snapshot.settings?.startup?.autostart),
-      backgroundStart: Boolean(snapshot.settings?.startup?.runInBackground),
-      delaySeconds: Number(snapshot.settings?.startup?.launchDelaySeconds ?? 0),
+      autostart: Boolean(startupSettings.autostart),
+      backgroundStart: Boolean(startupSettings.runInBackground),
+      delaySeconds: Number(startupSettings.launchDelaySeconds ?? 0),
       reconnectOnNextStart: Boolean(
-        snapshot.settings?.startup?.reconnectOnNextStart ??
-          snapshot.settings?.startup?.reconnect_on_next_start ??
+        startupSettings.reconnectOnNextStart ??
+          startupSettings.reconnect_on_next_start ??
           snapshot.reconnect ??
           false,
       ),
     },
     ui: {
-      themeMode: String(snapshot.settings?.ui?.theme ?? 'system') as AppState['ui']['themeMode'],
-      language: String(snapshot.settings?.ui?.language ?? 'system') as AppState['ui']['language'],
+      themeMode: String(uiSettings.theme ?? 'system') as AppState['ui']['themeMode'],
+      language: String(uiSettings.language ?? 'system') as AppState['ui']['language'],
       showAudioOnly: true,
       diagnosticsMode: false,
     },
     notifications: {
-      policy: String(snapshot.settings?.notification?.policy ?? 'failures') as AppState['notifications']['policy'],
+      policy: String(notificationSettings.policy ?? 'failures') as AppState['notifications']['policy'],
     },
     diagnostics: {
       lastProbe: 'Desktop bridge connected',
-      probeResult: snapshot.lastFailure?.message
+      probeResult: lastFailure.message
         ? 'Recent connection issue captured.'
         : 'No critical warnings.',
     },
@@ -273,11 +293,18 @@ const emitState = (
   }
 }
 
+const bridgeCache: {
+  pywebviewApi?: PyWebviewApi
+  pywebviewBridge?: BackendBridge
+  mockBridge?: BackendBridge
+  unavailableBridge?: BackendBridge
+} = {}
+
 const createPyWebviewBridge = (api: PyWebviewApi): BackendBridge => {
   const listeners = new Set<(event: BridgeEvent) => void>()
 
   const applySnapshot = (snapshot: unknown) => {
-    const normalized = normalizeSnapshot((snapshot ?? {}) as RawSnapshot)
+    const normalized = normalizeSnapshot(asRecord(snapshot))
     emitState(normalized, listeners)
     return normalized
   }
@@ -316,13 +343,13 @@ const createPyWebviewBridge = (api: PyWebviewApi): BackendBridge => {
         applySnapshot(await api.set_reconnect(enabled))
         return
       }
-      const snapshot = (await api.get_initial_state?.()) as RawSnapshot | undefined
+      const snapshot = asRecord(await api.get_initial_state?.())
       const fallbackSnapshot = {
-        ...(snapshot ?? {}),
+        ...snapshot,
         settings: {
-          ...(snapshot?.settings ?? {}),
+          ...asRecord(snapshot.settings),
           startup: {
-            ...(snapshot?.settings?.startup ?? {}),
+            ...asRecord(asRecord(snapshot.settings).startup),
             reconnectOnNextStart: enabled,
           },
         },
@@ -341,13 +368,13 @@ const createPyWebviewBridge = (api: PyWebviewApi): BackendBridge => {
         return
       }
 
-      const snapshot = (await api.get_initial_state?.()) as RawSnapshot | undefined
+      const snapshot = asRecord(await api.get_initial_state?.())
       const fallbackSnapshot = {
-        ...(snapshot ?? {}),
+        ...snapshot,
         settings: {
-          ...(snapshot?.settings ?? {}),
+          ...asRecord(snapshot.settings),
           ui: {
-            ...(snapshot?.settings?.ui ?? {}),
+            ...asRecord(asRecord(snapshot.settings).ui),
             language,
           },
         },
@@ -442,15 +469,21 @@ export const resolveBridge = (): BackendBridge => {
   }
 
   if (window.pywebview?.api) {
-    return createPyWebviewBridge(window.pywebview.api)
+    if (bridgeCache.pywebviewApi !== window.pywebview.api) {
+      bridgeCache.pywebviewApi = window.pywebview.api
+      bridgeCache.pywebviewBridge = createPyWebviewBridge(window.pywebview.api)
+    }
+    return bridgeCache.pywebviewBridge!
   }
 
   const isMockEnabled = import.meta.env.DEV && import.meta.env.VITE_AUDIOBLUE_ENABLE_MOCK_BRIDGE === 'true'
   if (isMockEnabled) {
-    return createMockBridge()
+    bridgeCache.mockBridge ??= createMockBridge()
+    return bridgeCache.mockBridge
   }
 
-  return createUnavailableBridge()
+  bridgeCache.unavailableBridge ??= createUnavailableBridge()
+  return bridgeCache.unavailableBridge
 }
 
 export * from './types'

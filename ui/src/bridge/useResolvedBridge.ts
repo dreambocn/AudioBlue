@@ -1,30 +1,24 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 
 import { resolveBridge } from './index'
 import type { BackendBridge } from './types'
 
 export function useResolvedBridge(bridge?: BackendBridge): BackendBridge {
-  const [resolvedBridge, setResolvedBridge] = useState<BackendBridge>(() =>
-    bridge ?? resolveBridge(),
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      if (bridge) {
+        return () => undefined
+      }
+
+      window.addEventListener('pywebviewready', onStoreChange)
+      return () => {
+        window.removeEventListener('pywebviewready', onStoreChange)
+      }
+    },
+    [bridge],
   )
 
-  useEffect(() => {
-    if (bridge) {
-      setResolvedBridge(bridge)
-      return
-    }
+  const getSnapshot = useCallback(() => bridge ?? resolveBridge(), [bridge])
 
-    const refreshBridge = () => {
-      setResolvedBridge(resolveBridge())
-    }
-
-    refreshBridge()
-    window.addEventListener('pywebviewready', refreshBridge)
-
-    return () => {
-      window.removeEventListener('pywebviewready', refreshBridge)
-    }
-  }, [bridge])
-
-  return bridge ?? resolvedBridge
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }

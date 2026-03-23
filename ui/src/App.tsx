@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { BackendBridge, BridgeEvent } from './bridge/types'
 import { useResolvedBridge } from './bridge/useResolvedBridge'
 import { TrayQuickPanel } from './components/TrayQuickPanel'
@@ -25,6 +25,35 @@ const navItems: { key: AppRoute; labelKey: string }[] = [
   { key: 'automation', labelKey: 'nav.automation' },
   { key: 'settings', labelKey: 'nav.settings' },
 ]
+
+const getSystemTheme = (): Exclude<ThemeMode, 'system'> =>
+  globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+
+const subscribeSystemTheme = (onStoreChange: () => void) => {
+  const mediaQuery = globalThis.matchMedia?.('(prefers-color-scheme: dark)')
+  if (!mediaQuery) {
+    return () => undefined
+  }
+
+  mediaQuery.addEventListener('change', onStoreChange)
+  return () => {
+    mediaQuery.removeEventListener('change', onStoreChange)
+  }
+}
+
+const useResolvedTheme = (themeMode?: ThemeMode): Exclude<ThemeMode, 'system'> => {
+  const systemTheme = useSyncExternalStore<Exclude<ThemeMode, 'system'>>(
+    subscribeSystemTheme,
+    getSystemTheme,
+    () => 'light',
+  )
+
+  if (themeMode === 'light' || themeMode === 'dark') {
+    return themeMode
+  }
+
+  return systemTheme
+}
 
 const updateDeviceRule = (
   devices: DeviceViewModel[],
@@ -229,8 +258,8 @@ function ControlCenterContent({
 function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
   const [route, setRoute] = useState<AppRoute>('overview')
   const [state, setState] = useState<AppState | null>(null)
-  const [resolvedTheme, setResolvedTheme] = useState<Exclude<ThemeMode, 'system'>>('light')
   const [isLoading, setIsLoading] = useState(true)
+  const resolvedTheme = useResolvedTheme(state?.ui.themeMode)
 
   useEffect(() => {
     let alive = true
@@ -251,31 +280,6 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
       unsubscribe()
     }
   }, [bridge])
-
-  useEffect(() => {
-    if (!state || state.ui.themeMode !== 'system') {
-      if (state && state.ui.themeMode !== 'system') {
-        setResolvedTheme(state.ui.themeMode)
-      }
-      return
-    }
-
-    const mediaQuery = globalThis.matchMedia?.('(prefers-color-scheme: dark)')
-    const applySystemTheme = () => {
-      setResolvedTheme(mediaQuery?.matches ? 'dark' : 'light')
-    }
-
-    applySystemTheme()
-
-    if (!mediaQuery) {
-      return
-    }
-
-    mediaQuery.addEventListener('change', applySystemTheme)
-    return () => {
-      mediaQuery.removeEventListener('change', applySystemTheme)
-    }
-  }, [state?.ui.themeMode])
 
   useEffect(() => {
     if (!state) {
