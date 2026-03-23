@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { resolveBridge } from './bridge'
 import type { BackendBridge, BridgeEvent } from './bridge/types'
+import { useResolvedBridge } from './bridge/useResolvedBridge'
 import { TrayQuickPanel } from './components/TrayQuickPanel'
 import { LanguageProvider, useI18n } from './i18n'
 import { AutomationPage } from './pages/AutomationPage'
@@ -18,8 +18,6 @@ import type {
   ThemeMode,
 } from './types'
 import './App.css'
-
-const defaultBridge = resolveBridge()
 
 const navItems: { key: AppRoute; labelKey: string }[] = [
   { key: 'overview', labelKey: 'nav.overview' },
@@ -405,8 +403,10 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
   )
 }
 
-function App({ bridge = defaultBridge }: AppProps) {
-  return <ControlCenterShell bridge={bridge} />
+function App({ bridge }: AppProps) {
+  const resolvedBridge = useResolvedBridge(bridge)
+
+  return <ControlCenterShell bridge={resolvedBridge} />
 }
 
 export default App

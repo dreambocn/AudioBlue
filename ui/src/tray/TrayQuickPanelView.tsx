@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { resolveBridge } from '../bridge'
 import type { BackendBridge } from '../bridge/types'
+import { useResolvedBridge } from '../bridge/useResolvedBridge'
 import { TrayQuickPanel } from '../components/TrayQuickPanel'
 import { LanguageProvider } from '../i18n'
 import type { AppState } from '../types'
@@ -11,20 +11,21 @@ interface TrayQuickPanelViewProps {
 }
 
 export function TrayQuickPanelView({
-  bridge = resolveBridge(),
+  bridge,
   onOpenControlCenter = () => undefined,
 }: TrayQuickPanelViewProps) {
+  const resolvedBridge = useResolvedBridge(bridge)
   const [state, setState] = useState<AppState | null>(null)
 
   useEffect(() => {
     let alive = true
-    bridge.getInitialState().then((initial) => {
+    resolvedBridge.getInitialState().then((initial) => {
       if (alive) {
         setState(initial)
       }
     })
 
-    const unsub = bridge.onEvent((event) => {
+    const unsub = resolvedBridge.onEvent((event) => {
       if (event.type === 'devices_changed') {
         setState((current) => (current ? { ...current, devices: event.devices } : current))
       }
@@ -39,7 +40,7 @@ export function TrayQuickPanelView({
       alive = false
       unsub()
     }
-  }, [bridge])
+  }, [resolvedBridge])
 
   if (!state) {
     return <div className="loading-shell">Loading quick panel…</div>
@@ -66,18 +67,18 @@ export function TrayQuickPanelView({
         totalDevices={state.devices.length}
         matchedSourceDevices={audioDevices}
         debugDevices={state.devices}
-        onConnect={(id) => bridge.connectDevice(id)}
-        onDisconnect={(id) => bridge.disconnectDevice(id)}
+        onConnect={(id) => resolvedBridge.connectDevice(id)}
+        onDisconnect={(id) => resolvedBridge.disconnectDevice(id)}
         onToggleAutoConnect={(enabled) =>
           activeDevice
-            ? bridge.updateDeviceRule(activeDevice.id, {
+            ? resolvedBridge.updateDeviceRule(activeDevice.id, {
                 autoConnectOnAppear: enabled,
                 mode: enabled ? 'appear' : 'manual',
               })
             : Promise.resolve()
         }
         onOpenControlCenter={onOpenControlCenter}
-        onOpenBluetoothSettings={() => bridge.openBluetoothSettings()}
+        onOpenBluetoothSettings={() => resolvedBridge.openBluetoothSettings()}
       />
     </LanguageProvider>
   )
