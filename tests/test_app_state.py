@@ -5,9 +5,9 @@ from audio_blue.models import AppConfig, DeviceRule, DeviceSummary, UiPreference
 
 
 def test_humanize_connection_failure_returns_user_friendly_copy():
-    assert humanize_connection_failure("timeout") == "Connection timed out before audio could start."
-    assert humanize_connection_failure("denied") == "Windows denied the audio connection request."
-    assert humanize_connection_failure("error") == "AudioBlue could not connect to the device."
+    assert humanize_connection_failure("timeout", language="en-US") == "Connection timed out before audio could start."
+    assert humanize_connection_failure("denied", language="en-US") == "Windows denied the audio connection request."
+    assert humanize_connection_failure("error", language="zh-CN") == "AudioBlue 无法连接到该设备。"
 
 
 def test_app_state_tracks_failures_and_rule_updates():
@@ -38,7 +38,7 @@ def test_app_state_tracks_failures_and_rule_updates():
     assert snapshot["lastFailure"]["deviceId"] == "device-1"
     assert snapshot["lastFailure"]["state"] == "timeout"
     assert snapshot["lastFailure"]["code"] == "connection.timeout"
-    assert snapshot["lastFailure"]["message"] == humanize_connection_failure("timeout")
+    assert snapshot["lastFailure"]["message"] == humanize_connection_failure("timeout", language="zh-CN")
     assert snapshot["settings"]["ui"]["language"] == "zh-CN"
     assert snapshot["devices"][0]["lastSeenAt"] == "2026-03-23T09:30:00+00:00"
     assert snapshot["deviceRules"]["device-1"] == {

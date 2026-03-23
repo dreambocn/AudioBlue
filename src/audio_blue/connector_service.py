@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from queue import Queue
 from threading import Event, Lock, Thread
 from typing import Awaitable, Callable, Protocol, TypeVar
@@ -44,6 +45,10 @@ def map_connection_state(state: AudioPlaybackConnectionState) -> str:
     return "disconnected"
 
 
+def get_audio_playback_selector() -> str:
+    return AudioPlaybackConnection.get_device_selector()
+
+
 @dataclass(slots=True)
 class WinRTConnectionHandle:
     device_id: str
@@ -65,7 +70,7 @@ class ConnectorBackend(Protocol):
 
 class WinRTConnectorBackend:
     def list_devices(self) -> list[DeviceSummary]:
-        selector = AudioPlaybackConnection.get_device_selector()
+        selector = get_audio_playback_selector()
         devices = run_awaitable_blocking(
             DeviceInformation.find_all_async_aqs_filter(selector)
         )
@@ -142,6 +147,7 @@ class ConnectorService:
             devices = self._device_provider()
         else:
             devices = self._run_on_worker(self._backend.list_devices)  # type: ignore[union-attr]
+        seen_at = datetime.now(UTC)
 
         with self._lock:
             existing_devices = self.known_devices
@@ -154,7 +160,7 @@ class ConnectorService:
                     if device.device_id in self.active_connections
                     else device.connection_state,
                     present_in_last_scan=True,
-                    last_seen_at=device.last_seen_at or (existing.last_seen_at if existing else None),
+                    last_seen_at=seen_at,
                     last_connection_attempt=(
                         device.last_connection_attempt
                         or (existing.last_connection_attempt if existing else None)
@@ -179,12 +185,12 @@ class ConnectorService:
         self._emit({"event": "devices_refreshed", "device_ids": list(self.known_devices)})
         return list(self.known_devices.values())
 
-    def connect(self, device_id: str) -> None:
+    def connect(self, device_id: str, *, trigger: str = "manual") -> None:
         if self._device_provider is not None:
             device = self.known_devices[device_id]
             self.active_connections[device_id] = object()
             self.known_devices[device_id] = replace(device, connection_state="connected")
-            self._emit({"event": "device_connected", "device_id": device_id})
+            self._emit({"event": "device_connected", "device_id": device_id, "trigger": trigger})
             return
 
         handle, state = self._run_on_worker(
@@ -200,16 +206,23 @@ class ConnectorService:
                 self.active_connections.pop(device_id, None)
 
         if state == "connected":
-            self._emit({"event": "device_connected", "device_id": device_id})
+            self._emit({"event": "device_connected", "device_id": device_id, "trigger": trigger})
         else:
-            self._emit({"event": "device_connection_failed", "device_id": device_id, "state": state})
+            self._emit(
+                {
+                    "event": "device_connection_failed",
+                    "device_id": device_id,
+                    "state": state,
+                    "trigger": trigger,
+                }
+            )
 
-    def disconnect(self, device_id: str) -> None:
+    def disconnect(self, device_id: str, *, trigger: str = "manual") -> None:
         if self._device_provider is not None:
             device = self.known_devices[device_id]
             self.active_connections.pop(device_id, None)
             self.known_devices[device_id] = replace(device, connection_state="disconnected")
-            self._emit({"event": "device_disconnected", "device_id": device_id})
+            self._emit({"event": "device_disconnected", "device_id": device_id, "trigger": trigger})
             return
 
         handle = self.active_connections.pop(device_id, None)
@@ -221,7 +234,7 @@ class ConnectorService:
                 device = self.known_devices[device_id]
                 self.known_devices[device_id] = replace(device, connection_state="disconnected")
 
-        self._emit({"event": "device_disconnected", "device_id": device_id})
+        self._emit({"event": "device_disconnected", "device_id": device_id, "trigger": trigger})
 
     def shutdown(self) -> None:
         if self._backend is not None:

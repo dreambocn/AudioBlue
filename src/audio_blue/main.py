@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from logging import Logger
 import os
 from threading import Lock, Thread
+from typing import Any
 
 from audio_blue.config import get_config_path, load_config
 from audio_blue.connector_service import ConnectorService
@@ -16,9 +17,38 @@ from audio_blue.logging_util import configure_logging
 from audio_blue.app_state import AppStateStore
 from audio_blue.autostart_manager import AutostartManager
 from audio_blue.notification_service import NotificationService
+from audio_blue.rules_engine import RulesEngine
 from audio_blue.session_state import SessionStateCoordinator
 from audio_blue.single_instance import SingleInstanceManager
 from audio_blue.tray_host import TrayHost
+
+
+def _resolve_runtime_storage(logger: Logger) -> Any | None:
+    try:
+        from audio_blue import storage as storage_module
+    except Exception:
+        return None
+
+    candidates = [
+        getattr(storage_module, "get_storage", None),
+        getattr(storage_module, "get_default_storage", None),
+        getattr(storage_module, "default_storage", None),
+        getattr(storage_module, "storage", None),
+    ]
+
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        try:
+            storage = candidate() if callable(candidate) else candidate
+            initialize = getattr(storage, "initialize", None)
+            if callable(initialize):
+                initialize()
+            return storage
+        except Exception:
+            logger.exception("Failed to initialize runtime storage from %r", candidate)
+            return None
+    return None
 
 
 def restore_reconnect_devices(
@@ -26,15 +56,26 @@ def restore_reconnect_devices(
     config,
     logger: Logger,
 ) -> None:
-    if not config.reconnect or not config.last_devices:
+    refreshed_devices = service.refresh_devices()
+    devices = list(getattr(service, "known_devices", {}).values()) or list(refreshed_devices or [])
+    if not devices:
         return
 
-    service.refresh_devices()
-    for device_id in config.last_devices:
+    candidates = RulesEngine(config).get_auto_connect_candidates(
+        devices=devices,
+        trigger="startup",
+    )
+    for device in candidates:
         try:
-            service.connect(device_id)
+            try:
+                service.connect(device.device_id, trigger="startup")
+            except TypeError:
+                service.connect(device.device_id)
         except Exception:
-            logger.exception("Failed to reconnect device %s", device_id)
+            logger.exception("Failed to auto-connect device %s during startup", device.device_id)
+            continue
+        if device.device_id in getattr(service, "active_connections", {}):
+            break
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -114,6 +155,7 @@ def create_default_host(
     config,
     logger,
     background: bool,
+    storage=None,
 ):
     app_state = AppStateStore(config=config)
     autostart_manager = AutostartManager()
@@ -123,6 +165,7 @@ def create_default_host(
         app_state=app_state,
         autostart_manager=autostart_manager,
         notification_service=notification_service,
+        storage=storage,
     )
 
     def build_tray_only_host() -> TrayHost:
@@ -176,6 +219,7 @@ def run_app(
     host_factory=create_default_host,
     config=None,
     logger: Logger | None = None,
+    storage=None,
 ) -> int:
     if not instance_manager.acquire():
         return 0
@@ -185,13 +229,14 @@ def run_app(
 
     try:
         service = service_factory()
-        restore_reconnect_devices(service=service, config=app_config, logger=app_logger)
+        runtime_storage = storage or _resolve_runtime_storage(app_logger)
 
         host = host_factory(
             service=service,
             config=app_config,
             logger=app_logger,
             background=background,
+            storage=runtime_storage,
         )
         host.run()
         return 0

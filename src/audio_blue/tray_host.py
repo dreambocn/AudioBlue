@@ -11,6 +11,7 @@ import win32gui
 
 from audio_blue.config import save_config
 from audio_blue.connector_service import ConnectorService
+from audio_blue.localization import tray_label
 from audio_blue.models import AppConfig, DeviceSummary
 
 WMAPP_NOTIFYCALLBACK = win32con.WM_APP + 1
@@ -25,11 +26,20 @@ class MenuEntry:
     device_id: str | None = None
 
 
-def build_menu_entries(devices: list[DeviceSummary], reconnect_enabled: bool) -> list[MenuEntry]:
+def build_menu_entries(
+    devices: list[DeviceSummary],
+    reconnect_enabled: bool,
+    *,
+    language: str = "system",
+) -> list[MenuEntry]:
     entries = [
-        MenuEntry(action="refresh_devices", label="Refresh Devices"),
-        MenuEntry(action="toggle_reconnect", label="Reconnect On Next Start", checked=reconnect_enabled),
-        MenuEntry(action="open_control_center", label="Open Control Center"),
+        MenuEntry(action="refresh_devices", label=tray_label("refresh_devices", language=language)),
+        MenuEntry(
+            action="toggle_reconnect",
+            label=tray_label("toggle_reconnect", language=language),
+            checked=reconnect_enabled,
+        ),
+        MenuEntry(action="open_control_center", label=tray_label("open_control_center", language=language)),
     ]
 
     for device in devices:
@@ -37,7 +47,7 @@ def build_menu_entries(devices: list[DeviceSummary], reconnect_enabled: bool) ->
             entries.append(
                 MenuEntry(
                     action="disconnect_device",
-                    label=f"Disconnect {device.name}",
+                    label=tray_label("disconnect_device", language=language, device_name=device.name),
                     device_id=device.device_id,
                 )
             )
@@ -45,15 +55,15 @@ def build_menu_entries(devices: list[DeviceSummary], reconnect_enabled: bool) ->
             entries.append(
                 MenuEntry(
                     action="connect_device",
-                    label=f"Connect {device.name}",
+                    label=tray_label("connect_device", language=language, device_name=device.name),
                     device_id=device.device_id,
                 )
             )
 
     entries.extend(
         [
-            MenuEntry(action="open_bluetooth_settings", label="Bluetooth Settings"),
-            MenuEntry(action="exit", label="Exit"),
+            MenuEntry(action="open_bluetooth_settings", label=tray_label("open_bluetooth_settings", language=language)),
+            MenuEntry(action="exit", label=tray_label("exit", language=language)),
         ]
     )
     return entries
@@ -155,7 +165,8 @@ class TrayHost:
             if self._session_state is not None
             else list(self._service.known_devices.values())
         )
-        for entry in build_menu_entries(devices, self._config.reconnect):
+        language = getattr(self._config.ui, "language", "system")
+        for entry in build_menu_entries(devices, self._config.reconnect, language=language):
             menu_flags = win32con.MF_STRING
             if not entry.enabled:
                 menu_flags |= win32con.MF_GRAYED

@@ -24,11 +24,13 @@ def test_connect_tracks_connection_and_emits_state():
     )
     service.refresh_devices()
 
-    service.connect("device-1")
+    service.connect("device-1", trigger="startup")
 
     assert "device-1" in service.active_connections
     assert service.known_devices["device-1"].connection_state == "connected"
-    assert published[-1] == {"event": "device_connected", "device_id": "device-1"}
+    assert published[-1]["event"] == "device_connected"
+    assert published[-1]["device_id"] == "device-1"
+    assert published[-1]["trigger"] == "startup"
 
 
 def test_disconnect_releases_connection_and_emits_state():
@@ -44,7 +46,9 @@ def test_disconnect_releases_connection_and_emits_state():
 
     assert "device-1" not in service.active_connections
     assert service.known_devices["device-1"].connection_state == "disconnected"
-    assert published[-1] == {"event": "device_disconnected", "device_id": "device-1"}
+    assert published[-1]["event"] == "device_disconnected"
+    assert published[-1]["device_id"] == "device-1"
+    assert published[-1]["trigger"] == "manual"
 
 
 def test_shutdown_clears_connections_and_marks_service_stopped():

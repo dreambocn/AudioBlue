@@ -9,7 +9,7 @@ from audio_blue.tray_host import TrayHost, build_menu_entries
 
 
 def test_build_menu_entries_includes_static_actions_and_toggle():
-    entries = build_menu_entries([], reconnect_enabled=True)
+    entries = build_menu_entries([], reconnect_enabled=True, language="en-US")
     labels = [entry.label for entry in entries]
 
     assert labels[:2] == ["Refresh Devices", "Reconnect On Next Start"]
@@ -26,7 +26,7 @@ def test_build_menu_entries_adds_one_entry_per_device_with_stateful_labels():
         DeviceSummary(device_id="device-2", name="Speaker", connection_state="disconnected"),
     ]
 
-    entries = build_menu_entries(devices, reconnect_enabled=False)
+    entries = build_menu_entries(devices, reconnect_enabled=False, language="en-US")
     device_entries = [entry for entry in entries if entry.action in {"connect_device", "disconnect_device"}]
 
     assert [entry.label for entry in device_entries] == [
@@ -34,6 +34,13 @@ def test_build_menu_entries_adds_one_entry_per_device_with_stateful_labels():
         "Connect Speaker",
     ]
     assert [entry.device_id for entry in device_entries] == ["device-1", "device-2"]
+
+
+def test_build_menu_entries_localizes_labels():
+    entries = build_menu_entries([], reconnect_enabled=True, language="zh-CN")
+    labels = [entry.label for entry in entries]
+
+    assert labels[:3] == ["刷新设备", "下次启动时自动重连", "打开控制中心"]
 
 
 class ServiceStub:

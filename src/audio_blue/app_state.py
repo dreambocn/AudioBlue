@@ -8,8 +8,8 @@ from audio_blue.models import AppConfig, ConnectionAttempt, DeviceRule, DeviceSu
 from audio_blue.rules_engine import RulesEngine
 
 
-def humanize_connection_failure(state: str) -> str:
-    return connection_failure_message(state, language="en-US")
+def humanize_connection_failure(state: str, *, language: str = "system") -> str:
+    return connection_failure_message(state, language=language)
 
 
 class AppStateStore:
@@ -25,25 +25,28 @@ class AppStateStore:
     def handle_connector_event(self, payload: dict[str, Any]) -> None:
         event_name = payload.get("event")
         device_id = payload.get("device_id")
+        trigger = payload.get("trigger")
+        trigger_name = trigger if isinstance(trigger, str) else "manual"
         if not isinstance(device_id, str):
             return
 
         if event_name == "device_connected":
-            self._apply_device_state(device_id=device_id, state="connected", trigger="manual")
+            self._apply_device_state(device_id=device_id, state="connected", trigger=trigger_name)
         elif event_name in {"device_disconnected", "device_state_changed"}:
             state = payload.get("state", "disconnected")
             if isinstance(state, str):
-                self._apply_device_state(device_id=device_id, state=state, trigger="manual")
+                self._apply_device_state(device_id=device_id, state=state, trigger=trigger_name)
         elif event_name == "device_connection_failed":
             state = payload.get("state", "error")
             if not isinstance(state, str):
                 state = "error"
-            self._apply_device_state(device_id=device_id, state=state, trigger="manual")
+            self._apply_device_state(device_id=device_id, state=state, trigger=trigger_name)
+            language = getattr(self.config.ui, "language", "system")
             self._last_failure = {
                 "deviceId": device_id,
                 "state": state,
                 "code": f"connection.{state}",
-                "message": humanize_connection_failure(state),
+                "message": humanize_connection_failure(state, language=language),
             }
 
     def update_device_rule(self, device_id: str, rule_patch: dict[str, Any]) -> DeviceRule:
@@ -88,7 +91,11 @@ class AppStateStore:
             trigger=trigger,
             succeeded=state == "connected",
             state=state,
-            failure_reason=None if state == "connected" else humanize_connection_failure(state),
+            failure_reason=(
+                None
+                if state == "connected"
+                else humanize_connection_failure(state, language=getattr(self.config.ui, "language", "system"))
+            ),
             failure_code=None if state == "connected" else f"connection.{state}",
         )
         self._devices[device_id] = replace(

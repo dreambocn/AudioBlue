@@ -17,6 +17,7 @@ BRIDGE_METHODS = {
     "reorder_device_priority",
     "set_autostart",
     "set_theme",
+    "set_language",
     "set_notification_policy",
     "open_bluetooth_settings",
     "export_diagnostics",

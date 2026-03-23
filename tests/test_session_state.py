@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
+import pytest
+
 from audio_blue.app_state import AppStateStore
-from audio_blue.models import AppConfig, DeviceSummary
-from audio_blue.notification_service import NotificationService
+from audio_blue.models import AppConfig, DeviceRule, NotificationPreferences, DeviceSummary
+from audio_blue.notification_service import NotificationMessage, NotificationService
 from audio_blue.session_state import SessionStateCoordinator
 
 
@@ -14,6 +18,7 @@ class ConnectorServiceStub:
         }
         self.active_connections: dict[str, object] = {}
         self._state_callback = None
+        self.connect_calls: list[tuple[str, str]] = []
 
     def refresh_devices(self):
         if callable(self._state_callback):
@@ -25,21 +30,41 @@ class ConnectorServiceStub:
             )
         return list(self.known_devices.values())
 
-    def connect(self, device_id: str):
+    def connect(self, device_id: str, trigger: str = "manual"):
+        self.connect_calls.append((device_id, trigger))
         self.active_connections[device_id] = object()
-        self.known_devices[device_id].connection_state = "connected"
+        self.known_devices[device_id] = DeviceSummary(
+            device_id=self.known_devices[device_id].device_id,
+            name=self.known_devices[device_id].name,
+            connection_state="connected",
+            present_in_last_scan=self.known_devices[device_id].present_in_last_scan,
+            last_seen_at=datetime(2026, 3, 23, 10, 0, tzinfo=UTC),
+        )
         if callable(self._state_callback):
-            self._state_callback({"event": "device_connected", "device_id": device_id})
+            self._state_callback(
+                {
+                    "event": "device_connected",
+                    "device_id": device_id,
+                    "trigger": trigger,
+                }
+            )
 
-    def disconnect(self, device_id: str):
+    def disconnect(self, device_id: str, trigger: str = "manual"):
         self.active_connections.pop(device_id, None)
-        self.known_devices[device_id].connection_state = "disconnected"
+        self.known_devices[device_id] = DeviceSummary(
+            device_id=self.known_devices[device_id].device_id,
+            name=self.known_devices[device_id].name,
+            connection_state="disconnected",
+            present_in_last_scan=self.known_devices[device_id].present_in_last_scan,
+            last_seen_at=self.known_devices[device_id].last_seen_at,
+        )
         if callable(self._state_callback):
             self._state_callback(
                 {
                     "event": "device_disconnected",
                     "device_id": device_id,
                     "state": "disconnected",
+                    "trigger": trigger,
                 }
             )
 
@@ -50,6 +75,23 @@ class AutostartManagerStub:
 
     def set_enabled(self, enabled: bool):
         self.enabled = enabled
+
+
+class StorageStub:
+    def __init__(self):
+        self.connection_attempts: list[dict] = []
+        self.device_cache_updates: list[dict] = []
+
+    def record_connection_attempt(self, **payload):
+        self.connection_attempts.append(payload)
+
+    def upsert_device_cache(self, **payload):
+        self.device_cache_updates.append(payload)
+
+
+@pytest.fixture(autouse=True)
+def _patch_save_config(monkeypatch):
+    monkeypatch.setattr("audio_blue.session_state.save_config", lambda _config: None)
 
 
 def test_session_state_registers_service_callback_and_tracks_external_events():
@@ -90,6 +132,120 @@ def test_session_state_connect_disconnect_and_settings_share_single_snapshot_sou
     assert connected["devices"][0]["connectionState"] == "connected"
     assert disconnected["devices"][0]["connectionState"] == "disconnected"
     assert after_theme["settings"]["ui"]["theme"] == "dark"
+
+
+def test_session_state_startup_auto_connect_uses_rules_order_and_stops_after_success():
+    service = ConnectorServiceStub()
+    service.known_devices["device-3"] = DeviceSummary(device_id="device-3", name="Receiver")
+    storage = StorageStub()
+    published_notifications: list[NotificationMessage] = []
+    config = AppConfig(
+        reconnect=True,
+        last_devices=["device-3"],
+        notification=NotificationPreferences(policy="all"),
+        device_rules={
+            "device-1": DeviceRule(
+                is_favorite=True,
+                auto_connect_on_startup=True,
+                priority=2,
+            ),
+            "device-2": DeviceRule(
+                auto_connect_on_startup=True,
+                priority=1,
+            ),
+        },
+    )
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(config=config),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="all", sink=published_notifications.append),
+        storage=storage,
+    )
+
+    def connect_with_first_failure(device_id: str, trigger: str = "manual"):
+        if device_id == "device-1":
+            service.connect_calls.append((device_id, trigger))
+            service._state_callback(
+                {
+                    "event": "device_connection_failed",
+                    "device_id": "device-1",
+                    "state": "timeout",
+                    "trigger": trigger,
+                }
+            )
+            return
+        ConnectorServiceStub.connect(service, device_id, trigger=trigger)
+
+    service.connect = connect_with_first_failure
+
+    session_state.refresh_devices()
+
+    assert service.connect_calls == [("device-1", "startup"), ("device-2", "startup")]
+    assert any(item["trigger"] == "startup" and item["state"] == "timeout" for item in storage.connection_attempts)
+    assert any(item["trigger"] == "startup" and item["succeeded"] is True for item in storage.connection_attempts)
+    assert [message.level for message in published_notifications] == ["error", "info"]
+
+
+def test_session_state_reappear_auto_connect_triggers_when_device_returns():
+    service = ConnectorServiceStub()
+    service.known_devices = {
+        "device-1": DeviceSummary(
+            device_id="device-1",
+            name="Headphones",
+            present_in_last_scan=False,
+        )
+    }
+    config = AppConfig(
+        device_rules={"device-1": DeviceRule(auto_connect_on_reappear=True)}
+    )
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(config=config),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="silent"),
+        storage=StorageStub(),
+    )
+
+    present_now = False
+
+    def refresh_with_presence():
+        service.known_devices["device-1"] = DeviceSummary(
+            device_id="device-1",
+            name="Headphones",
+            present_in_last_scan=present_now,
+        )
+        if callable(service._state_callback):
+            service._state_callback(
+                {
+                    "event": "devices_refreshed",
+                    "device_ids": list(service.known_devices),
+                }
+            )
+        return list(service.known_devices.values())
+
+    service.refresh_devices = refresh_with_presence
+    session_state.refresh_devices()
+    present_now = True
+    session_state.refresh_devices()
+
+    assert ("device-1", "reappear") in service.connect_calls
+
+
+def test_session_state_writes_device_cache_on_refresh():
+    service = ConnectorServiceStub()
+    storage = StorageStub()
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(config=AppConfig()),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(),
+        storage=storage,
+    )
+
+    session_state.refresh_devices()
+
+    assert {item["device_id"] for item in storage.device_cache_updates} == {"device-1", "device-2"}
 
 
 def test_session_state_emits_single_state_channel_for_refresh_connection_rules_and_settings():

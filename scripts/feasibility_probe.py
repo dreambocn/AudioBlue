@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Any
+
+from audio_blue.connector_service import run_awaitable_blocking
 
 
 def _load_audio_namespace():
@@ -17,9 +18,11 @@ def _load_enumeration_namespace():
     return enumeration
 
 
-async def _enumerate_devices() -> list[dict[str, str]]:
+def _enumerate_devices(selector: str) -> list[dict[str, str]]:
     enumeration = _load_enumeration_namespace()
-    devices = await enumeration.DeviceInformation.find_all_async()
+    devices = run_awaitable_blocking(
+        enumeration.DeviceInformation.find_all_async_aqs_filter(selector)
+    )
     return [
         {
             "id": device.id,
@@ -34,6 +37,7 @@ def run_probe() -> dict[str, Any]:
         "audio_namespace_available": False,
         "enumeration_namespace_available": False,
         "device_selector": None,
+        "matched_device_count": 0,
         "devices": [],
         "errors": [],
     }
@@ -59,7 +63,10 @@ def run_probe() -> dict[str, Any]:
         return result
 
     try:
-        result["devices"] = asyncio.run(_enumerate_devices())
+        selector = result["device_selector"]
+        if isinstance(selector, str) and selector:
+            result["devices"] = _enumerate_devices(selector)
+            result["matched_device_count"] = len(result["devices"])
     except Exception as exc:
         result["errors"].append(f"device_enumeration_failed: {exc}")
 
