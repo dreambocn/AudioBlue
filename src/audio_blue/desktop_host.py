@@ -158,6 +158,7 @@ class DesktopHost:
         self._webview = webview_module
         self.main_window = None
         self._state_unsubscribe = None
+        self._allow_close = False
 
     def create_windows(self) -> None:
         if self.main_window is not None:
@@ -177,6 +178,9 @@ class DesktopHost:
             height=780,
             hidden=True,
         )
+        window_events = getattr(self.main_window, "events", None)
+        if window_events is not None and hasattr(window_events, "closing"):
+            window_events.closing += self._on_main_window_closing
 
     def run(self, on_started: Callable[[], None] | None = None) -> None:
         self.create_windows()
@@ -201,6 +205,7 @@ class DesktopHost:
         raise RuntimeError("Quick panel is not part of the runtime path.")
 
     def shutdown(self) -> None:
+        self._allow_close = True
         if callable(self._state_unsubscribe):
             self._state_unsubscribe()
             self._state_unsubscribe = None
@@ -229,3 +234,10 @@ class DesktopHost:
             ");"
         )
         self.main_window.evaluate_js(script)
+
+    def _on_main_window_closing(self) -> bool:
+        if self._allow_close or self.main_window is None:
+            return True
+        if hasattr(self.main_window, "hide"):
+            self.main_window.hide()
+        return False

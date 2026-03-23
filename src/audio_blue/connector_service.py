@@ -144,14 +144,37 @@ class ConnectorService:
             devices = self._run_on_worker(self._backend.list_devices)  # type: ignore[union-attr]
 
         with self._lock:
-            self.known_devices = {
-                device.device_id: (
-                    replace(device, connection_state="connected")
+            existing_devices = self.known_devices
+            next_devices: dict[str, DeviceSummary] = {}
+            for device in devices:
+                existing = existing_devices.get(device.device_id)
+                merged = replace(
+                    device,
+                    connection_state="connected"
                     if device.device_id in self.active_connections
-                    else device
+                    else device.connection_state,
+                    present_in_last_scan=True,
+                    last_seen_at=device.last_seen_at or (existing.last_seen_at if existing else None),
+                    last_connection_attempt=(
+                        device.last_connection_attempt
+                        or (existing.last_connection_attempt if existing else None)
+                    ),
                 )
-                for device in devices
-            }
+                next_devices[device.device_id] = merged
+
+            for device_id in self.active_connections:
+                if device_id in next_devices:
+                    continue
+                existing = existing_devices.get(device_id)
+                if existing is None:
+                    continue
+                next_devices[device_id] = replace(
+                    existing,
+                    connection_state="connected",
+                    present_in_last_scan=False,
+                )
+
+            self.known_devices = next_devices
 
         self._emit({"event": "devices_refreshed", "device_ids": list(self.known_devices)})
         return list(self.known_devices.values())

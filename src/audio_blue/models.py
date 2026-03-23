@@ -67,6 +67,7 @@ class DeviceSummary:
     name: str
     connection_state: str = "disconnected"
     capabilities: DeviceCapabilities = field(default_factory=DeviceCapabilities)
+    present_in_last_scan: bool = True
     last_seen_at: datetime | None = None
     last_connection_attempt: ConnectionAttempt | None = None
 

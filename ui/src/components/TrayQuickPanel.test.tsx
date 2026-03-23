@@ -12,6 +12,7 @@ const connectedDevice: DeviceViewModel = {
   isFavorite: true,
   isIgnored: false,
   supportsAudio: true,
+  presentInLastScan: true,
   lastSeen: 'now',
   lastResult: 'Connected',
   rule: {

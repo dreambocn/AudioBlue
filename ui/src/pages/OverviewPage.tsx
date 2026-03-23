@@ -11,9 +11,8 @@ export function OverviewPage({ state }: OverviewPageProps) {
     state.devices.find(
       (device) =>
         device.id === state.connection.currentDeviceId &&
-        device.isConnected &&
-        device.supportsAudio,
-    ) ?? state.devices.find((device) => device.isConnected && device.supportsAudio)
+        device.isConnected,
+    ) ?? state.devices.find((device) => device.isConnected)
 
   return (
     <section className="page-grid">

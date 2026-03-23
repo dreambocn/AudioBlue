@@ -104,25 +104,28 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
     document.documentElement.setAttribute('data-theme', state.ui.themeMode)
   }, [state])
 
-  const activeDevice = useMemo(
-    () => {
-      if (!state) {
-        return undefined
-      }
+  const activeDevice = useMemo(() => {
+    if (!state) {
+      return undefined
+    }
 
-      const audioDevices = state.devices.filter((device) => device.supportsAudio)
-      return (
-        audioDevices.find(
-          (device) =>
-            device.id === state.connection.currentDeviceId && device.isConnected,
-        ) ?? audioDevices.find((device) => device.isConnected)
-      )
-    },
-    [state],
-  )
+    return (
+      state.devices.find(
+        (device) =>
+          device.id === state.connection.currentDeviceId && device.isConnected,
+      ) ?? state.devices.find((device) => device.isConnected)
+    )
+  }, [state])
 
   const audioDevices = useMemo(
     () => state?.devices.filter((device) => device.supportsAudio) ?? [],
+    [state],
+  )
+
+  const visibleDevices = useMemo(
+    () =>
+      state?.devices.filter((device) => device.isConnected || device.supportsAudio) ??
+      [],
     [state],
   )
 
@@ -229,7 +232,7 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
           {route === 'overview' ? <OverviewPage state={state} /> : null}
           {route === 'devices' ? (
             <DevicesPage
-              devices={audioDevices}
+              devices={visibleDevices}
               onConnect={handleConnect}
               onDisconnect={handleDisconnect}
               onToggleFavorite={handleToggleFavorite}

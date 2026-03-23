@@ -18,6 +18,7 @@ export interface DeviceViewModel {
   isFavorite: boolean
   isIgnored: boolean
   supportsAudio: boolean
+  presentInLastScan: boolean
   lastSeen: string
   lastResult: string
   rule: DeviceRule

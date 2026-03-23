@@ -20,6 +20,7 @@ describe('resolveBridge', () => {
           deviceId: 'device-2',
           name: 'Desk Speaker',
           connectionState: 'connected',
+          presentInLastScan: false,
           capabilities: {
             supports_audio_playback: true,
           },
@@ -158,6 +159,15 @@ describe('resolveBridge', () => {
         status: 'connected',
         currentDeviceId: 'device-2',
       }),
+    })
+    expect(listeners).toContainEqual({
+      type: 'devices_changed',
+      devices: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'device-2',
+          presentInLastScan: false,
+        }),
+      ]),
     })
   })
 

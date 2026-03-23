@@ -104,6 +104,7 @@ class AppStateStore:
             "name": device.name,
             "connectionState": device.connection_state,
             "capabilities": asdict(device.capabilities),
+            "presentInLastScan": device.present_in_last_scan,
         }
         if device.last_seen_at is not None:
             payload["lastSeenAt"] = device.last_seen_at.isoformat()
