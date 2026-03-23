@@ -338,6 +338,99 @@ class SQLiteStorage:
                 (cutoff_iso,),
             )
 
+    def list_device_history(self, *, limit: int = 10) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            cache_rows = connection.execute(
+                """
+                SELECT
+                    device_id,
+                    name,
+                    supports_audio_playback,
+                    supports_microphone,
+                    last_seen_at
+                FROM device_cache
+                """
+            ).fetchall()
+            connection_rows = connection.execute(
+                """
+                SELECT
+                    id,
+                    device_id,
+                    trigger,
+                    succeeded,
+                    state,
+                    failure_reason,
+                    failure_code,
+                    happened_at
+                FROM connection_history
+                ORDER BY happened_at DESC, id DESC
+                """
+            ).fetchall()
+            rule_rows = connection.execute(
+                """
+                SELECT
+                    device_id,
+                    is_favorite,
+                    is_ignored,
+                    priority,
+                    auto_connect_on_reappear
+                FROM device_rules
+                """
+            ).fetchall()
+            last_device_rows = connection.execute(
+                "SELECT position, device_id FROM last_devices ORDER BY position ASC"
+            ).fetchall()
+
+        cache_by_id = {
+            row["device_id"]: {
+                "name": row["name"],
+                "supports_audio_playback": bool(row["supports_audio_playback"]),
+                "supports_microphone": bool(row["supports_microphone"]),
+                "last_seen_at": row["last_seen_at"],
+            }
+            for row in cache_rows
+        }
+        latest_connection_by_id: dict[str, dict[str, Any]] = {}
+        for row in connection_rows:
+            device_id = row["device_id"]
+            if device_id in latest_connection_by_id:
+                continue
+            latest_connection_by_id[device_id] = {
+                "last_connection_at": row["happened_at"],
+                "last_connection_state": row["state"],
+                "last_connection_trigger": row["trigger"],
+                "last_failure_reason": row["failure_reason"],
+                "last_failure_code": row["failure_code"],
+            }
+
+        rules_by_id = {
+            row["device_id"]: {
+                "is_favorite": bool(row["is_favorite"]),
+                "is_ignored": bool(row["is_ignored"]),
+                "auto_connect_on_reappear": bool(row["auto_connect_on_reappear"]),
+                "priority": row["priority"],
+            }
+            for row in rule_rows
+        }
+        last_device_ids = [row["device_id"] for row in last_device_rows]
+
+        candidate_ids = {
+            *latest_connection_by_id.keys(),
+            *rules_by_id.keys(),
+            *last_device_ids,
+        }
+        history = [
+            self._build_device_history_entry(
+                device_id=device_id,
+                cache=cache_by_id.get(device_id),
+                latest_connection=latest_connection_by_id.get(device_id),
+                saved_rule=rules_by_id.get(device_id),
+            )
+            for device_id in candidate_ids
+        ]
+        history.sort(key=_device_history_sort_key)
+        return history[: max(limit, 0)]
+
     def _migrate_legacy_config(self, connection: sqlite3.Connection) -> None:
         if not self.legacy_config_path.exists():
             return
@@ -613,6 +706,67 @@ class SQLiteStorage:
         )
         return int(cursor.lastrowid)
 
+    def _build_device_history_entry(
+        self,
+        *,
+        device_id: str,
+        cache: dict[str, Any] | None,
+        latest_connection: dict[str, Any] | None,
+        saved_rule: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        return {
+            "device_id": device_id,
+            "name": (
+                str(cache.get("name"))
+                if isinstance(cache, dict) and cache.get("name")
+                else device_id
+            ),
+            "supports_audio_playback": bool(
+                cache.get("supports_audio_playback", False) if isinstance(cache, dict) else False
+            ),
+            "supports_microphone": bool(
+                cache.get("supports_microphone", False) if isinstance(cache, dict) else False
+            ),
+            "last_seen_at": cache.get("last_seen_at") if isinstance(cache, dict) else None,
+            "last_connection_at": (
+                latest_connection.get("last_connection_at")
+                if isinstance(latest_connection, dict)
+                else None
+            ),
+            "last_connection_state": (
+                latest_connection.get("last_connection_state")
+                if isinstance(latest_connection, dict)
+                else None
+            ),
+            "last_connection_trigger": (
+                latest_connection.get("last_connection_trigger")
+                if isinstance(latest_connection, dict)
+                else None
+            ),
+            "last_failure_reason": (
+                latest_connection.get("last_failure_reason")
+                if isinstance(latest_connection, dict)
+                else None
+            ),
+            "last_failure_code": (
+                latest_connection.get("last_failure_code")
+                if isinstance(latest_connection, dict)
+                else None
+            ),
+            "saved_rule": {
+                "is_favorite": bool(saved_rule.get("is_favorite", False))
+                if isinstance(saved_rule, dict)
+                else False,
+                "is_ignored": bool(saved_rule.get("is_ignored", False))
+                if isinstance(saved_rule, dict)
+                else False,
+                "auto_connect_on_reappear": bool(saved_rule.get("auto_connect_on_reappear", False))
+                if isinstance(saved_rule, dict)
+                else False,
+                "priority": saved_rule.get("priority") if isinstance(saved_rule, dict) else None,
+            },
+        }
+
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
@@ -727,4 +881,17 @@ def _ui_from_payload(payload: object) -> UiPreferences:
         theme=theme,
         high_contrast=bool(payload.get("highContrast", False)),
         language=language,
+    )
+
+
+def _device_history_sort_key(entry: dict[str, Any]) -> tuple[int, float, int, float, str, str]:
+    last_connection_at = _parse_iso_datetime(entry.get("last_connection_at"))
+    last_seen_at = _parse_iso_datetime(entry.get("last_seen_at"))
+    return (
+        0 if last_connection_at is not None else 1,
+        -(last_connection_at.timestamp()) if last_connection_at is not None else 0.0,
+        0 if last_seen_at is not None else 1,
+        -(last_seen_at.timestamp()) if last_seen_at is not None else 0.0,
+        str(entry.get("name", "")).casefold(),
+        str(entry.get("device_id", "")).casefold(),
     )

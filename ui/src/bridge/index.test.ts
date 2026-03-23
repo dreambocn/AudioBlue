@@ -13,7 +13,7 @@ afterEach(() => {
 
 describe('resolveBridge', () => {
   it('adapts pywebview api snapshots into UI state and events', async () => {
-    const listeners: BridgeEvent[] = []
+    const listeners: Array<BridgeEvent | Record<string, unknown>> = []
     const pushSnapshot = {
       devices: [
         {
@@ -35,10 +35,29 @@ describe('resolveBridge', () => {
           autostart: false,
           runInBackground: false,
           launchDelaySeconds: 3,
+          reconnectOnNextStart: false,
         },
         ui: { theme: 'light', highContrast: false, language: 'zh-CN' },
       },
       autoConnectCandidates: ['device-2'],
+      deviceHistory: [
+        {
+          deviceId: 'archived-1',
+          name: 'Archived Speaker',
+          supportsAudioPlayback: true,
+          lastSeenAt: '2026-03-20T12:00:00+00:00',
+          lastConnectionAt: '2026-03-20T11:58:00+00:00',
+          lastConnectionState: 'timeout',
+          lastConnectionTrigger: 'startup',
+          lastFailureReason: 'Connection timed out before audio could start.',
+          savedRule: {
+            isFavorite: true,
+            isIgnored: false,
+            autoConnectOnReappear: true,
+            priority: 2,
+          },
+        },
+      ],
     }
     window.pywebview = {
       api: {
@@ -71,10 +90,29 @@ describe('resolveBridge', () => {
               autostart: true,
               runInBackground: true,
               launchDelaySeconds: 5,
+              reconnectOnNextStart: true,
             },
             ui: { theme: 'dark', highContrast: false, language: 'en-US' },
           },
           autoConnectCandidates: ['device-1'],
+          deviceHistory: [
+            {
+              deviceId: 'archived-1',
+              name: 'Archived Speaker',
+              supportsAudioPlayback: true,
+              lastSeenAt: '2026-03-20T12:00:00+00:00',
+              lastConnectionAt: '2026-03-20T11:58:00+00:00',
+              lastConnectionState: 'timeout',
+              lastConnectionTrigger: 'startup',
+              lastFailureReason: 'Connection timed out before audio could start.',
+              savedRule: {
+                isFavorite: true,
+                isIgnored: false,
+                autoConnectOnReappear: true,
+                priority: 2,
+              },
+            },
+          ],
         })),
         set_theme: vi.fn(async () => ({
           devices: [],
@@ -87,6 +125,7 @@ describe('resolveBridge', () => {
               autostart: true,
               runInBackground: true,
               launchDelaySeconds: 5,
+              reconnectOnNextStart: true,
             },
             ui: { theme: 'dark', highContrast: false, language: 'en-US' },
           },
@@ -111,12 +150,15 @@ describe('resolveBridge', () => {
               autostart: true,
               runInBackground: true,
               launchDelaySeconds: 5,
+              reconnectOnNextStart: true,
             },
             ui: { theme: 'dark', highContrast: false, language: 'en-US' },
           },
           autoConnectCandidates: ['device-1'],
         })),
         set_language: vi.fn(async () => pushSnapshot),
+        set_reconnect: vi.fn(async () => pushSnapshot),
+        sync_window_theme: vi.fn(async () => undefined),
       },
     } as typeof window.pywebview
 
@@ -135,6 +177,8 @@ describe('resolveBridge', () => {
       isFavorite: true,
       isIgnored: true,
     })
+    await bridge.setReconnect(true)
+    await bridge.syncWindowTheme('dark')
     await bridge.setLanguage('zh-CN')
     window.dispatchEvent(new CustomEvent('audioblue:state', { detail: pushSnapshot }))
     unsubscribe()
@@ -145,7 +189,15 @@ describe('resolveBridge', () => {
     expect(state.ui.language).toBe('en-US')
     expect(state.ui.themeMode).toBe('dark')
     expect(state.devices[0].id).toBe('device-1')
-    expect(state.devices[0].rule.mode).toBe('startup')
+    expect((state as any).deviceHistory[0]).toEqual(
+      expect.objectContaining({
+        id: 'archived-1',
+        name: 'Archived Speaker',
+        lastResult: 'Connection timed out before audio could start.',
+      }),
+    )
+    expect(state.devices[0].rule.mode).toBe('manual')
+    expect(state.startup.reconnectOnNextStart).toBe(true)
     expect(pywebviewApi?.update_device_rule).toHaveBeenCalledWith('device-1', {
       auto_connect_on_reappear: true,
       auto_connect_on_startup: false,
@@ -155,6 +207,8 @@ describe('resolveBridge', () => {
       is_ignored: true,
     })
     expect(pywebviewApi?.set_language).toHaveBeenCalledWith('zh-CN')
+    expect(pywebviewApi?.set_reconnect).toHaveBeenCalledWith(true)
+    expect(pywebviewApi?.sync_window_theme).toHaveBeenCalledWith('dark')
     expect(state.devices[0].isFavorite).toBe(true)
     expect(state.devices[0].isIgnored).toBe(false)
     expect(listeners).toContainEqual({
@@ -176,6 +230,17 @@ describe('resolveBridge', () => {
         expect.objectContaining({
           id: 'device-2',
           presentInLastScan: false,
+        }),
+      ]),
+    })
+    expect(listeners).toContainEqual({
+      type: 'history_changed',
+      deviceHistory: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'archived-1',
+          savedRule: expect.objectContaining({
+            autoConnectOnAppear: true,
+          }),
         }),
       ]),
     })

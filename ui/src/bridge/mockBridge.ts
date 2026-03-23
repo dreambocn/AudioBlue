@@ -22,8 +22,8 @@ const createInitialState = (): AppState => ({
       lastSeen: '2m ago',
       lastResult: 'Ready to connect',
       rule: {
-        mode: 'startup',
-        autoConnectOnStartup: true,
+        mode: 'manual',
+        autoConnectOnStartup: false,
         autoConnectOnAppear: false,
       },
     },
@@ -62,6 +62,24 @@ const createInitialState = (): AppState => ({
       },
     },
   ],
+  deviceHistory: [
+    {
+      id: 'device-archived',
+      name: 'Archived Receiver',
+      supportsAudio: true,
+      lastSeen: '2026-03-20T11:00:00+00:00',
+      lastConnectionAt: '2026-03-20T10:55:00+00:00',
+      lastConnectionState: 'timeout',
+      lastConnectionTrigger: 'startup',
+      lastResult: 'Connection timed out before audio could start.',
+      savedRule: {
+        isFavorite: true,
+        isIgnored: false,
+        autoConnectOnAppear: true,
+        priority: 2,
+      },
+    },
+  ],
   prioritizedDeviceIds: ['device-office', 'device-buds', 'device-speaker'],
   recentActivity: [
     'Galaxy Buds connected successfully.',
@@ -76,6 +94,7 @@ const createInitialState = (): AppState => ({
     autostart: true,
     backgroundStart: true,
     delaySeconds: 5,
+    reconnectOnNextStart: true,
   },
   ui: {
     themeMode: 'system',
@@ -121,6 +140,13 @@ export const createMockBridge = (): BackendBridge => {
     })
   }
 
+  const emitHistory = () => {
+    emit({
+      type: 'history_changed',
+      deviceHistory: structuredClone(state.deviceHistory),
+    })
+  }
+
   return {
     async getInitialState() {
       return structuredClone(state)
@@ -145,6 +171,7 @@ export const createMockBridge = (): BackendBridge => {
       }
       emit({ type: 'devices_changed', devices: structuredClone(state.devices) })
       emit({ type: 'connection_changed', connection: structuredClone(state.connection) })
+      emitHistory()
     },
     async disconnectDevice(deviceId: string) {
       state = {
@@ -159,6 +186,7 @@ export const createMockBridge = (): BackendBridge => {
       }
       emit({ type: 'devices_changed', devices: structuredClone(state.devices) })
       emit({ type: 'connection_changed', connection: structuredClone(state.connection) })
+      emitHistory()
     },
     async updateDeviceRule(deviceId: string, rulePatch: DeviceRulePatch) {
       state = {
@@ -220,6 +248,16 @@ export const createMockBridge = (): BackendBridge => {
       }
       emitSettings()
     },
+    async setReconnect(enabled: boolean) {
+      state = {
+        ...state,
+        startup: {
+          ...state.startup,
+          reconnectOnNextStart: enabled,
+        },
+      }
+      emitSettings()
+    },
     async setTheme(mode: ThemeMode) {
       state = {
         ...state,
@@ -230,6 +268,7 @@ export const createMockBridge = (): BackendBridge => {
       }
       emitSettings()
     },
+    async syncWindowTheme() {},
     async setLanguage(language: LanguagePreference) {
       state = {
         ...state,

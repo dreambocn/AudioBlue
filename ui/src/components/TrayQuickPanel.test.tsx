@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { TrayQuickPanel } from './TrayQuickPanel'
@@ -31,7 +31,7 @@ describe('TrayQuickPanel', () => {
       <LanguageProvider preference="en-US">
         <TrayQuickPanel
           currentDevice={connectedDevice}
-          autoConnectEnabled
+          reconnectOnNextStart
           sourceAvailability="available"
           bridgeMode="native"
           totalDevices={1}
@@ -39,7 +39,7 @@ describe('TrayQuickPanel', () => {
           debugDevices={[connectedDevice]}
           onDisconnect={onDisconnect}
           onConnect={vi.fn()}
-          onToggleAutoConnect={vi.fn()}
+          onToggleReconnect={vi.fn()}
           onOpenBluetoothSettings={vi.fn()}
           onRefreshDevices={vi.fn()}
         />
@@ -50,5 +50,48 @@ describe('TrayQuickPanel', () => {
     expect(screen.queryByText(/Raw device ID/i)).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Disconnect' }))
     expect(onDisconnect).toHaveBeenCalledWith('device-buds')
+  })
+
+  it('renders reconnect control as a stateful button below the action row', async () => {
+    const onToggleReconnect = vi.fn()
+
+    render(
+      <LanguageProvider preference="en-US">
+        <TrayQuickPanel
+          currentDevice={connectedDevice}
+          reconnectOnNextStart
+          sourceAvailability="available"
+          bridgeMode="native"
+          totalDevices={1}
+          matchedSourceDevices={[connectedDevice]}
+          debugDevices={[connectedDevice]}
+          onDisconnect={vi.fn()}
+          onConnect={vi.fn()}
+          onToggleReconnect={onToggleReconnect}
+          onOpenBluetoothSettings={vi.fn()}
+          onRefreshDevices={vi.fn()}
+        />
+      </LanguageProvider>,
+    )
+
+    const actionRow = screen.getByTestId('tray-action-row')
+    expect(within(actionRow).getByRole('button', { name: 'Disconnect' })).toBeVisible()
+    expect(within(actionRow).getByRole('button', { name: 'Refresh Devices' })).toBeVisible()
+    expect(
+      within(actionRow).getByRole('button', { name: 'Open Bluetooth Settings' }),
+    ).toBeVisible()
+    expect(
+      within(actionRow).queryByRole('checkbox', {
+        name: 'Reconnect on next start',
+      }),
+    ).not.toBeInTheDocument()
+
+    const reconnectButton = screen.getByRole('button', {
+      name: 'Reconnect on next start · On',
+    })
+    expect(reconnectButton).toHaveAttribute('aria-pressed', 'true')
+
+    await userEvent.click(reconnectButton)
+    expect(onToggleReconnect).toHaveBeenCalledWith(false)
   })
 })

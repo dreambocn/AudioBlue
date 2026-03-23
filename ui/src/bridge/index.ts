@@ -1,6 +1,13 @@
 import { createMockBridge } from './mockBridge'
 import type { BackendBridge, BridgeEvent } from './types'
-import type { AppState, DeviceRuleMode, DeviceRulePatch, LanguagePreference } from '../types'
+import type {
+  AppState,
+  DeviceHistoryEntry,
+  DeviceRuleMode,
+  DeviceRulePatch,
+  LanguagePreference,
+  ThemeMode,
+} from '../types'
 
 type PyWebviewApi = {
   get_initial_state?: () => Promise<unknown>
@@ -10,7 +17,9 @@ type PyWebviewApi = {
   update_device_rule?: (deviceId: string, patch: Record<string, unknown>) => Promise<unknown>
   reorder_device_priority?: (deviceIds: string[]) => Promise<unknown>
   set_autostart?: (enabled: boolean) => Promise<unknown>
+  set_reconnect?: (enabled: boolean) => Promise<unknown>
   set_theme?: (mode: string) => Promise<unknown>
+  sync_window_theme?: (mode: string) => Promise<unknown>
   set_language?: (language: string) => Promise<unknown>
   set_notification_policy?: (policy: string) => Promise<unknown>
   open_bluetooth_settings?: () => Promise<void>
@@ -35,16 +44,63 @@ const normalizeRule = (rawRule: Record<string, any> | undefined) => {
   const autoConnectOnAppear = Boolean(
     rawRule?.autoConnectOnReappear ?? rawRule?.auto_connect_on_reappear,
   )
-  const mode: DeviceRuleMode = autoConnectOnAppear
-    ? 'appear'
-    : autoConnectOnStartup
-      ? 'startup'
-      : 'manual'
+  const mode: DeviceRuleMode = autoConnectOnAppear ? 'appear' : 'manual'
 
   return {
     mode,
     autoConnectOnStartup,
     autoConnectOnAppear,
+  }
+}
+
+const normalizeHistoryEntry = (rawHistory: Record<string, any>): DeviceHistoryEntry => {
+  const rawLastConnectionAt =
+    rawHistory.lastConnectionAt ?? rawHistory.last_connection_at
+  const lastConnectionState = String(
+    rawHistory.lastConnectionState ?? rawHistory.last_connection_state ?? '',
+  )
+  const rawLastConnectionTrigger =
+    rawHistory.lastConnectionTrigger ?? rawHistory.last_connection_trigger
+  const lastFailureReason =
+    rawHistory.lastFailureReason ?? rawHistory.last_failure_reason
+  const rawSavedRule = (rawHistory.savedRule ?? rawHistory.saved_rule ?? {}) as Record<string, any>
+
+  return {
+    id: String(rawHistory.deviceId ?? rawHistory.device_id),
+    name: String(rawHistory.name ?? rawHistory.deviceId ?? rawHistory.device_id),
+    supportsAudio: Boolean(
+      rawHistory.supportsAudioPlayback ??
+        rawHistory.supports_audio_playback ??
+        false,
+    ),
+    lastSeen:
+      rawHistory.lastSeenAt != null
+        ? String(rawHistory.lastSeenAt)
+        : rawHistory.last_seen_at != null
+          ? String(rawHistory.last_seen_at)
+          : 'Unknown',
+    lastConnectionAt: rawLastConnectionAt != null ? String(rawLastConnectionAt) : undefined,
+    lastConnectionState: lastConnectionState || undefined,
+    lastConnectionTrigger:
+      rawLastConnectionTrigger != null ? String(rawLastConnectionTrigger) : undefined,
+    lastResult:
+      typeof lastFailureReason === 'string' && lastFailureReason.length > 0
+        ? lastFailureReason
+        : lastConnectionState === 'connected'
+          ? 'Connected'
+          : lastConnectionState || 'Previously seen',
+    savedRule: {
+      isFavorite: Boolean(rawSavedRule.isFavorite ?? rawSavedRule.is_favorite),
+      isIgnored: Boolean(rawSavedRule.isIgnored ?? rawSavedRule.is_ignored),
+      autoConnectOnAppear: Boolean(
+        rawSavedRule.autoConnectOnAppear ??
+          rawSavedRule.auto_connect_on_appear ??
+          rawSavedRule.autoConnectOnReappear ??
+          rawSavedRule.auto_connect_on_reappear,
+      ),
+      priority:
+        typeof rawSavedRule.priority === 'number' ? rawSavedRule.priority : null,
+    },
   }
 }
 
@@ -62,7 +118,7 @@ const toPythonRulePatch = (rulePatch: DeviceRulePatch) => {
   if ('mode' in rulePatch) {
     const mode = String(rulePatch.mode)
     if (!('auto_connect_on_startup' in nextPatch)) {
-      nextPatch.auto_connect_on_startup = mode === 'startup'
+      nextPatch.auto_connect_on_startup = false
     }
     if (!('auto_connect_on_reappear' in nextPatch)) {
       nextPatch.auto_connect_on_reappear = mode === 'appear'
@@ -111,6 +167,12 @@ const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
       rule,
     }
   })
+  const rawHistory = Array.isArray(snapshot.deviceHistory ?? snapshot.device_history)
+    ? (snapshot.deviceHistory ?? snapshot.device_history)
+    : []
+  const deviceHistory = rawHistory.map((entry: Record<string, any>) =>
+    normalizeHistoryEntry(entry),
+  )
 
   const connectedDevice = devices.find((device) => device.isConnected)
   const prioritizedFromRules = Object.entries(ruleMap)
@@ -122,6 +184,7 @@ const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
 
   return {
     devices,
+    deviceHistory,
     prioritizedDeviceIds: [...prioritizedFromRules, ...remainingDeviceIds],
     recentActivity: snapshot.lastFailure?.message
       ? [String(snapshot.lastFailure.message)]
@@ -137,6 +200,12 @@ const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
       autostart: Boolean(snapshot.settings?.startup?.autostart),
       backgroundStart: Boolean(snapshot.settings?.startup?.runInBackground),
       delaySeconds: Number(snapshot.settings?.startup?.launchDelaySeconds ?? 0),
+      reconnectOnNextStart: Boolean(
+        snapshot.settings?.startup?.reconnectOnNextStart ??
+          snapshot.settings?.startup?.reconnect_on_next_start ??
+          snapshot.reconnect ??
+          false,
+      ),
     },
     ui: {
       themeMode: String(snapshot.settings?.ui?.theme ?? 'system') as AppState['ui']['themeMode'],
@@ -165,6 +234,12 @@ const emitState = (
 ) => {
   listeners.forEach((listener) =>
     listener({ type: 'devices_changed', devices: structuredClone(state.devices) }),
+  )
+  listeners.forEach((listener) =>
+    listener({
+      type: 'history_changed',
+      deviceHistory: structuredClone(state.deviceHistory),
+    }),
   )
   listeners.forEach((listener) =>
     listener({ type: 'connection_changed', connection: structuredClone(state.connection) }),
@@ -236,8 +311,29 @@ const createPyWebviewBridge = (api: PyWebviewApi): BackendBridge => {
     async setAutostart(enabled) {
       applySnapshot(await api.set_autostart?.(enabled))
     },
+    async setReconnect(enabled) {
+      if (api.set_reconnect) {
+        applySnapshot(await api.set_reconnect(enabled))
+        return
+      }
+      const snapshot = (await api.get_initial_state?.()) as RawSnapshot | undefined
+      const fallbackSnapshot = {
+        ...(snapshot ?? {}),
+        settings: {
+          ...(snapshot?.settings ?? {}),
+          startup: {
+            ...(snapshot?.settings?.startup ?? {}),
+            reconnectOnNextStart: enabled,
+          },
+        },
+      }
+      applySnapshot(fallbackSnapshot)
+    },
     async setTheme(mode) {
       applySnapshot(await api.set_theme?.(mode))
+    },
+    async syncWindowTheme(mode: Exclude<ThemeMode, 'system'>) {
+      await api.sync_window_theme?.(mode)
     },
     async setLanguage(language: LanguagePreference) {
       if (api.set_language) {
@@ -278,6 +374,7 @@ const createPyWebviewBridge = (api: PyWebviewApi): BackendBridge => {
 
 const createUnavailableState = (): AppState => ({
   devices: [],
+  deviceHistory: [],
   prioritizedDeviceIds: [],
   recentActivity: [],
   connection: {
@@ -287,6 +384,7 @@ const createUnavailableState = (): AppState => ({
     autostart: false,
     backgroundStart: false,
     delaySeconds: 0,
+    reconnectOnNextStart: false,
   },
   ui: {
     themeMode: 'system',
@@ -320,7 +418,9 @@ const createUnavailableBridge = (): BackendBridge => {
     async updateDeviceRule() {},
     async reorderDevicePriority() {},
     async setAutostart() {},
+    async setReconnect() {},
     async setTheme() {},
+    async syncWindowTheme() {},
     async setLanguage() {},
     async setNotificationPolicy() {},
     async openBluetoothSettings() {},

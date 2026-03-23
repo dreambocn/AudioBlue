@@ -141,18 +141,17 @@ def test_session_state_startup_auto_connect_uses_rules_order_and_stops_after_suc
     published_notifications: list[NotificationMessage] = []
     config = AppConfig(
         reconnect=True,
-        last_devices=["device-3"],
+        last_devices=["device-3", "device-2", "device-1"],
         notification=NotificationPreferences(policy="all"),
         device_rules={
             "device-1": DeviceRule(
                 is_favorite=True,
-                auto_connect_on_startup=True,
                 priority=2,
             ),
             "device-2": DeviceRule(
-                auto_connect_on_startup=True,
                 priority=1,
             ),
+            "device-3": DeviceRule(auto_connect_on_startup=True),
         },
     )
     session_state = SessionStateCoordinator(
@@ -232,6 +231,43 @@ def test_session_state_reappear_auto_connect_triggers_when_device_returns():
     assert ("device-1", "reappear") in service.connect_calls
 
 
+def test_session_state_does_not_startup_connect_when_reconnect_disabled_even_with_legacy_rule():
+    service = ConnectorServiceStub()
+    config = AppConfig(
+        reconnect=False,
+        last_devices=["device-1"],
+        device_rules={
+            "device-1": DeviceRule(auto_connect_on_startup=True),
+        },
+    )
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(config=config),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="silent"),
+        storage=StorageStub(),
+    )
+
+    session_state.refresh_devices()
+
+    assert service.connect_calls == []
+
+
+def test_session_state_set_reconnect_persists_and_emits_snapshot_field():
+    service = ConnectorServiceStub()
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(config=AppConfig(reconnect=False)),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(),
+    )
+
+    snapshot = session_state.set_reconnect(True)
+
+    assert session_state.app_state.config.reconnect is True
+    assert snapshot["settings"]["startup"]["reconnectOnNextStart"] is True
+
+
 def test_session_state_writes_device_cache_on_refresh():
     service = ConnectorServiceStub()
     storage = StorageStub()
@@ -246,6 +282,16 @@ def test_session_state_writes_device_cache_on_refresh():
     session_state.refresh_devices()
 
     assert {item["device_id"] for item in storage.device_cache_updates} == {"device-1", "device-2"}
+    assert all(set(item) == {
+        "device_id",
+        "name",
+        "connection_state",
+        "supports_audio_playback",
+        "supports_microphone",
+        "last_seen_at",
+    } for item in storage.device_cache_updates)
+    assert all(item["supports_audio_playback"] is True for item in storage.device_cache_updates)
+    assert all(item["supports_microphone"] is False for item in storage.device_cache_updates)
 
 
 def test_session_state_emits_single_state_channel_for_refresh_connection_rules_and_settings():

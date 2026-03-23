@@ -157,7 +157,7 @@ def create_default_host(
     background: bool,
     storage=None,
 ):
-    app_state = AppStateStore(config=config)
+    app_state = AppStateStore(config=config, history_provider=storage)
     autostart_manager = AutostartManager()
     notification_service = NotificationService(policy=config.notification.policy)
     session_state = SessionStateCoordinator(

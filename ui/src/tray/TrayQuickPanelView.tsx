@@ -25,9 +25,26 @@ export function TrayQuickPanelView({ bridge }: TrayQuickPanelViewProps) {
       if (event.type === 'devices_changed') {
         setState((current) => (current ? { ...current, devices: event.devices } : current))
       }
+      if (event.type === 'history_changed') {
+        setState((current) =>
+          current ? { ...current, deviceHistory: event.deviceHistory } : current,
+        )
+      }
       if (event.type === 'connection_changed') {
         setState((current) =>
           current ? { ...current, connection: event.connection } : current,
+        )
+      }
+      if (event.type === 'settings_changed') {
+        setState((current) =>
+          current
+            ? {
+                ...current,
+                startup: event.settings.startup,
+                ui: event.settings.ui,
+                notifications: event.settings.notifications,
+              }
+            : current,
         )
       }
     })
@@ -57,7 +74,7 @@ export function TrayQuickPanelView({ bridge }: TrayQuickPanelViewProps) {
     <LanguageProvider preference={state.ui.language}>
       <TrayQuickPanel
         currentDevice={activeDevice}
-        autoConnectEnabled={state.devices.some((device) => device.rule.autoConnectOnAppear)}
+        reconnectOnNextStart={state.startup.reconnectOnNextStart}
         sourceAvailability={sourceAvailability}
         bridgeMode={state.runtime.bridgeMode}
         totalDevices={state.devices.length}
@@ -65,14 +82,7 @@ export function TrayQuickPanelView({ bridge }: TrayQuickPanelViewProps) {
         debugDevices={state.devices}
         onConnect={(id) => resolvedBridge.connectDevice(id)}
         onDisconnect={(id) => resolvedBridge.disconnectDevice(id)}
-        onToggleAutoConnect={(enabled) =>
-          activeDevice
-            ? resolvedBridge.updateDeviceRule(activeDevice.id, {
-                autoConnectOnAppear: enabled,
-                mode: enabled ? 'appear' : 'manual',
-              })
-            : Promise.resolve()
-        }
+        onToggleReconnect={(enabled) => resolvedBridge.setReconnect(enabled)}
         onOpenBluetoothSettings={() => resolvedBridge.openBluetoothSettings()}
         onRefreshDevices={() => resolvedBridge.refreshDevices().then(() => undefined)}
       />

@@ -106,6 +106,11 @@ class SessionStateCoordinator:
         self._persist_config()
         return self._publish_snapshot()
 
+    def set_reconnect(self, enabled: bool) -> dict[str, Any]:
+        self.app_state.config.reconnect = enabled
+        self._persist_config()
+        return self._publish_snapshot()
+
     def set_theme(self, mode: str) -> dict[str, Any]:
         self.app_state.config.ui.theme = mode
         self._persist_config()
@@ -152,6 +157,8 @@ class SessionStateCoordinator:
 
     def _normalize_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         settings = snapshot.setdefault("settings", {})
+        startup_settings = settings.setdefault("startup", {})
+        startup_settings.setdefault("reconnectOnNextStart", bool(self.app_state.config.reconnect))
         ui_settings = settings.setdefault("ui", {})
         ui_settings.setdefault("language", getattr(self.app_state.config.ui, "language", "system"))
         return snapshot
@@ -244,12 +251,18 @@ class SessionStateCoordinator:
 
     def _sync_device_cache(self) -> None:
         for device in getattr(self.service, "known_devices", {}).values():
+            capabilities = getattr(device, "capabilities", None)
             self._invoke_storage_method(
                 "upsert_device_cache",
                 device_id=device.device_id,
-                device_name=device.name,
+                name=device.name,
                 connection_state=device.connection_state,
-                present_in_last_scan=device.present_in_last_scan,
+                supports_audio_playback=bool(
+                    getattr(capabilities, "supports_audio_playback", False)
+                ),
+                supports_microphone=bool(
+                    getattr(capabilities, "supports_microphone", False)
+                ),
                 last_seen_at=device.last_seen_at,
             )
 

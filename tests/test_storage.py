@@ -207,3 +207,81 @@ def test_purge_expired_records_keeps_config_rules_and_cache(tmp_path):
     assert log_count == 1
     assert cache_count == 1
     assert last_devices_count == 1
+
+
+def test_list_device_history_merges_rules_cache_attempts_and_last_devices(tmp_path):
+    storage = SQLiteStorage(db_path=tmp_path / "audioblue.db")
+    storage.initialize()
+    storage.save_config(
+        AppConfig(
+            last_devices=["device-3", "device-2"],
+            device_rules={
+                "device-2": DeviceRule(is_favorite=True, priority=2),
+                "device-3": DeviceRule(auto_connect_on_reappear=True),
+            },
+        )
+    )
+
+    now = datetime(2026, 3, 23, 12, 0, tzinfo=UTC)
+    storage.upsert_device_cache(
+        device_id="device-1",
+        name="Cache Only",
+        connection_state="disconnected",
+        supports_audio_playback=True,
+        supports_microphone=False,
+        last_seen_at=now - timedelta(hours=6),
+    )
+    storage.upsert_device_cache(
+        device_id="device-2",
+        name="Desk Speaker",
+        connection_state="disconnected",
+        supports_audio_playback=True,
+        supports_microphone=False,
+        last_seen_at=now - timedelta(hours=2),
+    )
+    storage.upsert_device_cache(
+        device_id="device-3",
+        name="Phone",
+        connection_state="disconnected",
+        supports_audio_playback=True,
+        supports_microphone=True,
+        last_seen_at=now - timedelta(hours=1),
+    )
+    storage.record_connection_attempt(
+        device_id="device-2",
+        trigger="startup",
+        succeeded=False,
+        state="timeout",
+        failure_reason="Connection timed out before audio could start.",
+        failure_code="connection.timeout",
+        happened_at=now - timedelta(minutes=20),
+    )
+    storage.record_connection_attempt(
+        device_id="device-3",
+        trigger="manual",
+        succeeded=True,
+        state="connected",
+        happened_at=now - timedelta(minutes=5),
+    )
+
+    history = storage.list_device_history(limit=10)
+
+    assert [item["device_id"] for item in history] == ["device-3", "device-2"]
+    assert history[0]["name"] == "Phone"
+    assert history[0]["last_connection_state"] == "connected"
+    assert history[0]["last_connection_trigger"] == "manual"
+    assert history[0]["saved_rule"] == {
+        "is_favorite": False,
+        "is_ignored": False,
+        "auto_connect_on_reappear": True,
+        "priority": None,
+    }
+    assert history[1]["name"] == "Desk Speaker"
+    assert history[1]["last_failure_reason"] == "Connection timed out before audio could start."
+    assert history[1]["saved_rule"] == {
+        "is_favorite": True,
+        "is_ignored": False,
+        "auto_connect_on_reappear": False,
+        "priority": 2,
+    }
+    assert all(item["device_id"] != "device-1" for item in history)

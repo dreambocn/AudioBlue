@@ -56,6 +56,8 @@ const applyBridgeEvent = (state: AppState, event: BridgeEvent): AppState => {
   switch (event.type) {
     case 'devices_changed':
       return { ...state, devices: event.devices }
+    case 'history_changed':
+      return { ...state, deviceHistory: event.deviceHistory }
     case 'connection_changed':
       return { ...state, connection: event.connection }
     case 'connection_failed':
@@ -103,6 +105,7 @@ interface ControlCenterContentProps {
   onReorderPriority: (deviceIds: string[]) => Promise<void>
   onThemeChange: (theme: ThemeMode) => Promise<void>
   onAutostartChange: (enabled: boolean) => Promise<void>
+  onSetReconnect: (enabled: boolean) => Promise<void>
   onNotificationPolicyChange: (policy: NotificationPolicy) => Promise<void>
   onLanguageChange: (language: LanguagePreference) => Promise<void>
   onExportDiagnostics: () => Promise<void>
@@ -125,6 +128,7 @@ function ControlCenterContent({
   onReorderPriority,
   onThemeChange,
   onAutostartChange,
+  onSetReconnect,
   onNotificationPolicyChange,
   onLanguageChange,
   onExportDiagnostics,
@@ -152,32 +156,31 @@ function ControlCenterContent({
         </nav>
       </aside>
 
-      <main className="workspace-shell" data-testid="workspace-shell">
-        <section
-          className="workspace-quick-actions"
-          data-testid="workspace-quick-actions"
-        >
-          <TrayQuickPanel
-            currentDevice={activeDevice}
-            autoConnectEnabled={audioDevices.some((device) => device.rule.autoConnectOnAppear)}
-            sourceAvailability={sourceAvailability}
-            bridgeMode={state.runtime.bridgeMode}
-            totalDevices={state.devices.length}
-            matchedSourceDevices={audioDevices}
-            debugDevices={state.devices}
-            onConnect={onConnect}
-            onDisconnect={onDisconnect}
-            onToggleAutoConnect={(enabled) => {
-              const firstDevice = audioDevices[0]
-              if (!firstDevice) {
-                return
-              }
-              void onToggleAppearRule(firstDevice.id, enabled)
-            }}
-            onOpenBluetoothSettings={onOpenBluetoothSettings}
-            onRefreshDevices={onRefreshDevices}
-          />
-        </section>
+      <main
+        className={`workspace-shell ${route === 'overview' ? 'has-quick-actions' : 'single-pane'}`}
+        data-testid="workspace-shell"
+      >
+        {route === 'overview' ? (
+          <section
+            className="workspace-quick-actions"
+            data-testid="workspace-quick-actions"
+          >
+            <TrayQuickPanel
+              currentDevice={activeDevice}
+              reconnectOnNextStart={state.startup.reconnectOnNextStart}
+              sourceAvailability={sourceAvailability}
+              bridgeMode={state.runtime.bridgeMode}
+              totalDevices={state.devices.length}
+              matchedSourceDevices={audioDevices}
+              debugDevices={state.devices}
+              onConnect={onConnect}
+              onDisconnect={onDisconnect}
+              onToggleReconnect={onSetReconnect}
+              onOpenBluetoothSettings={onOpenBluetoothSettings}
+              onRefreshDevices={onRefreshDevices}
+            />
+          </section>
+        ) : null}
 
         <section className="workspace-content" data-testid="workspace-content">
           <header className="page-header">
@@ -189,6 +192,7 @@ function ControlCenterContent({
           {route === 'devices' ? (
             <DevicesPage
               devices={visibleDevices}
+              deviceHistory={state.deviceHistory ?? []}
               onConnect={onConnect}
               onDisconnect={onDisconnect}
               onToggleFavorite={onToggleFavorite}
@@ -225,6 +229,7 @@ function ControlCenterContent({
 function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
   const [route, setRoute] = useState<AppRoute>('overview')
   const [state, setState] = useState<AppState | null>(null)
+  const [resolvedTheme, setResolvedTheme] = useState<Exclude<ThemeMode, 'system'>>('light')
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -248,11 +253,37 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
   }, [bridge])
 
   useEffect(() => {
+    if (!state || state.ui.themeMode !== 'system') {
+      if (state && state.ui.themeMode !== 'system') {
+        setResolvedTheme(state.ui.themeMode)
+      }
+      return
+    }
+
+    const mediaQuery = globalThis.matchMedia?.('(prefers-color-scheme: dark)')
+    const applySystemTheme = () => {
+      setResolvedTheme(mediaQuery?.matches ? 'dark' : 'light')
+    }
+
+    applySystemTheme()
+
+    if (!mediaQuery) {
+      return
+    }
+
+    mediaQuery.addEventListener('change', applySystemTheme)
+    return () => {
+      mediaQuery.removeEventListener('change', applySystemTheme)
+    }
+  }, [state?.ui.themeMode])
+
+  useEffect(() => {
     if (!state) {
       return
     }
-    document.documentElement.setAttribute('data-theme', state.ui.themeMode)
-  }, [state])
+    document.documentElement.setAttribute('data-theme', resolvedTheme)
+    void bridge.syncWindowTheme(resolvedTheme)
+  }, [bridge, resolvedTheme, state])
 
   const activeDevice = useMemo(() => {
     if (!state) {
@@ -328,6 +359,10 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
     await bridge.setAutostart(enabled)
   }
 
+  const handleSetReconnect = async (enabled: boolean) => {
+    await bridge.setReconnect(enabled)
+  }
+
   const handleNotificationPolicyChange = async (policy: NotificationPolicy) => {
     await bridge.setNotificationPolicy(policy)
   }
@@ -380,6 +415,7 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
         onReorderPriority={handleReorderPriority}
         onThemeChange={handleThemeChange}
         onAutostartChange={handleAutostartChange}
+        onSetReconnect={handleSetReconnect}
         onNotificationPolicyChange={handleNotificationPolicyChange}
         onLanguageChange={handleLanguageChange}
         onExportDiagnostics={handleExportDiagnostics}

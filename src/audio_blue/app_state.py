@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, replace
+from datetime import datetime
 from typing import Any
 
 from audio_blue.localization import connection_failure_message
@@ -13,8 +14,9 @@ def humanize_connection_failure(state: str, *, language: str = "system") -> str:
 
 
 class AppStateStore:
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(self, config: AppConfig, history_provider: Any | None = None) -> None:
         self.config = config
+        self._history_provider = history_provider
         self._devices: dict[str, DeviceSummary] = {}
         self._last_failure: dict[str, str] | None = None
         self._last_trigger: str | None = None
@@ -66,8 +68,11 @@ class AppStateStore:
             devices=list(self._devices.values()),
             trigger="startup",
         )
+        startup_settings = asdict(self.config.startup)
+        startup_settings["reconnectOnNextStart"] = self.config.reconnect
         return {
             "devices": [self._serialize_device(device) for device in self._devices.values()],
+            "deviceHistory": self._serialize_device_history(),
             "deviceRules": {
                 device_id: self._serialize_rule(rule)
                 for device_id, rule in self.config.device_rules.items()
@@ -76,7 +81,7 @@ class AppStateStore:
             "lastTrigger": self._last_trigger,
             "settings": {
                 "notification": asdict(self.config.notification),
-                "startup": asdict(self.config.startup),
+                "startup": startup_settings,
                 "ui": asdict(self.config.ui),
             },
             "autoConnectCandidates": [device.device_id for device in auto_connect_candidates],
@@ -133,3 +138,68 @@ class AppStateStore:
             "autoConnectOnStartup": rule.auto_connect_on_startup,
             "autoConnectOnReappear": rule.auto_connect_on_reappear,
         }
+
+    def _serialize_device_history(self) -> list[dict[str, Any]]:
+        raw_entries = self._load_device_history(limit=10)
+        visible_device_ids = {
+            device.device_id
+            for device in self._devices.values()
+            if device.connection_state == "connected" or device.capabilities.supports_audio_playback
+        }
+        return [
+            self._serialize_device_history_entry(entry)
+            for entry in raw_entries
+            if str(entry.get("device_id", "")) not in visible_device_ids
+        ]
+
+    def _load_device_history(self, *, limit: int) -> list[dict[str, Any]]:
+        provider = getattr(self, "_history_provider", None)
+        if provider is None:
+            return []
+
+        if callable(provider):
+            result = provider(limit=limit)
+        else:
+            loader = getattr(provider, "list_device_history", None)
+            if not callable(loader):
+                return []
+            result = loader(limit=limit)
+
+        if not isinstance(result, list):
+            return []
+        return [entry for entry in result if isinstance(entry, dict)]
+
+    def _serialize_device_history_entry(self, entry: dict[str, Any]) -> dict[str, Any]:
+        saved_rule = entry.get("saved_rule")
+        if not isinstance(saved_rule, dict):
+            saved_rule = {}
+        return {
+            "deviceId": str(entry.get("device_id", "")),
+            "name": str(entry.get("name", entry.get("device_id", ""))),
+            "supportsAudioPlayback": bool(entry.get("supports_audio_playback", False)),
+            "lastSeenAt": _serialize_history_timestamp(entry.get("last_seen_at")),
+            "lastConnectionAt": _serialize_history_timestamp(entry.get("last_connection_at")),
+            "lastConnectionState": _string_or_none(entry.get("last_connection_state")),
+            "lastConnectionTrigger": _string_or_none(entry.get("last_connection_trigger")),
+            "lastFailureReason": _string_or_none(entry.get("last_failure_reason")),
+            "savedRule": {
+                "isFavorite": bool(saved_rule.get("is_favorite", False)),
+                "isIgnored": bool(saved_rule.get("is_ignored", False)),
+                "autoConnectOnReappear": bool(saved_rule.get("auto_connect_on_reappear", False)),
+                "priority": saved_rule.get("priority"),
+            },
+        }
+
+
+def _serialize_history_timestamp(value: Any) -> str | None:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def _string_or_none(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value
+    return None

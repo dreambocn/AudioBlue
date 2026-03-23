@@ -98,3 +98,75 @@ def test_app_state_snapshot_includes_scan_visibility_flag():
     snapshot = store.snapshot()
 
     assert snapshot["devices"][0]["presentInLastScan"] is False
+
+
+def test_app_state_snapshot_includes_history_for_non_visible_devices_only():
+    store = AppStateStore(config=AppConfig())
+    store.sync_devices(
+        [
+            DeviceSummary(
+                device_id="device-visible",
+                name="Visible Speaker",
+                connection_state="disconnected",
+            )
+        ]
+    )
+    setattr(
+        store,
+        "_history_provider",
+        lambda limit=10: [
+            {
+                "device_id": "device-visible",
+                "name": "Visible Speaker",
+                "supports_audio_playback": True,
+                "last_seen_at": "2026-03-23T09:20:00+00:00",
+                "last_connection_at": "2026-03-23T09:10:00+00:00",
+                "last_connection_state": "connected",
+                "last_connection_trigger": "manual",
+                "last_failure_reason": None,
+                "saved_rule": {
+                    "is_favorite": False,
+                    "is_ignored": False,
+                    "auto_connect_on_reappear": False,
+                    "priority": None,
+                },
+            },
+            {
+                "device_id": "device-offline",
+                "name": "Offline Headset",
+                "supports_audio_playback": True,
+                "last_seen_at": "2026-03-22T18:00:00+00:00",
+                "last_connection_at": "2026-03-22T17:30:00+00:00",
+                "last_connection_state": "timeout",
+                "last_connection_trigger": "startup",
+                "last_failure_reason": "Connection timed out before audio could start.",
+                "saved_rule": {
+                    "is_favorite": True,
+                    "is_ignored": False,
+                    "auto_connect_on_reappear": True,
+                    "priority": 1,
+                },
+            },
+        ],
+    )
+
+    snapshot = store.snapshot()
+
+    assert snapshot["deviceHistory"] == [
+        {
+            "deviceId": "device-offline",
+            "name": "Offline Headset",
+            "supportsAudioPlayback": True,
+            "lastSeenAt": "2026-03-22T18:00:00+00:00",
+            "lastConnectionAt": "2026-03-22T17:30:00+00:00",
+            "lastConnectionState": "timeout",
+            "lastConnectionTrigger": "startup",
+            "lastFailureReason": "Connection timed out before audio could start.",
+            "savedRule": {
+                "isFavorite": True,
+                "isIgnored": False,
+                "autoConnectOnReappear": True,
+                "priority": 1,
+            },
+        }
+    ]

@@ -4,7 +4,7 @@ import { A2dpSourceStatus } from './A2dpSourceStatus'
 
 interface TrayQuickPanelProps {
   currentDevice?: DeviceViewModel
-  autoConnectEnabled: boolean
+  reconnectOnNextStart: boolean
   sourceAvailability: A2dpSourceAvailability
   bridgeMode: BridgeMode
   totalDevices: number
@@ -12,14 +12,14 @@ interface TrayQuickPanelProps {
   debugDevices: DeviceViewModel[]
   onConnect: (deviceId: string) => void
   onDisconnect: (deviceId: string) => void
-  onToggleAutoConnect: (enabled: boolean) => void
+  onToggleReconnect: (enabled: boolean) => void
   onOpenBluetoothSettings: () => void
   onRefreshDevices: () => void
 }
 
 export function TrayQuickPanel({
   currentDevice,
-  autoConnectEnabled,
+  reconnectOnNextStart,
   sourceAvailability,
   bridgeMode,
   totalDevices,
@@ -27,7 +27,7 @@ export function TrayQuickPanel({
   debugDevices,
   onConnect,
   onDisconnect,
-  onToggleAutoConnect,
+  onToggleReconnect,
   onOpenBluetoothSettings,
   onRefreshDevices,
 }: TrayQuickPanelProps) {
@@ -62,7 +62,7 @@ export function TrayQuickPanel({
         </span>
       </div>
 
-      <div className="tray-actions">
+      <div className="tray-actions" data-testid="tray-action-row">
         {currentDevice?.isConnected ? (
           <button
             type="button"
@@ -88,16 +88,18 @@ export function TrayQuickPanel({
         </button>
       </div>
 
-      <div className="tray-quick-panel-footer">
-        <label className="toggle-row compact">
-          <span>{t('tray.autoConnect')}</span>
-          <input
-            type="checkbox"
-            checked={autoConnectEnabled}
-            disabled={!matchedSourceDevices.length}
-            onChange={(event) => onToggleAutoConnect(event.target.checked)}
-          />
-        </label>
+      <div className="tray-preference-bar">
+        <span className="tray-preference-label">{t('tray.startupPreference')}</span>
+        <button
+          type="button"
+          className={`secondary-button state-pill-button ${reconnectOnNextStart ? 'is-active' : ''}`}
+          aria-pressed={reconnectOnNextStart}
+          onClick={() => onToggleReconnect(!reconnectOnNextStart)}
+        >
+          {t('tray.reconnectOnNextStartState', {
+            state: reconnectOnNextStart ? t('common.on') : t('common.off'),
+          })}
+        </button>
       </div>
 
       <A2dpSourceStatus

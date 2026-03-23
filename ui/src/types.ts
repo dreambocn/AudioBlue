@@ -1,6 +1,6 @@
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type NotificationPolicy = 'silent' | 'failures' | 'all'
-export type DeviceRuleMode = 'manual' | 'startup' | 'appear'
+export type DeviceRuleMode = 'manual' | 'appear'
 export type LanguagePreference = 'system' | 'zh-CN' | 'en-US'
 export type BridgeMode = 'native' | 'mock' | 'unavailable'
 
@@ -29,6 +29,25 @@ export interface DeviceViewModel {
   rule: DeviceRule
 }
 
+export interface DeviceHistorySavedRule {
+  isFavorite: boolean
+  isIgnored: boolean
+  autoConnectOnAppear: boolean
+  priority: number | null
+}
+
+export interface DeviceHistoryEntry {
+  id: string
+  name: string
+  supportsAudio: boolean
+  lastSeen: string
+  lastConnectionAt?: string
+  lastConnectionState?: string
+  lastConnectionTrigger?: string
+  lastResult: string
+  savedRule: DeviceHistorySavedRule
+}
+
 export interface ConnectionState {
   status: 'disconnected' | 'connecting' | 'connected'
   currentDeviceId?: string
@@ -39,6 +58,7 @@ export interface StartupPreferences {
   autostart: boolean
   backgroundStart: boolean
   delaySeconds: number
+  reconnectOnNextStart: boolean
 }
 
 export interface UiPreferences {
@@ -66,6 +86,7 @@ export type A2dpSourceAvailability = 'unavailable' | 'no-source' | 'available'
 
 export interface AppState {
   devices: DeviceViewModel[]
+  deviceHistory: DeviceHistoryEntry[]
   prioritizedDeviceIds: string[]
   recentActivity: string[]
   connection: ConnectionState

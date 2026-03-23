@@ -9,6 +9,7 @@ import type {
 
 export type BridgeEvent =
   | { type: 'devices_changed'; devices: AppState['devices'] }
+  | { type: 'history_changed'; deviceHistory: AppState['deviceHistory'] }
   | { type: 'connection_changed'; connection: AppState['connection'] }
   | { type: 'connection_failed'; message: string }
   | { type: 'rules_changed'; deviceId: string; rule: DeviceRule }
@@ -24,7 +25,9 @@ export interface BackendBridge {
   updateDeviceRule(deviceId: string, rulePatch: DeviceRulePatch): Promise<void>
   reorderDevicePriority(deviceIds: string[]): Promise<void>
   setAutostart(enabled: boolean): Promise<void>
+  setReconnect(enabled: boolean): Promise<void>
   setTheme(mode: ThemeMode): Promise<void>
+  syncWindowTheme(mode: Exclude<ThemeMode, 'system'>): Promise<void>
   setLanguage(language: LanguagePreference): Promise<void>
   setNotificationPolicy(policy: NotificationPolicy): Promise<void>
   openBluetoothSettings(): Promise<void>
