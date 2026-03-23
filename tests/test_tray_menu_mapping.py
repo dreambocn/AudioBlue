@@ -18,6 +18,9 @@ def test_build_menu_entries_includes_static_actions_and_toggle():
     assert labels[-1] == "Exit"
     toggle = next(entry for entry in entries if entry.action == "toggle_reconnect")
     assert toggle.checked is True
+    language = next(entry for entry in entries if entry.action == "set_language")
+    assert [item.label for item in language.children] == ["Follow System", "Chinese", "English"]
+    assert language.children[2].checked is True
 
 
 def test_build_menu_entries_adds_one_entry_per_device_with_stateful_labels():
@@ -41,6 +44,9 @@ def test_build_menu_entries_localizes_labels():
     labels = [entry.label for entry in entries]
 
     assert labels[:3] == ["刷新设备", "下次启动时自动重连", "打开控制中心"]
+    language = next(entry for entry in entries if entry.action == "set_language")
+    assert [item.label for item in language.children] == ["跟随系统", "中文", "英文"]
+    assert language.children[1].checked is True
 
 
 class ServiceStub:
@@ -59,9 +65,23 @@ class SessionStateStub:
         self._devices = [
             DeviceSummary(device_id="device-1", name="Headphones", connection_state="connected"),
         ]
+        self._reconnect = True
+        self._language = "system"
 
     def list_devices(self):
         return list(self._devices)
+
+    def snapshot(self):
+        return {
+            "settings": {
+                "startup": {
+                    "reconnectOnNextStart": self._reconnect,
+                },
+                "ui": {
+                    "language": self._language,
+                },
+            }
+        }
 
     def refresh_devices(self):
         self.calls.append("refresh")
@@ -71,6 +91,14 @@ class SessionStateStub:
 
     def disconnect_device(self, device_id: str):
         self.calls.append(f"disconnect:{device_id}")
+
+    def set_reconnect(self, enabled: bool):
+        self._reconnect = enabled
+        self.calls.append(f"reconnect:{enabled}")
+
+    def set_language(self, language: str):
+        self._language = language
+        self.calls.append(f"language:{language}")
 
 
 def test_show_menu_tolerates_set_foreground_window_error(monkeypatch):
@@ -149,6 +177,25 @@ def test_on_command_uses_session_state_for_device_actions():
     host._on_command(0, 0, 1002, 0)
 
     assert state.calls == ["connect:device-1", "disconnect:device-1", "refresh"]
+
+
+def test_on_command_uses_session_state_for_reconnect_and_language():
+    state = SessionStateStub()
+    host = TrayHost(
+        service=ServiceStub(),
+        config=AppConfig(),
+        logger=logging.getLogger("tray-test"),
+        session_state=state,
+    )
+    host._command_map = {
+        1000: type("Entry", (), {"action": "toggle_reconnect", "device_id": None, "language": None})(),
+        1001: type("Entry", (), {"action": "set_language", "device_id": None, "language": "zh-CN"})(),
+    }
+
+    host._on_command(0, 0, 1000, 0)
+    host._on_command(0, 0, 1001, 0)
+
+    assert state.calls == ["reconnect:False", "language:zh-CN"]
 
 
 def test_left_click_opens_main_window_instead_of_quick_panel():

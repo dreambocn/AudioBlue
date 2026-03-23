@@ -22,25 +22,39 @@ class RulesEngine:
             for device in devices
         }
 
-        matched = [
-            device
-            for device in device_map.values()
-            if self._should_include_device(device=device, trigger=trigger)
-        ]
+        if trigger == "startup":
+            return self._startup_candidates(device_map)
+
+        matched = [device for device in device_map.values() if self._should_include_reappear(device)]
         matched.sort(key=self._candidate_sort_key)
+        return matched
 
-        fallback = []
-        if self._config.reconnect:
-            for device_id in self._config.last_devices:
-                device = device_map.get(device_id)
-                if device is None or device in matched or not device.capabilities.supports_audio_playback:
-                    continue
-                rule = self._config.device_rules.get(device.device_id, DeviceRule())
-                if rule.is_ignored:
-                    continue
-                fallback.append(device)
+    def _startup_candidates(self, device_map: dict[str, DeviceSummary]) -> list[DeviceSummary]:
+        if not self._config.reconnect:
+            return []
 
-        return matched + fallback
+        candidates: list[DeviceSummary] = []
+        seen_ids: set[str] = set()
+        for device_id in self._config.last_devices:
+            if device_id in seen_ids:
+                continue
+            seen_ids.add(device_id)
+
+            device = device_map.get(device_id)
+            if device is None:
+                continue
+            if not device.capabilities.supports_audio_playback:
+                continue
+            if not getattr(device, "present_in_last_scan", True):
+                continue
+
+            rule = self._config.device_rules.get(device.device_id, DeviceRule())
+            if rule.is_ignored:
+                continue
+            candidates.append(device)
+
+        candidates.sort(key=self._candidate_sort_key)
+        return candidates
 
     def _apply_rule_defaults(
         self,
@@ -51,16 +65,12 @@ class RulesEngine:
             return device
         return replace(device)
 
-    def _should_include_device(
-        self,
-        device: DeviceSummary,
-        trigger: AutoConnectTrigger,
-    ) -> bool:
+    def _should_include_reappear(self, device: DeviceSummary) -> bool:
         rule = self._config.device_rules.get(device.device_id, DeviceRule())
         return (
             device.capabilities.supports_audio_playback
             and not rule.is_ignored
-            and rule.matches_trigger(trigger)
+            and rule.auto_connect_on_reappear
         )
 
     def _candidate_sort_key(self, device: DeviceSummary) -> tuple[int, int, str]:

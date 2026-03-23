@@ -13,7 +13,7 @@ export function AutomationPage({
   onReorderPriority,
 }: AutomationPageProps) {
   const { t } = useI18n()
-  const primaryDevice = devices[0]
+
   const moveDevice = (index: number, direction: -1 | 1) => {
     const nextIndex = index + direction
     if (nextIndex < 0 || nextIndex >= devices.length) {
@@ -26,7 +26,7 @@ export function AutomationPage({
     onReorderPriority(reordered)
   }
 
-  if (!primaryDevice) {
+  if (!devices.length) {
     return (
       <section className="page-grid">
         <article className="surface-card compact-card">
@@ -41,18 +41,34 @@ export function AutomationPage({
     <section className="page-grid">
       <article className="surface-card">
         <h2>{t('automation.rules')}</h2>
-        <p className="muted">{t('automation.description')}</p>
-        <label className="toggle-row">
-          <span>{t('automation.appearRule')}</span>
-          <input
-            type="checkbox"
-            aria-label={t('automation.appearRule')}
-            checked={primaryDevice.rule.autoConnectOnAppear}
-            onChange={(event) =>
-              onToggleAppearRule(primaryDevice.id, event.target.checked)
-            }
-          />
-        </label>
+        <div className="feature-note" data-testid="automation-note">
+          <div className="feature-note-header">
+            <span className="feature-note-icon" aria-hidden="true">
+              ✦
+            </span>
+            <p className="feature-note-copy">{t('automation.description')}</p>
+          </div>
+          <div className="feature-note-tags">
+            <span className="feature-note-tag">{t('automation.scope')}</span>
+            <span className="feature-note-tag">{t('automation.behavior')}</span>
+          </div>
+        </div>
+        <div className="automation-toggle-list">
+          {devices.map((device) => (
+            <label key={device.id} className="toggle-row">
+              <span>{t('automation.appearRule', { name: device.name })}</span>
+              <input
+                className="switch-toggle"
+                type="checkbox"
+                aria-label={t('automation.appearRule', { name: device.name })}
+                checked={device.rule.autoConnectOnAppear}
+                onChange={(event) =>
+                  onToggleAppearRule(device.id, event.target.checked)
+                }
+              />
+            </label>
+          ))}
+        </div>
       </article>
 
       <article className="surface-card">

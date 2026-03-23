@@ -77,6 +77,25 @@ def create_api(tmp_path: Path):
     )
 
 
+def test_desktop_api_set_reconnect_updates_snapshot_field(tmp_path):
+    api = create_api(tmp_path)
+
+    snapshot = api.set_reconnect(True)
+
+    assert snapshot["settings"]["startup"]["reconnectOnNextStart"] is True
+
+
+def test_desktop_api_sync_window_theme_calls_registered_handler(tmp_path):
+    api = create_api(tmp_path)
+    calls: list[str] = []
+    api.register_window_theme_sync(lambda mode: calls.append(mode))
+
+    result = api.sync_window_theme("dark")
+
+    assert result == {"mode": "dark", "applied": True}
+    assert calls == ["dark"]
+
+
 def test_find_ui_entrypoint_returns_built_index(tmp_path):
     index_path = tmp_path / "ui" / "dist" / "index.html"
     index_path.parent.mkdir(parents=True)
@@ -255,3 +274,56 @@ def test_run_subscribes_state_push_channel_and_dispatches_browser_event(tmp_path
 
     assert host.main_window.scripts
     assert "audioblue:state" in host.main_window.scripts[-1]
+
+
+def test_desktop_host_sync_window_theme_returns_false_without_window(tmp_path):
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=tmp_path / "ui" / "dist" / "index.html",
+        webview_module=WebviewModuleStub(),
+    )
+
+    assert host.sync_window_theme("dark") is False
+
+
+def test_desktop_host_sync_window_theme_uses_native_theme_applier(tmp_path, monkeypatch):
+    index_path = tmp_path / "ui" / "dist" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=index_path,
+        webview_module=WebviewModuleStub(),
+    )
+    host.create_windows()
+    calls: list[tuple[object, str]] = []
+    monkeypatch.setattr(
+        host,
+        "_apply_native_title_bar_theme",
+        lambda window, mode: calls.append((window, mode)),
+    )
+
+    applied = host.sync_window_theme("light")
+
+    assert applied is True
+    assert len(calls) == 1
+    assert calls[0][1] == "light"
+
+
+def test_desktop_host_sync_window_theme_swallow_errors(tmp_path, monkeypatch):
+    index_path = tmp_path / "ui" / "dist" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=index_path,
+        webview_module=WebviewModuleStub(),
+    )
+    host.create_windows()
+
+    def raise_error(_window, _mode):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(host, "_apply_native_title_bar_theme", raise_error)
+
+    assert host.sync_window_theme("dark") is False

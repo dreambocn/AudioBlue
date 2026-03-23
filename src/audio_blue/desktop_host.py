@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 from datetime import UTC, datetime
 import json
 from pathlib import Path
@@ -55,6 +56,7 @@ class DesktopApi:
         self._diagnostics_exporter = diagnostics_exporter
         self._open_bluetooth_settings = open_bluetooth_settings
         self._diagnostics_output_dir = diagnostics_output_dir
+        self._window_theme_sync: Callable[[str], bool] | None = None
 
     def get_initial_state(self) -> dict[str, Any]:
         if self.session_state is not None:
@@ -129,6 +131,26 @@ class DesktopApi:
         self.app_state.config.notification.policy = policy
         return self.app_state.snapshot()
 
+    def set_reconnect(self, enabled: bool) -> dict[str, Any]:
+        if self.session_state is not None and hasattr(self.session_state, "set_reconnect"):
+            snapshot = self.session_state.set_reconnect(enabled)
+            return self._ensure_reconnect_in_snapshot(snapshot, enabled)
+        self.app_state.config.reconnect = bool(enabled)
+        snapshot = self.app_state.snapshot()
+        return self._ensure_reconnect_in_snapshot(snapshot, enabled)
+
+    def register_window_theme_sync(self, callback: Callable[[str], bool]) -> None:
+        self._window_theme_sync = callback
+
+    def sync_window_theme(self, mode: str) -> dict[str, Any]:
+        if mode not in {"light", "dark"}:
+            raise ValueError("Unsupported theme mode")
+        if self._window_theme_sync is None:
+            return {"mode": mode, "applied": False}
+        result = self._window_theme_sync(mode)
+        applied = True if result is None else bool(result)
+        return {"mode": mode, "applied": applied}
+
     def open_bluetooth_settings(self) -> None:
         self._open_bluetooth_settings()
 
@@ -150,6 +172,12 @@ class DesktopApi:
     def _sync_from_service(self) -> None:
         self.app_state.sync_devices(list(getattr(self.service, "known_devices", {}).values()))
 
+    def _ensure_reconnect_in_snapshot(self, snapshot: dict[str, Any], enabled: bool) -> dict[str, Any]:
+        settings = snapshot.setdefault("settings", {})
+        startup = settings.setdefault("startup", {})
+        startup["reconnectOnNextStart"] = bool(enabled)
+        return snapshot
+
 
 class DesktopHost:
     def __init__(self, api: DesktopApi, ui_entrypoint: Path, webview_module=None) -> None:
@@ -159,6 +187,8 @@ class DesktopHost:
         self.main_window = None
         self._state_unsubscribe = None
         self._allow_close = False
+        if hasattr(self.api, "register_window_theme_sync"):
+            self.api.register_window_theme_sync(self.sync_window_theme)
 
     def create_windows(self) -> None:
         if self.main_window is not None:
@@ -204,6 +234,15 @@ class DesktopHost:
     def show_quick_panel(self) -> None:
         raise RuntimeError("Quick panel is not part of the runtime path.")
 
+    def sync_window_theme(self, mode: str) -> bool:
+        if self.main_window is None:
+            return False
+        try:
+            self._apply_native_title_bar_theme(self.main_window, mode)
+            return True
+        except Exception:
+            return False
+
     def shutdown(self) -> None:
         self._allow_close = True
         if callable(self._state_unsubscribe):
@@ -241,3 +280,43 @@ class DesktopHost:
         if hasattr(self.main_window, "hide"):
             self.main_window.hide()
         return False
+
+    def _apply_native_title_bar_theme(self, window: object, mode: str) -> None:
+        if mode not in {"light", "dark"}:
+            raise ValueError("Unsupported theme mode")
+
+        hwnd = self._resolve_window_handle(window)
+        enabled = ctypes.c_int(1 if mode == "dark" else 0)
+        dwmapi = ctypes.windll.dwmapi
+        attributes = (20, 19)
+        for attribute in attributes:
+            result = dwmapi.DwmSetWindowAttribute(
+                ctypes.c_void_p(hwnd),
+                ctypes.c_uint(attribute),
+                ctypes.byref(enabled),
+                ctypes.c_uint(ctypes.sizeof(enabled)),
+            )
+            if result == 0:
+                return
+        raise RuntimeError("Failed to apply native title bar theme")
+
+    def _resolve_window_handle(self, window: object) -> int:
+        for attribute in ("hwnd", "_hwnd"):
+            value = getattr(window, attribute, None)
+            if isinstance(value, int) and value > 0:
+                return value
+
+        native = getattr(window, "native", None)
+        if native is not None:
+            for attribute in ("hwnd", "_hwnd", "Handle", "handle"):
+                value = getattr(native, attribute, None)
+                if isinstance(value, int) and value > 0:
+                    return value
+
+        title = getattr(window, "title", "")
+        if not isinstance(title, str):
+            title = ""
+        hwnd = ctypes.windll.user32.FindWindowW(None, title or None)
+        if hwnd:
+            return int(hwnd)
+        raise RuntimeError("Could not resolve window handle")

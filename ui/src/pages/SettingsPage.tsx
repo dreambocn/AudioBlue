@@ -42,10 +42,11 @@ export function SettingsPage({
     <section className="page-grid">
       <article className="surface-card">
         <h3>{t('settings.title')}</h3>
-        <div className="settings-grid">
-          <label className="field-row">
-            <span>{t('settings.theme')}</span>
+        <div className="settings-stack" data-testid="settings-stack">
+          <label className="field-row settings-item">
+            <span className="settings-label">{t('settings.theme')}</span>
             <select
+              className="themed-select"
               aria-label={t('settings.theme')}
               value={state.ui.themeMode}
               onChange={(event) => onThemeChange(event.target.value as ThemeMode)}
@@ -56,9 +57,10 @@ export function SettingsPage({
             </select>
           </label>
 
-          <label className="field-row">
-            <span>{t('settings.language')}</span>
+          <label className="field-row settings-item">
+            <span className="settings-label">{t('settings.language')}</span>
             <select
+              className="themed-select"
               aria-label={t('settings.language')}
               value={state.ui.language}
               onChange={(event) =>
@@ -71,18 +73,20 @@ export function SettingsPage({
             </select>
           </label>
 
-          <label className="toggle-row">
-            <span>{t('settings.startWithWindows')}</span>
+          <label className="toggle-row settings-item">
+            <span className="settings-label">{t('settings.startWithWindows')}</span>
             <input
+              className="switch-toggle"
               type="checkbox"
               checked={state.startup.autostart}
               onChange={(event) => onAutostartChange(event.target.checked)}
             />
           </label>
 
-          <label className="field-row">
-            <span>{t('settings.notificationPolicy')}</span>
+          <label className="field-row settings-item">
+            <span className="settings-label">{t('settings.notificationPolicy')}</span>
             <select
+              className="themed-select"
               value={state.notifications.policy}
               onChange={(event) =>
                 onNotificationPolicyChange(event.target.value as NotificationPolicy)
@@ -129,7 +133,14 @@ export function SettingsPage({
 
       <article className="surface-card compact-card">
         <h3>{t('settings.updates')}</h3>
-        <p className="muted">{t('settings.updates.hint')}</p>
+        <div className="feature-note feature-note-subtle">
+          <div className="feature-note-header">
+            <span className="feature-note-icon" aria-hidden="true">
+              ↗
+            </span>
+            <p className="feature-note-copy">{t('settings.updates.hint')}</p>
+          </div>
+        </div>
         <button type="button" className="secondary-button" disabled>
           {t('settings.updates.button')}
         </button>

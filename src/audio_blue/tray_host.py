@@ -24,6 +24,8 @@ class MenuEntry:
     checked: bool = False
     enabled: bool = True
     device_id: str | None = None
+    language: str | None = None
+    children: list["MenuEntry"] | None = None
 
 
 def build_menu_entries(
@@ -31,7 +33,9 @@ def build_menu_entries(
     reconnect_enabled: bool,
     *,
     language: str = "system",
+    selected_language: str | None = None,
 ) -> list[MenuEntry]:
+    selected = selected_language or language
     entries = [
         MenuEntry(action="refresh_devices", label=tray_label("refresh_devices", language=language)),
         MenuEntry(
@@ -40,6 +44,30 @@ def build_menu_entries(
             checked=reconnect_enabled,
         ),
         MenuEntry(action="open_control_center", label=tray_label("open_control_center", language=language)),
+        MenuEntry(
+            action="set_language",
+            label=tray_label("language", language=language),
+            children=[
+                MenuEntry(
+                    action="set_language",
+                    label=tray_label("language_system", language=language),
+                    checked=selected == "system",
+                    language="system",
+                ),
+                MenuEntry(
+                    action="set_language",
+                    label=tray_label("language_zh-CN", language=language),
+                    checked=selected == "zh-CN",
+                    language="zh-CN",
+                ),
+                MenuEntry(
+                    action="set_language",
+                    label=tray_label("language_en-US", language=language),
+                    checked=selected == "en-US",
+                    language="en-US",
+                ),
+            ],
+        ),
     ]
 
     for device in devices:
@@ -165,18 +193,14 @@ class TrayHost:
             if self._session_state is not None
             else list(self._service.known_devices.values())
         )
-        language = getattr(self._config.ui, "language", "system")
-        for entry in build_menu_entries(devices, self._config.reconnect, language=language):
-            menu_flags = win32con.MF_STRING
-            if not entry.enabled:
-                menu_flags |= win32con.MF_GRAYED
-            if entry.checked:
-                menu_flags |= win32con.MF_CHECKED
-
-            command_id = self._next_command_id
-            self._next_command_id += 1
-            self._command_map[command_id] = entry
-            win32gui.AppendMenu(menu, menu_flags, command_id, entry.label)
+        reconnect_enabled, selected_language = self._resolve_menu_preferences()
+        for entry in build_menu_entries(
+            devices,
+            reconnect_enabled,
+            language=selected_language,
+            selected_language=selected_language,
+        ):
+            self._append_menu_entry(menu, entry)
 
         cursor_x, cursor_y = win32gui.GetCursorPos()
         try:
@@ -201,7 +225,12 @@ class TrayHost:
         if entry.action == "refresh_devices":
             self._refresh_devices()
         elif entry.action == "toggle_reconnect":
-            self._config.reconnect = not self._config.reconnect
+            reconnect_enabled, _ = self._resolve_menu_preferences()
+            next_enabled = not reconnect_enabled
+            if self._session_state is not None and hasattr(self._session_state, "set_reconnect"):
+                self._session_state.set_reconnect(next_enabled)
+            else:
+                self._config.reconnect = next_enabled
         elif entry.action == "open_control_center":
             self._show_main_window()
         elif entry.action == "connect_device" and entry.device_id:
@@ -214,12 +243,60 @@ class TrayHost:
                 self._session_state.disconnect_device(entry.device_id)
             else:
                 self._service.disconnect(entry.device_id)
+        elif entry.action == "set_language" and isinstance(entry.language, str):
+            if self._session_state is not None and hasattr(self._session_state, "set_language"):
+                self._session_state.set_language(entry.language)
+            else:
+                self._config.ui.language = entry.language
         elif entry.action == "open_bluetooth_settings":
             os.startfile("ms-settings:bluetooth")
         elif entry.action == "exit":
             win32gui.DestroyWindow(hwnd)
 
         return 0
+
+    def _append_menu_entry(self, menu, entry: MenuEntry) -> None:
+        menu_flags = win32con.MF_STRING
+        if not entry.enabled:
+            menu_flags |= win32con.MF_GRAYED
+        if entry.checked:
+            menu_flags |= win32con.MF_CHECKED
+
+        if entry.children:
+            submenu = win32gui.CreatePopupMenu()
+            for child in entry.children:
+                self._append_menu_entry(submenu, child)
+            win32gui.AppendMenu(menu, menu_flags | win32con.MF_POPUP, submenu, entry.label)
+            return
+
+        command_id = self._next_command_id
+        self._next_command_id += 1
+        self._command_map[command_id] = entry
+        win32gui.AppendMenu(menu, menu_flags, command_id, entry.label)
+
+    def _resolve_menu_preferences(self) -> tuple[bool, str]:
+        reconnect_enabled = bool(getattr(self._config, "reconnect", False))
+        language = str(getattr(self._config.ui, "language", "system"))
+        if self._session_state is None or not hasattr(self._session_state, "snapshot"):
+            return reconnect_enabled, language
+
+        try:
+            snapshot = self._session_state.snapshot()
+        except Exception:
+            self._logger.debug("Failed to read session state snapshot for tray menu.", exc_info=True)
+            return reconnect_enabled, language
+
+        settings = snapshot.get("settings", {}) if isinstance(snapshot, dict) else {}
+        startup = settings.get("startup", {}) if isinstance(settings, dict) else {}
+        ui = settings.get("ui", {}) if isinstance(settings, dict) else {}
+        reconnect_from_snapshot = startup.get("reconnectOnNextStart")
+        language_from_snapshot = ui.get("language")
+
+        if isinstance(reconnect_from_snapshot, bool):
+            reconnect_enabled = reconnect_from_snapshot
+        if isinstance(language_from_snapshot, str):
+            language = language_from_snapshot
+        return reconnect_enabled, language
 
     def _on_destroy(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
         if self._notify_id is not None:
