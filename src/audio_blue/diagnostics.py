@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from audio_blue.models import AppConfig, ConnectionAttempt, DeviceRule, DeviceSummary
+from audio_blue.storage import SQLiteStorage
 
 
 def build_diagnostics_snapshot(
@@ -28,6 +29,11 @@ def build_diagnostics_snapshot(
 def export_diagnostics_snapshot(snapshot: dict[str, Any], path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
+    storage = _build_storage_for_export(path)
+    storage.initialize()
+    snapshot_id = storage.save_diagnostics_snapshot(snapshot)
+    storage.record_diagnostics_export(export_path=path, snapshot_id=snapshot_id)
+    storage.purge_expired_records()
     return path
 
 
@@ -48,6 +54,7 @@ def _serialize_config(config: AppConfig) -> dict[str, Any]:
         "ui": {
             "theme": config.ui.theme,
             "highContrast": config.ui.high_contrast,
+            "language": config.ui.language,
         },
     }
 
@@ -86,6 +93,7 @@ def _serialize_attempt(attempt: ConnectionAttempt) -> dict[str, Any]:
         "succeeded": attempt.succeeded,
         "state": attempt.state,
         "failureReason": attempt.failure_reason,
+        "failureCode": attempt.failure_code,
         "happenedAt": _to_iso(attempt.happened_at),
     }
 
@@ -94,3 +102,9 @@ def _to_iso(value: datetime | None) -> str | None:
     if value is None:
         return None
     return value.isoformat()
+
+
+def _build_storage_for_export(export_path: Path) -> SQLiteStorage:
+    if export_path.parent.name.lower() == "diagnostics":
+        return SQLiteStorage(db_path=export_path.parent.parent / "audioblue.db")
+    return SQLiteStorage(db_path=export_path.parent / "audioblue.db")

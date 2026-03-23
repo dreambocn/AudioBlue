@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from datetime import UTC, datetime
 
 from audio_blue.diagnostics import (
@@ -60,7 +61,7 @@ def test_export_snapshot_writes_json_file(tmp_path):
         attempts=[],
         source="unit-test",
     )
-    export_path = tmp_path / "diag" / "snapshot.json"
+    export_path = tmp_path / "diagnostics" / "snapshot.json"
 
     written_path = export_diagnostics_snapshot(snapshot=snapshot, path=export_path)
 
@@ -69,3 +70,11 @@ def test_export_snapshot_writes_json_file(tmp_path):
     assert payload["source"] == "unit-test"
     assert payload["devices"] == []
     assert payload["attempts"] == []
+
+    database_path = tmp_path / "audioblue.db"
+    with sqlite3.connect(database_path) as connection:
+        snapshot_count = connection.execute("SELECT COUNT(*) FROM diagnostics_snapshots").fetchone()[0]
+        export_count = connection.execute("SELECT COUNT(*) FROM diagnostics_exports").fetchone()[0]
+
+    assert snapshot_count == 1
+    assert export_count == 1

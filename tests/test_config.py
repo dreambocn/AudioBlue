@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 from audio_blue.config import get_config_path, load_config, save_config
@@ -15,44 +14,35 @@ def test_get_config_path_uses_local_app_data(monkeypatch):
 
 
 def test_load_config_returns_defaults_when_file_missing(tmp_path):
-    config = load_config(tmp_path / "missing.json")
+    config = load_config(tmp_path / "missing.db")
 
     assert config == AppConfig()
 
 
-def test_load_config_returns_defaults_when_json_is_invalid(tmp_path):
+def test_load_config_returns_defaults_when_legacy_json_is_invalid(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text("{not-json", encoding="utf-8")
 
     config = load_config(config_path)
 
     assert config == AppConfig()
+    assert config_path.with_name("audioblue.db").exists()
 
 
 def test_save_config_persists_reconnect_and_last_devices(tmp_path):
-    config_path = tmp_path / "nested" / "config.json"
+    config_path = tmp_path / "nested" / "audioblue.db"
     config = AppConfig(reconnect=True, last_devices=["device-1", "device-2"])
 
-    save_config(config, config_path)
+    saved_path = save_config(config, config_path)
+    loaded = load_config(config_path)
 
-    saved = json.loads(config_path.read_text(encoding="utf-8"))
-    assert saved == {
-        "reconnect": True,
-        "lastDevices": ["device-1", "device-2"],
-    }
+    assert saved_path == config_path
+    assert loaded == config
 
 
 def test_load_config_round_trips_saved_values(tmp_path):
-    config_path = tmp_path / "config.json"
-    config_path.write_text(
-        json.dumps(
-            {
-                "reconnect": True,
-                "lastDevices": ["device-1"],
-            }
-        ),
-        encoding="utf-8",
-    )
+    config_path = tmp_path / "audioblue.db"
+    save_config(AppConfig(reconnect=True, last_devices=["device-1"]), config_path)
 
     config = load_config(config_path)
 
