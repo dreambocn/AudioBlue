@@ -7,13 +7,9 @@ import type { AppState } from '../types'
 
 interface TrayQuickPanelViewProps {
   bridge?: BackendBridge
-  onOpenControlCenter?: () => void
 }
 
-export function TrayQuickPanelView({
-  bridge,
-  onOpenControlCenter = () => undefined,
-}: TrayQuickPanelViewProps) {
+export function TrayQuickPanelView({ bridge }: TrayQuickPanelViewProps) {
   const resolvedBridge = useResolvedBridge(bridge)
   const [state, setState] = useState<AppState | null>(null)
 
@@ -77,8 +73,8 @@ export function TrayQuickPanelView({
               })
             : Promise.resolve()
         }
-        onOpenControlCenter={onOpenControlCenter}
         onOpenBluetoothSettings={() => resolvedBridge.openBluetoothSettings()}
+        onRefreshDevices={() => resolvedBridge.refreshDevices().then(() => undefined)}
       />
     </LanguageProvider>
   )

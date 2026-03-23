@@ -95,7 +95,6 @@ interface ControlCenterContentProps {
   audioDevices: DeviceViewModel[]
   activeDevice?: DeviceViewModel
   sourceAvailability: A2dpSourceAvailability
-  bridge: BackendBridge
   setRoute: (route: AppRoute) => void
   onConnect: (deviceId: string) => Promise<void>
   onDisconnect: (deviceId: string) => Promise<void>
@@ -108,6 +107,7 @@ interface ControlCenterContentProps {
   onLanguageChange: (language: LanguagePreference) => Promise<void>
   onExportDiagnostics: () => Promise<void>
   onOpenBluetoothSettings: () => Promise<void>
+  onRefreshDevices: () => Promise<void>
 }
 
 function ControlCenterContent({
@@ -117,7 +117,6 @@ function ControlCenterContent({
   audioDevices,
   activeDevice,
   sourceAvailability,
-  bridge,
   setRoute,
   onConnect,
   onDisconnect,
@@ -130,6 +129,7 @@ function ControlCenterContent({
   onLanguageChange,
   onExportDiagnostics,
   onOpenBluetoothSettings,
+  onRefreshDevices,
 }: ControlCenterContentProps) {
   const { t } = useI18n()
 
@@ -152,33 +152,14 @@ function ControlCenterContent({
         </nav>
       </aside>
 
-      <main className="content-shell">
-        <header className="command-bar">
-          <h2>{t(navItems.find((item) => item.key === route)?.labelKey ?? 'nav.overview')}</h2>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={async () => {
-              await bridge.refreshDevices()
-            }}
-          >
-            {t('command.refreshDevices')}
-          </button>
-        </header>
-
-        {route === 'overview' ? (
-          <OverviewPage
-            state={state}
-            sourceAvailability={sourceAvailability}
-            bridgeMode={state.runtime.bridgeMode}
-            totalDevices={state.devices.length}
-            matchedSourceDevices={audioDevices}
-            debugDevices={state.devices}
-          />
-        ) : null}
-        {route === 'devices' ? (
-          <DevicesPage
-            devices={visibleDevices}
+      <main className="workspace-shell" data-testid="workspace-shell">
+        <section
+          className="workspace-quick-actions"
+          data-testid="workspace-quick-actions"
+        >
+          <TrayQuickPanel
+            currentDevice={activeDevice}
+            autoConnectEnabled={audioDevices.some((device) => device.rule.autoConnectOnAppear)}
             sourceAvailability={sourceAvailability}
             bridgeMode={state.runtime.bridgeMode}
             totalDevices={state.devices.length}
@@ -186,55 +167,57 @@ function ControlCenterContent({
             debugDevices={state.devices}
             onConnect={onConnect}
             onDisconnect={onDisconnect}
-            onToggleFavorite={onToggleFavorite}
+            onToggleAutoConnect={(enabled) => {
+              const firstDevice = audioDevices[0]
+              if (!firstDevice) {
+                return
+              }
+              void onToggleAppearRule(firstDevice.id, enabled)
+            }}
+            onOpenBluetoothSettings={onOpenBluetoothSettings}
+            onRefreshDevices={onRefreshDevices}
           />
-        ) : null}
-        {route === 'automation' ? (
-          <AutomationPage
-            devices={audioDevices}
-            sourceAvailability={sourceAvailability}
-            bridgeMode={state.runtime.bridgeMode}
-            totalDevices={state.devices.length}
-            matchedSourceDevices={audioDevices}
-            debugDevices={state.devices}
-            onToggleAppearRule={onToggleAppearRule}
-            onReorderPriority={onReorderPriority}
-          />
-        ) : null}
-        {route === 'settings' ? (
-          <SettingsPage
-            state={state}
-            onThemeChange={onThemeChange}
-            onLanguageChange={onLanguageChange}
-            onAutostartChange={onAutostartChange}
-            onNotificationPolicyChange={onNotificationPolicyChange}
-            onExportDiagnostics={onExportDiagnostics}
-          />
-        ) : null}
-      </main>
+        </section>
 
-      <aside className="right-panel">
-        <TrayQuickPanel
-          currentDevice={activeDevice}
-          autoConnectEnabled={audioDevices.some((device) => device.rule.autoConnectOnAppear)}
-          sourceAvailability={sourceAvailability}
-          bridgeMode={state.runtime.bridgeMode}
-          totalDevices={state.devices.length}
-          matchedSourceDevices={audioDevices}
-          debugDevices={state.devices}
-          onConnect={onConnect}
-          onDisconnect={onDisconnect}
-          onToggleAutoConnect={(enabled) => {
-            const firstDevice = audioDevices[0]
-            if (!firstDevice) {
-              return
-            }
-            void onToggleAppearRule(firstDevice.id, enabled)
-          }}
-          onOpenControlCenter={() => setRoute('devices')}
-          onOpenBluetoothSettings={onOpenBluetoothSettings}
-        />
-      </aside>
+        <section className="workspace-content" data-testid="workspace-content">
+          <header className="page-header">
+            <p className="page-kicker">AudioBlue</p>
+            <h2>{t(navItems.find((item) => item.key === route)?.labelKey ?? 'nav.overview')}</h2>
+          </header>
+
+          {route === 'overview' ? <OverviewPage state={state} /> : null}
+          {route === 'devices' ? (
+            <DevicesPage
+              devices={visibleDevices}
+              onConnect={onConnect}
+              onDisconnect={onDisconnect}
+              onToggleFavorite={onToggleFavorite}
+            />
+          ) : null}
+          {route === 'automation' ? (
+            <AutomationPage
+              devices={audioDevices}
+              onToggleAppearRule={onToggleAppearRule}
+              onReorderPriority={onReorderPriority}
+            />
+          ) : null}
+          {route === 'settings' ? (
+            <SettingsPage
+              state={state}
+              sourceAvailability={sourceAvailability}
+              bridgeMode={state.runtime.bridgeMode}
+              totalDevices={state.devices.length}
+              matchedSourceDevices={audioDevices}
+              debugDevices={state.devices}
+              onThemeChange={onThemeChange}
+              onLanguageChange={onLanguageChange}
+              onAutostartChange={onAutostartChange}
+              onNotificationPolicyChange={onNotificationPolicyChange}
+              onExportDiagnostics={onExportDiagnostics}
+            />
+          ) : null}
+        </section>
+      </main>
     </div>
   )
 }
@@ -372,6 +355,10 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
     await bridge.openBluetoothSettings()
   }
 
+  const handleRefreshDevices = async () => {
+    await bridge.refreshDevices()
+  }
+
   if (isLoading || !state) {
     return <div className="loading-shell">Loading AudioBlue control center…</div>
   }
@@ -385,7 +372,6 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
         audioDevices={audioDevices}
         activeDevice={activeDevice}
         sourceAvailability={sourceAvailability}
-        bridge={bridge}
         setRoute={setRoute}
         onConnect={handleConnect}
         onDisconnect={handleDisconnect}
@@ -398,6 +384,7 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
         onLanguageChange={handleLanguageChange}
         onExportDiagnostics={handleExportDiagnostics}
         onOpenBluetoothSettings={handleOpenBluetoothSettings}
+        onRefreshDevices={handleRefreshDevices}
       />
     </LanguageProvider>
   )

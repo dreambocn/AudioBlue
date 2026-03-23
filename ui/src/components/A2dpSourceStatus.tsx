@@ -7,6 +7,7 @@ interface A2dpSourceStatusProps {
   totalDevices: number
   matchedSourceDevices: DeviceViewModel[]
   debugDevices: DeviceViewModel[]
+  mode?: 'compact' | 'detailed'
 }
 
 const getTitleKey = (availability: A2dpSourceAvailability) => {
@@ -35,29 +36,74 @@ export function A2dpSourceStatus({
   totalDevices,
   matchedSourceDevices,
   debugDevices,
+  mode = 'detailed',
 }: A2dpSourceStatusProps) {
   const { t } = useI18n()
-  const previewDevices = debugDevices.slice(0, 2)
+  const previewDevices = debugDevices.slice(0, 3)
+  const recentSeen =
+    matchedSourceDevices[0]?.lastSeen ?? debugDevices[0]?.lastSeen ?? t('common.unknown')
+
+  if (mode === 'compact') {
+    return (
+      <article
+        className="a2dp-status-card a2dp-status-card-compact"
+        data-testid="a2dp-source-status-compact"
+      >
+        <div className="a2dp-status-header">
+          <div>
+            <h3>{t(getTitleKey(availability))}</h3>
+            <p className="muted">{t(getDescriptionKey(availability))}</p>
+          </div>
+          <span className="status-pill subtle">
+            {t('a2dp.debug.matchedSources')}: {matchedSourceDevices.length}
+          </span>
+        </div>
+
+        <div className="meta-chip-row">
+          <span className="meta-chip">
+            {t('a2dp.debug.bridgeMode')}: {bridgeMode}
+          </span>
+          <span className="meta-chip">
+            {t('a2dp.debug.totalDevices')}: {totalDevices}
+          </span>
+          <span className="meta-chip">
+            {t('a2dp.debug.lastSeen')}: {recentSeen}
+          </span>
+        </div>
+      </article>
+    )
+  }
 
   return (
-    <article className="surface-card a2dp-status-card" data-testid="a2dp-source-status">
-      <h3>{t(getTitleKey(availability))}</h3>
-      <p className="muted">{t(getDescriptionKey(availability))}</p>
-      <p className="muted">
-        {t('a2dp.debug.bridgeMode')}: {bridgeMode}
-      </p>
-      <p className="muted">
-        {t('a2dp.debug.totalDevices')}: {totalDevices}
-      </p>
-      <p className="muted">
-        {t('a2dp.debug.matchedSources')}: {matchedSourceDevices.length}
-      </p>
-      {previewDevices.map((device) => (
-        <p key={device.id} className="muted">
-          {t('a2dp.debug.deviceId')}: {device.id} · {t('a2dp.debug.lastSeen')}:{' '}
-          {device.lastSeen}
+    <article
+      className="surface-card a2dp-status-card a2dp-status-card-detailed"
+      data-testid="a2dp-source-status-detailed"
+    >
+      <div className="a2dp-status-header">
+        <div>
+          <h3>{t(getTitleKey(availability))}</h3>
+          <p className="muted">{t(getDescriptionKey(availability))}</p>
+        </div>
+      </div>
+      <div className="a2dp-detail-grid">
+        <p className="muted">
+          {t('a2dp.debug.bridgeMode')}: {bridgeMode}
         </p>
-      ))}
+        <p className="muted">
+          {t('a2dp.debug.totalDevices')}: {totalDevices}
+        </p>
+        <p className="muted">
+          {t('a2dp.debug.matchedSources')}: {matchedSourceDevices.length}
+        </p>
+      </div>
+      <div className="a2dp-debug-list">
+        {previewDevices.map((device) => (
+          <p key={device.id} className="muted">
+            {t('a2dp.debug.deviceId')}: {device.id} · {t('a2dp.debug.lastSeen')}:{' '}
+            {device.lastSeen}
+          </p>
+        ))}
+      </div>
     </article>
   )
 }

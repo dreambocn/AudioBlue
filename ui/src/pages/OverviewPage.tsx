@@ -1,29 +1,11 @@
-import { A2dpSourceStatus } from '../components/A2dpSourceStatus'
 import { useI18n } from '../i18n'
-import type {
-  A2dpSourceAvailability,
-  AppState,
-  BridgeMode,
-  DeviceViewModel,
-} from '../types'
+import type { AppState } from '../types'
 
 interface OverviewPageProps {
   state: AppState
-  sourceAvailability: A2dpSourceAvailability
-  bridgeMode: BridgeMode
-  totalDevices: number
-  matchedSourceDevices: DeviceViewModel[]
-  debugDevices: DeviceViewModel[]
 }
 
-export function OverviewPage({
-  state,
-  sourceAvailability,
-  bridgeMode,
-  totalDevices,
-  matchedSourceDevices,
-  debugDevices,
-}: OverviewPageProps) {
+export function OverviewPage({ state }: OverviewPageProps) {
   const { t } = useI18n()
   const connectedDevice =
     state.devices.find(
@@ -33,12 +15,14 @@ export function OverviewPage({
     ) ?? state.devices.find((device) => device.isConnected)
 
   return (
-    <section className="page-grid">
-      <article className="surface-card">
-        <h2>{t('overview.title')}</h2>
-        <p className="status-pill">
-          {t('overview.currentDevice')}: {connectedDevice ? connectedDevice.name : t('common.none')}
-        </p>
+    <section className="page-grid overview-grid">
+      <article className="surface-card spotlight-card">
+        <div className="card-head">
+          <h3>{t('overview.title')}</h3>
+          <span className="status-pill">
+            {t('overview.currentDevice')}: {connectedDevice ? connectedDevice.name : t('common.none')}
+          </span>
+        </div>
         {state.connection.lastFailure ? (
           <p className="muted">
             {t('overview.lastFailure', { message: state.connection.lastFailure })}
@@ -48,7 +32,7 @@ export function OverviewPage({
         )}
       </article>
 
-      <article className="surface-card">
+      <article className="surface-card compact-card">
         <h3>{t('overview.recentActivity')}</h3>
         <ul className="compact-list">
           {state.recentActivity.map((item) => (
@@ -56,14 +40,6 @@ export function OverviewPage({
           ))}
         </ul>
       </article>
-
-      <A2dpSourceStatus
-        availability={sourceAvailability}
-        bridgeMode={bridgeMode}
-        totalDevices={totalDevices}
-        matchedSourceDevices={matchedSourceDevices}
-        debugDevices={debugDevices}
-      />
     </section>
   )
 }

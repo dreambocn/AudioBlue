@@ -1,26 +1,14 @@
-import { A2dpSourceStatus } from '../components/A2dpSourceStatus'
 import type { DeviceViewModel } from '../types'
 import { useI18n } from '../i18n'
-import type { A2dpSourceAvailability, BridgeMode } from '../types'
 
 interface AutomationPageProps {
   devices: DeviceViewModel[]
-  sourceAvailability: A2dpSourceAvailability
-  bridgeMode: BridgeMode
-  totalDevices: number
-  matchedSourceDevices: DeviceViewModel[]
-  debugDevices: DeviceViewModel[]
   onToggleAppearRule: (deviceId: string, enabled: boolean) => void
   onReorderPriority: (deviceIds: string[]) => void
 }
 
 export function AutomationPage({
   devices,
-  sourceAvailability,
-  bridgeMode,
-  totalDevices,
-  matchedSourceDevices,
-  debugDevices,
   onToggleAppearRule,
   onReorderPriority,
 }: AutomationPageProps) {
@@ -41,15 +29,8 @@ export function AutomationPage({
   if (!primaryDevice) {
     return (
       <section className="page-grid">
-        <A2dpSourceStatus
-          availability={sourceAvailability}
-          bridgeMode={bridgeMode}
-          totalDevices={totalDevices}
-          matchedSourceDevices={matchedSourceDevices}
-          debugDevices={debugDevices}
-        />
-        <article className="surface-card">
-          <h2>{t('automation.title')}</h2>
+        <article className="surface-card compact-card">
+          <h3>{t('automation.title')}</h3>
           <p className="muted">{t('automation.empty')}</p>
         </article>
       </section>
@@ -73,14 +54,6 @@ export function AutomationPage({
           />
         </label>
       </article>
-
-      <A2dpSourceStatus
-        availability={sourceAvailability}
-        bridgeMode={bridgeMode}
-        totalDevices={totalDevices}
-        matchedSourceDevices={matchedSourceDevices}
-        debugDevices={debugDevices}
-      />
 
       <article className="surface-card">
         <h3>{t('automation.priority')}</h3>

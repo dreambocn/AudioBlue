@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -258,7 +258,11 @@ describe('AudioBlue Control Center integration', () => {
 
     expect(await screen.findByText('当前设备: Keyboard')).toBeVisible()
     await userEvent.click(screen.getByRole('button', { name: '设备' }))
-    expect(await screen.findByText('Keyboard')).toBeVisible()
+    expect(
+      within(screen.getByTestId('workspace-content')).getByRole('heading', {
+        name: 'Keyboard',
+      }),
+    ).toBeVisible()
     expect(await screen.findByText('已连接，当前未在扫描结果中出现')).toBeVisible()
     await userEvent.click(screen.getByRole('button', { name: '自动化' }))
     expect(await screen.findByText('没有可自动化的音频设备。')).toBeVisible()
@@ -353,6 +357,60 @@ describe('AudioBlue Control Center integration', () => {
     expect((await screen.findAllByText('No matched A2DP source devices')).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Bridge mode: native').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Total discovered devices: 1').length).toBeGreaterThan(0)
+  })
+
+  it('places quick actions above the scrollable workspace content', async () => {
+    render(<App bridge={createStaticBridge(baseState)} />)
+
+    const workspace = await screen.findByTestId('workspace-shell')
+    const quickActions = within(workspace).getByTestId('workspace-quick-actions')
+    const content = within(workspace).getByTestId('workspace-content')
+
+    expect(quickActions).toBeVisible()
+    expect(content).toBeVisible()
+    expect(workspace.firstElementChild).toBe(quickActions)
+  })
+
+  it('keeps A2DP status compact on overview, devices and automation', async () => {
+    const bridge = createStaticBridge({
+      ...baseState,
+      devices: [
+        {
+          ...baseState.devices[0],
+          supportsAudio: false,
+        },
+      ],
+      prioritizedDeviceIds: ['device-1'],
+    })
+    const user = userEvent.setup()
+
+    render(<App bridge={bridge} />)
+
+    expect((await screen.findAllByText('No matched A2DP source devices')).length).toBe(1)
+    expect(screen.queryByText(/Raw device ID/i)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Devices' }))
+    expect((await screen.findAllByText('No matched A2DP source devices')).length).toBe(1)
+    expect(screen.queryByText(/Raw device ID/i)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Automation' }))
+    expect((await screen.findAllByText('No matched A2DP source devices')).length).toBe(1)
+    expect(screen.queryByText(/Raw device ID/i)).not.toBeInTheDocument()
+  })
+
+  it('shows detailed A2DP diagnostics only on settings', async () => {
+    const user = userEvent.setup()
+
+    render(<App bridge={createStaticBridge(baseState)} />)
+
+    expect(screen.queryByTestId('a2dp-source-status-detailed')).not.toBeInTheDocument()
+
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    await user.click(screen.getByText('View detailed A2DP diagnostics'))
+
+    const detailedStatus = await screen.findByTestId('a2dp-source-status-detailed')
+    expect(detailedStatus).toBeVisible()
+    expect(within(detailedStatus).getAllByText(/Raw device ID/i).length).toBeGreaterThan(0)
   })
 
   it('renders core navigation and command copy through i18n in zh-CN', async () => {

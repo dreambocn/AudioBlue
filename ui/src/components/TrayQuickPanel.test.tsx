@@ -40,13 +40,14 @@ describe('TrayQuickPanel', () => {
           onDisconnect={onDisconnect}
           onConnect={vi.fn()}
           onToggleAutoConnect={vi.fn()}
-          onOpenControlCenter={vi.fn()}
           onOpenBluetoothSettings={vi.fn()}
+          onRefreshDevices={vi.fn()}
         />
       </LanguageProvider>,
     )
 
     expect(screen.getByText('Connected to Galaxy Buds')).toBeVisible()
+    expect(screen.queryByText(/Raw device ID/i)).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Disconnect' }))
     expect(onDisconnect).toHaveBeenCalledWith('device-buds')
   })

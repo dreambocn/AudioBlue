@@ -1,8 +1,22 @@
+import { A2dpSourceStatus } from '../components/A2dpSourceStatus'
 import { useI18n } from '../i18n'
-import type { AppState, LanguagePreference, NotificationPolicy, ThemeMode } from '../types'
+import type {
+  A2dpSourceAvailability,
+  AppState,
+  BridgeMode,
+  DeviceViewModel,
+  LanguagePreference,
+  NotificationPolicy,
+  ThemeMode,
+} from '../types'
 
 interface SettingsPageProps {
   state: AppState
+  sourceAvailability: A2dpSourceAvailability
+  bridgeMode: BridgeMode
+  totalDevices: number
+  matchedSourceDevices: DeviceViewModel[]
+  debugDevices: DeviceViewModel[]
   onThemeChange: (theme: ThemeMode) => void
   onLanguageChange: (language: LanguagePreference) => void
   onAutostartChange: (enabled: boolean) => void
@@ -12,6 +26,11 @@ interface SettingsPageProps {
 
 export function SettingsPage({
   state,
+  sourceAvailability,
+  bridgeMode,
+  totalDevices,
+  matchedSourceDevices,
+  debugDevices,
   onThemeChange,
   onLanguageChange,
   onAutostartChange,
@@ -22,7 +41,7 @@ export function SettingsPage({
   return (
     <section className="page-grid">
       <article className="surface-card">
-        <h2>{t('settings.title')}</h2>
+        <h3>{t('settings.title')}</h3>
         <div className="settings-grid">
           <label className="field-row">
             <span>{t('settings.theme')}</span>
@@ -78,12 +97,14 @@ export function SettingsPage({
       </article>
 
       <article className="surface-card">
-        <h3>{t('settings.diagnostics')}</h3>
+        <div className="card-head">
+          <h3>{t('settings.diagnostics')}</h3>
+          <button type="button" className="secondary-button" onClick={onExportDiagnostics}>
+            {t('settings.diagnostics.export')}
+          </button>
+        </div>
         <p className="muted">{state.diagnostics.lastProbe}</p>
         <p className="muted">{state.diagnostics.probeResult}</p>
-        <button type="button" className="secondary-button" onClick={onExportDiagnostics}>
-          {t('settings.diagnostics.export')}
-        </button>
         {state.diagnostics.lastExportPath ? (
           <p className="muted">
             {t('settings.diagnostics.exportedTo', {
@@ -91,9 +112,22 @@ export function SettingsPage({
             })}
           </p>
         ) : null}
+        <details className="diagnostics-details">
+          <summary>{t('settings.diagnostics.a2dpDetails')}</summary>
+          <div className="diagnostics-details-content">
+            <A2dpSourceStatus
+              mode="detailed"
+              availability={sourceAvailability}
+              bridgeMode={bridgeMode}
+              totalDevices={totalDevices}
+              matchedSourceDevices={matchedSourceDevices}
+              debugDevices={debugDevices}
+            />
+          </div>
+        </details>
       </article>
 
-      <article className="surface-card">
+      <article className="surface-card compact-card">
         <h3>{t('settings.updates')}</h3>
         <p className="muted">{t('settings.updates.hint')}</p>
         <button type="button" className="secondary-button" disabled>
