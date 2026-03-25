@@ -98,7 +98,6 @@ $pyprojectPath = Join-Path $resolvedProjectRoot 'pyproject.toml'
 $installerScriptPath = Join-Path $resolvedProjectRoot 'installer\AudioBlue.iss'
 $releaseRoot = Join-Path $resolvedProjectRoot 'dist\release'
 $installerOutputPath = Join-Path $resolvedProjectRoot 'dist\installer\AudioBlue-Setup.exe'
-$checksumPath = Join-Path $releaseRoot 'SHA256SUMS.txt'
 
 $projectVersion = Get-ProjectVersion -PyprojectPath $pyprojectPath
 if ($Version -and $Version -ne $projectVersion) {
@@ -154,9 +153,5 @@ if (-not (Test-Path $installerOutputPath)) {
 
 Copy-Item -Path $installerOutputPath -Destination (Join-Path $releaseRoot 'AudioBlue-Setup.exe') -Force
 
-$hash = Get-FileHash -Algorithm SHA256 (Join-Path $releaseRoot 'AudioBlue-Setup.exe')
-"$($hash.Hash)  AudioBlue-Setup.exe" | Set-Content -Path $checksumPath -Encoding ascii
-
 Write-Step '发布产物已准备完成'
 Write-Host "安装器：$releaseRoot\AudioBlue-Setup.exe"
-Write-Host "校验：$checksumPath"

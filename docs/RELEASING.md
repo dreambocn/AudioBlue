@@ -21,12 +21,10 @@ Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
 - 前端构建
 - PyInstaller 打包
 - Inno Setup 构建安装器
-- 生成 `dist\release\SHA256SUMS.txt`
 
 本地产物目录：
 
 - `dist\release\AudioBlue-Setup.exe`
-- `dist\release\SHA256SUMS.txt`
 
 ## GitHub Release / GitHub 自动发布
 
@@ -50,7 +48,7 @@ git push origin v0.1.0
 - 在 `windows-latest` 上构建发布产物
 - 安装 Python、`uv`、Node.js、Inno Setup
 - 调用 `scripts\build-release.ps1`
-- 创建 GitHub Release 并上传安装器与校验文件
+- 创建 GitHub Release 并上传安装器
 
 ## Version Rule / 版本规则
 

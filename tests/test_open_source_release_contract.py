@@ -49,6 +49,7 @@ def test_readme_uses_github_friendly_open_source_structure():
         "## License",
         "docs/DEVELOPMENT.md",
         "docs/RELEASING.md",
+        "ysc3839/AudioPlaybackConnector",
     ):
         assert expected in content
 
@@ -67,10 +68,11 @@ def test_release_script_contains_expected_release_steps():
         "verify_packaging_assets.py",
         "AudioBlue.iss",
         "AudioBlue-Setup.exe",
-        "SHA256SUMS.txt",
         "pyproject.toml",
     ):
         assert expected in content
+
+    assert "SHA256SUMS.txt" not in content
 
 
 def test_release_workflow_uses_tag_trigger_windows_runner_and_release_upload():
@@ -91,3 +93,12 @@ def test_release_workflow_uses_tag_trigger_windows_runner_and_release_upload():
         "contents: write",
     ):
         assert expected in content
+
+    assert "SHA256SUMS.txt" not in content
+
+
+def test_releasing_doc_describes_installer_only_output():
+    content = read_text(RELEASING_DOC_PATH)
+
+    assert "AudioBlue-Setup.exe" in content
+    assert "SHA256SUMS.txt" not in content

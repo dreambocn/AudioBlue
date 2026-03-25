@@ -28,6 +28,11 @@ AudioBlue 当前由三个主要层组成：
 - **Control center UI / 控制中心界面**：`ui` 中的 React 应用负责设备列表、自动连接设置、主题与语言切换。
 - **Packaging pipeline / 打包链路**：PyInstaller 产出目录版，Inno Setup 生成安装器，`scripts/build-release.ps1` 与 GitHub Actions 统一发布入口。
 
+## Reference Project / 参考实现
+
+- 参考实现项目源：[`ysc3839/AudioPlaybackConnector`](https://github.com/ysc3839/AudioPlaybackConnector)
+- AudioBlue 在产品目标、技术选型与界面形态上做了重新整理，但早期可行性评估和桌面音频连接方向参考了这个项目。
+
 ## Quick Start
 
 ### Runtime requirements / 运行要求
@@ -106,13 +111,12 @@ Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
 - 前端构建
 - PyInstaller 目录版打包
 - Inno Setup 安装器构建
-- SHA256 摘要生成
 
 ### GitHub Release / GitHub 自动发布
 
 - 推送 `v*` tag 会触发 `.github/workflows/release.yml`
 - 工作流会在 Windows runner 上构建安装器
-- 生成的 `AudioBlue-Setup.exe` 与 `SHA256SUMS.txt` 会上传到 GitHub Release
+- 生成的 `AudioBlue-Setup.exe` 会上传到 GitHub Release
 
 下载入口：
 
