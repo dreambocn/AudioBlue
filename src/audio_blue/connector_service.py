@@ -374,6 +374,11 @@ class ConnectorService:
             return True
         return self._initial_enumeration_completed.wait(timeout=max(timeout, 0))
 
+    def has_completed_initial_enumeration(self) -> bool:
+        if self._device_provider is not None:
+            return True
+        return self._initial_enumeration_completed.is_set()
+
     def _start_device_watcher(self) -> None:
         start_watcher = getattr(self._backend, "start_watcher", None)
         if not callable(start_watcher):

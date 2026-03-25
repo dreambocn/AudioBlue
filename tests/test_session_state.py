@@ -19,6 +19,7 @@ class ConnectorServiceStub:
         self.active_connections: dict[str, object] = {}
         self._state_callback = None
         self.connect_calls: list[tuple[str, str]] = []
+        self.initial_enumeration_completed = False
 
     def refresh_devices(self):
         if callable(self._state_callback):
@@ -86,6 +87,9 @@ class ConnectorServiceStub:
                     "change": change,
                 }
             )
+
+    def has_completed_initial_enumeration(self) -> bool:
+        return self.initial_enumeration_completed
 
 
 class AutostartManagerStub:
@@ -265,6 +269,33 @@ def test_session_state_reappear_auto_connect_triggers_from_presence_event():
     )
 
     session_state.refresh_devices()
+    service.emit_presence_event(
+        DeviceSummary(
+            device_id="device-1",
+            name="Headphones",
+            present_in_last_scan=True,
+        ),
+        previous_present=False,
+    )
+
+    assert ("device-1", "reappear") in service.connect_calls
+
+
+def test_session_state_reappear_auto_connect_still_works_when_startup_enumeration_finished_before_binding():
+    service = ConnectorServiceStub()
+    service.initial_enumeration_completed = True
+    service.known_devices = {}
+    config = AppConfig(
+        device_rules={"device-1": DeviceRule(auto_connect_on_reappear=True)}
+    )
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(config=config),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="silent"),
+        storage=StorageStub(),
+    )
+
     service.emit_presence_event(
         DeviceSummary(
             device_id="device-1",

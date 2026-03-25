@@ -32,7 +32,7 @@ class SessionStateCoordinator:
         self.notification_service = notification_service
         self.storage = storage
         self._listeners: list[Callable[[dict[str, Any]], None]] = []
-        self._startup_auto_connect_completed = False
+        self._startup_auto_connect_completed = self._detect_startup_phase_completed()
         self._bind_service_callback()
         self._sync_from_service()
 
@@ -163,6 +163,15 @@ class SessionStateCoordinator:
         ui_settings = settings.setdefault("ui", {})
         ui_settings.setdefault("language", getattr(self.app_state.config.ui, "language", "system"))
         return snapshot
+
+    def _detect_startup_phase_completed(self) -> bool:
+        checker = getattr(self.service, "has_completed_initial_enumeration", None)
+        if callable(checker):
+            try:
+                return bool(checker())
+            except Exception:
+                return False
+        return False
 
     def _attempt_auto_connect(self, *, trigger: str, devices: list[Any]) -> None:
         if trigger not in {"startup", "reappear"}:
