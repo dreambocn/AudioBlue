@@ -1,3 +1,5 @@
+"""验证配置模块对默认路径与旧版入口的兼容行为。"""
+
 from pathlib import Path
 
 from audio_blue.config import get_config_path, load_config, save_config

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import inspect
+"""覆盖桌面宿主对 pywebview 事件与接口暴露的契约。"""
+
 from pathlib import Path
 
 import pytest

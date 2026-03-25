@@ -7,6 +7,7 @@ import type {
   ThemeMode,
 } from '../types'
 
+// 桥接事件是后端向前端主动推送的最小增量集合。
 export type BridgeEvent =
   | { type: 'devices_changed'; devices: AppState['devices'] }
   | { type: 'history_changed'; deviceHistory: AppState['deviceHistory'] }
@@ -19,6 +20,7 @@ export type BridgeEvent =
   | { type: 'diagnostics_changed'; diagnostics: AppState['diagnostics'] }
 
 export interface BackendBridge {
+  // 所有宿主实现都需要符合这份接口，前端才能在原生桥接与 mock 桥接之间无缝切换。
   getInitialState(): Promise<AppState>
   refreshDevices(): Promise<AppState['devices']>
   connectDevice(deviceId: string): Promise<void>

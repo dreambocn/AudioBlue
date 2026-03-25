@@ -1,3 +1,5 @@
+"""覆盖 SQLite 存储的建表、迁移、清理与查询行为。"""
+
 import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
@@ -37,6 +39,7 @@ def test_initialize_creates_schema_tables(tmp_path):
 
 
 def test_migrate_legacy_files_imports_and_is_idempotent(tmp_path):
+    # 旧版 JSON、日志和诊断文件应只迁移一次，后续重复执行保持幂等。
     legacy_config_path = tmp_path / "config.json"
     legacy_log_path = tmp_path / "audioblue.log"
     legacy_diagnostics_dir = tmp_path / "diagnostics"
@@ -211,6 +214,7 @@ def test_purge_expired_records_keeps_config_rules_and_cache(tmp_path):
 
 
 def test_list_device_history_merges_rules_cache_attempts_and_last_devices(tmp_path):
+    # 这里同时准备规则、缓存和连接尝试，验证历史视图的多来源合并逻辑。
     storage = SQLiteStorage(db_path=tmp_path / "audioblue.db")
     storage.initialize()
     storage.save_config(

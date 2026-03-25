@@ -1,3 +1,5 @@
+"""封装 WebView 桌面宿主与暴露给前端的 API。"""
+
 from __future__ import annotations
 
 import ctypes
@@ -13,10 +15,13 @@ from audio_blue.models import NotificationPolicy, ThemeMode
 
 
 class DiagnosticsExporter(Protocol):
+    """描述诊断导出器的最小调用约定。"""
+
     def __call__(self, snapshot: dict[str, object], path: Path) -> Path: ...
 
 
 def find_ui_entrypoint(base_dir: Path | None = None) -> Path:
+    """按开发态、目录版和打包态顺序解析前端入口文件。"""
     if base_dir is not None:
         root = base_dir
     elif getattr(sys, "frozen", False):
@@ -37,6 +42,8 @@ def find_ui_entrypoint(base_dir: Path | None = None) -> Path:
 
 
 class DesktopApi:
+    """承接 pywebview 调用，把桌面动作映射到应用状态与服务层。"""
+
     def __init__(
         self,
         service,
@@ -63,12 +70,14 @@ class DesktopApi:
         self._observability = observability
 
     def get_initial_state(self) -> dict[str, Any]:
+        """返回前端启动时所需的第一份完整状态。"""
         if self.session_state is not None:
             return self.session_state.snapshot()
         self._sync_from_service()
         return self.app_state.snapshot()
 
     def refresh_devices(self) -> dict[str, Any]:
+        """刷新设备并返回最新快照。"""
         if self.session_state is not None:
             return self.session_state.refresh_devices()
         self.service.refresh_devices()
@@ -180,6 +189,7 @@ class DesktopApi:
         return self.export_support_bundle()
 
     def export_support_bundle(self) -> str:
+        """导出支持包，并把运行态与诊断态合并到同一份快照。"""
         runtime_snapshot = self.get_initial_state()
         snapshot = build_diagnostics_snapshot(
             config=self.app_state.config,
@@ -267,6 +277,8 @@ class DesktopApi:
 
 
 class DesktopHost:
+    """负责创建原生窗口、挂载前端页面并处理窗口级事件。"""
+
     def __init__(self, api: DesktopApi, ui_entrypoint: Path, webview_module=None) -> None:
         self.api = api
         self.ui_entrypoint = ui_entrypoint

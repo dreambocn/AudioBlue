@@ -1,3 +1,4 @@
+// 验证设备卡片如何映射连接动作、保留提示与收藏按钮行为。
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'

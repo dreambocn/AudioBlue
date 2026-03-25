@@ -38,6 +38,7 @@ export function SettingsPage({
   onExportDiagnostics,
 }: SettingsPageProps) {
   const { t } = useI18n()
+  // 新旧导出字段并存时优先使用支持包字段，兼容早期 diagnostics 导出路径。
   const supportBundlePath =
     state.diagnostics.lastSupportBundlePath ?? state.diagnostics.lastExportPath
   const supportBundleTime =
@@ -149,6 +150,7 @@ export function SettingsPage({
             })}
           </p>
         ) : null}
+        {/* 技术详情折叠区承接面向排障的状态，不挤占常规设置内容。 */}
         <details className="diagnostics-details">
           <summary>{t('settings.diagnostics.technicalDetails')}</summary>
           <div className="diagnostics-details-content">
@@ -209,6 +211,7 @@ export function SettingsPage({
             </div>
           </div>
         </details>
+        {/* A2DP 详情单独折叠，方便用户在“看不到设备”时快速定位 bridge 与筛选状态。 */}
         <details className="diagnostics-details">
           <summary>{t('settings.diagnostics.a2dpDetails')}</summary>
           <div className="diagnostics-details-content">

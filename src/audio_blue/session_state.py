@@ -1,3 +1,5 @@
+"""协调连接服务、持久化存储与前端会话快照。"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -11,6 +13,8 @@ from audio_blue.rules_engine import RulesEngine
 
 
 class RuntimeStorage(Protocol):
+    """定义会话层依赖的最小运行时存储能力。"""
+
     def record_connection_attempt(self, **payload: Any) -> None: ...
 
     def upsert_device_cache(self, **payload: Any) -> None: ...
@@ -19,6 +23,8 @@ class RuntimeStorage(Protocol):
 
 
 class SessionStateCoordinator:
+    """统一处理设备刷新、自动连接、事件发布和诊断记录。"""
+
     def __init__(
         self,
         *,
@@ -41,6 +47,7 @@ class SessionStateCoordinator:
         self._sync_from_service()
 
     def subscribe(self, callback: Callable[[dict[str, Any]], None]) -> Callable[[], None]:
+        """注册快照监听器，并返回对应的取消订阅函数。"""
         self._listeners.append(callback)
 
         def unsubscribe() -> None:
@@ -50,6 +57,7 @@ class SessionStateCoordinator:
         return unsubscribe
 
     def snapshot(self) -> dict[str, Any]:
+        """返回经过会话层补充后的标准化快照。"""
         self._sync_from_service()
         return self._normalize_snapshot(self.app_state.snapshot())
 
@@ -58,6 +66,7 @@ class SessionStateCoordinator:
         return list(getattr(self.service, "known_devices", {}).values())
 
     def refresh_devices(self) -> dict[str, Any]:
+        """刷新设备列表，并在合适时机触发启动/再出现自动连接。"""
         previous_presence = {
             device_id: bool(getattr(device, "present_in_last_scan", True))
             for device_id, device in getattr(self.service, "known_devices", {}).items()
@@ -70,6 +79,7 @@ class SessionStateCoordinator:
 
             devices = list(getattr(self.service, "known_devices", {}).values())
             if not self._startup_auto_connect_completed:
+                # 首轮刷新优先走启动自动连接，避免应用刚启动时误判为“设备再次出现”。
                 self._attempt_auto_connect(trigger="startup", devices=devices)
                 self._startup_auto_connect_completed = True
             else:
@@ -132,6 +142,7 @@ class SessionStateCoordinator:
         return self._publish_snapshot()
 
     def update_device_rule(self, device_id: str, rule_patch: dict[str, Any]) -> dict[str, Any]:
+        """更新单个设备规则，并立即落盘配置。"""
         self.app_state.update_device_rule(device_id, rule_patch)
         self._persist_config()
         self._record_activity_event(
@@ -146,6 +157,7 @@ class SessionStateCoordinator:
         return self._publish_snapshot()
 
     def reorder_device_priority(self, device_ids: list[str]) -> dict[str, Any]:
+        """更新自动连接优先级，并广播新的快照。"""
         self.app_state.reorder_device_priority(device_ids)
         self._persist_config()
         self._record_activity_event(

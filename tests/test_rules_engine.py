@@ -1,3 +1,5 @@
+"""验证自动连接规则如何筛选并排序候选设备。"""
+
 from audio_blue.models import AppConfig, DeviceCapabilities, DeviceRule, DeviceSummary
 from audio_blue.rules_engine import RulesEngine
 

@@ -19,6 +19,7 @@ export function DevicesPage({
 }: DevicesPageProps) {
   const { t } = useI18n()
 
+  // 历史标签来自持久化规则快照，用于解释离线设备为什么仍出现在历史列表中。
   const renderHistoryTags = (entry: DeviceHistoryEntry) => {
     const tags: string[] = []
     if (entry.savedRule.isFavorite) {
@@ -83,6 +84,7 @@ export function DevicesPage({
         <p className="muted">{t('devices.history.description')}</p>
       </article>
 
+      {/* 当前设备与历史设备分开展示，避免离线历史记录干扰实时操作区。 */}
       <div className="device-history-grid">
         {deviceHistory.length === 0 ? (
           <article className="surface-card compact-card">

@@ -1,3 +1,5 @@
+"""覆盖扩展模型字段与触发规则的默认行为。"""
+
 from audio_blue.models import (
     AppConfig,
     DeviceCapabilities,

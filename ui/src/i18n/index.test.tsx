@@ -1,9 +1,11 @@
+// 验证语言上下文对系统语言与显式偏好的解析结果。
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { LanguageProvider, resolveLanguage, resolveSystemLanguage, useI18n } from './index'
 
 function Probe() {
+  // 用最小探针组件暴露语言值与翻译结果，避免测试耦合 Provider 内部实现。
   const { language, t } = useI18n()
   return (
     <div>

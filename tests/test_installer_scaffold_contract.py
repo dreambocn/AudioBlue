@@ -1,3 +1,5 @@
+"""覆盖安装器脚手架文件的基础存在性契约。"""
+
 from pathlib import Path
 
 

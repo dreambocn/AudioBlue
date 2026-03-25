@@ -1,3 +1,5 @@
+"""覆盖 DesktopApi 对服务层和配置快照的对外契约。"""
+
 from pathlib import Path
 
 from audio_blue.app_state import AppStateStore
@@ -7,6 +9,8 @@ from audio_blue.notification_service import NotificationService
 
 
 class ServiceStub:
+    """提供最小设备服务能力，方便观察 DesktopApi 的调用路径。"""
+
     def __init__(self):
         self.known_devices = {
             "device-1": DeviceSummary(device_id="device-1", name="Headphones"),
@@ -31,6 +35,8 @@ class ServiceStub:
 
 
 class AutostartManagerStub:
+    """模拟自启动开关状态，验证 DesktopApi 会同步更新偏好。"""
+
     def __init__(self):
         self.enabled = False
 

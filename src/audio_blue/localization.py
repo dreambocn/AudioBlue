@@ -1,3 +1,5 @@
+"""集中维护托盘与连接结果的后端文案。"""
+
 from __future__ import annotations
 
 import locale
@@ -86,6 +88,7 @@ def resolve_language(
     *,
     system_locale: str | None = None,
 ) -> LanguageMode:
+    """把“跟随系统”之类的偏好解析成实际可用语言。"""
     if language in {"zh-CN", "en-US"}:
         return language
 
@@ -102,6 +105,7 @@ def translate(
     system_locale: str | None = None,
     **kwargs: object,
 ) -> str:
+    """从语言词典中取文案，并执行简单变量替换。"""
     resolved = resolve_language(language, system_locale=system_locale)
     template = _MESSAGES.get(resolved, {}).get(key) or _MESSAGES["en-US"].get(key) or key
     return template.format(**kwargs)
@@ -114,6 +118,7 @@ def tray_label(
     system_locale: str | None = None,
     device_name: str = "",
 ) -> str:
+    """把托盘动作名映射成当前语言下的菜单文案。"""
     action_to_key: dict[str, MessageKey] = {
         "refresh_devices": "tray.refresh_devices",
         "toggle_reconnect": "tray.reconnect_on_next_start",
@@ -142,6 +147,7 @@ def connection_failure_message(
     language: LanguageMode | str = "system",
     system_locale: str | None = None,
 ) -> str:
+    """把连接失败状态统一转换为可直接展示的说明文案。"""
     key = _FAILURE_KEY_BY_STATE.get(state, "error.error")
     return translate(key, language=language, system_locale=system_locale)
 
@@ -154,6 +160,7 @@ def notification_copy(
     device_name: str,
     reason: str | None = None,
 ) -> tuple[str, str]:
+    """生成通知标题与正文，确保成功和失败场景走统一词典。"""
     if kind == "connect_success":
         return (
             translate("notification.connected_title", language=language, system_locale=system_locale),

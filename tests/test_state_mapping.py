@@ -1,3 +1,5 @@
+"""验证 WinRT 状态枚举如何映射为稳定的内部状态码。"""
+
 from winrt.windows.media.audio import (
     AudioPlaybackConnectionOpenResultStatus,
     AudioPlaybackConnectionState,

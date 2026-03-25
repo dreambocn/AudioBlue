@@ -1,8 +1,11 @@
+"""覆盖打包校验脚本对发布目录布局的判断逻辑。"""
+
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
 
 def load_module():
+    """按脚本路径直接加载模块，避免测试依赖安装态入口。"""
     module_path = Path(__file__).resolve().parents[1] / "scripts" / "verify_packaging_assets.py"
     spec = spec_from_file_location("verify_packaging_assets", module_path)
     assert spec is not None

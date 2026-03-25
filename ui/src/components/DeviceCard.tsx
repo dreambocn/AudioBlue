@@ -15,6 +15,7 @@ export function DeviceCard({
   onToggleFavorite,
 }: DeviceCardProps) {
   const { t } = useI18n()
+  // 卡片优先体现设备的实时连接状态，其次再回落到“可连接”状态。
   const statusLabel = device.isConnected
     ? t('device.status.connected')
     : device.isConnecting
@@ -40,6 +41,7 @@ export function DeviceCard({
       </header>
 
       <p className="muted">{statusLabel}</p>
+      {/* 设备已连接但本轮扫描未命中时，提示这是保留连接态而非最新枚举结果。 */}
       {device.isConnected && !device.presentInLastScan ? (
         <p className="muted">{t('devices.retainedHint')}</p>
       ) : null}

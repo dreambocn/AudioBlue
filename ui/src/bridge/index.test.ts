@@ -1,3 +1,4 @@
+// 锁定 bridge 解析层在 native、mock 与 unavailable 三态下的适配行为。
 import { describe, expect, it, vi, afterEach } from 'vitest'
 
 import { resolveBridge } from './index'
@@ -30,6 +31,7 @@ describe('resolveBridge', () => {
   })
 
   it('adapts pywebview api snapshots into UI state and events', async () => {
+    // listeners 同时收集事件对象与 recordClientEvent 载荷，方便校验桥接双向通道。
     const listeners: Array<BridgeEvent | Record<string, unknown>> = []
     const pushSnapshot = {
       devices: [

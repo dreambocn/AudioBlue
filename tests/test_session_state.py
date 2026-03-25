@@ -1,3 +1,5 @@
+"""验证会话协调器如何把服务事件、存储与通知折叠成单一快照。"""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -11,6 +13,8 @@ from audio_blue.session_state import SessionStateCoordinator
 
 
 class ConnectorServiceStub:
+    """模拟连接服务的刷新、连接和 presence 事件入口。"""
+
     def __init__(self) -> None:
         self.known_devices = {
             "device-1": DeviceSummary(device_id="device-1", name="Headphones"),
@@ -93,6 +97,8 @@ class ConnectorServiceStub:
 
 
 class AutostartManagerStub:
+    """记录随系统启动设置是否被协调器正确更新。"""
+
     def __init__(self):
         self.enabled = False
 
@@ -101,6 +107,8 @@ class AutostartManagerStub:
 
 
 class StorageStub:
+    """收集写入存储的连接尝试与设备缓存，便于断言副作用。"""
+
     def __init__(self):
         self.connection_attempts: list[dict] = []
         self.device_cache_updates: list[dict] = []
@@ -114,6 +122,7 @@ class StorageStub:
 
 @pytest.fixture(autouse=True)
 def _patch_save_config(monkeypatch):
+    """屏蔽真实配置落盘，确保测试只关注协调逻辑本身。"""
     monkeypatch.setattr("audio_blue.session_state.save_config", lambda _config: None)
 
 

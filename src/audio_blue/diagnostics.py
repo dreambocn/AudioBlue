@@ -1,3 +1,5 @@
+"""负责生成诊断快照并导出支持包。"""
+
 from __future__ import annotations
 
 import json
@@ -18,6 +20,7 @@ def build_diagnostics_snapshot(
     source: str,
     generated_at: datetime | None = None,
 ) -> dict[str, Any]:
+    """把当前运行配置、设备与连接尝试整理成可持久化的快照。"""
     timestamp = generated_at or datetime.now(UTC)
     return {
         "source": source,
@@ -29,6 +32,7 @@ def build_diagnostics_snapshot(
 
 
 def export_diagnostics_snapshot(snapshot: dict[str, Any], path: Path) -> Path:
+    """导出单份 JSON 诊断快照，并同步记录到本地存储。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
     storage = _build_storage_for_export(path)
@@ -45,6 +49,7 @@ def export_support_bundle(
     path: Path,
     storage: SQLiteStorage,
 ) -> Path:
+    """导出支持包压缩文件，汇总最近运行时状态与历史记录。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     diagnostics_state = storage.build_runtime_diagnostics()
     connection_overview = snapshot.get("connectionOverview")
@@ -79,6 +84,7 @@ def export_support_bundle(
         },
         "config.json": snapshot.get("config", {}),
     }
+    # 支持包里的各份 JSON 面向不同排障入口，保持职责拆分更易定位问题。
     with ZipFile(path, mode="w", compression=ZIP_DEFLATED) as archive:
         for name, payload in payloads.items():
             archive.writestr(name, json.dumps(payload, indent=2, ensure_ascii=False))
@@ -89,6 +95,7 @@ def export_support_bundle(
 
 
 def _serialize_config(config: AppConfig) -> dict[str, Any]:
+    """把配置对象转换为前后端都易读的字典结构。"""
     return {
         "reconnect": config.reconnect,
         "lastDevices": list(config.last_devices),
@@ -121,6 +128,7 @@ def _serialize_device_rule(rule: DeviceRule) -> dict[str, Any]:
 
 
 def _serialize_device(device: DeviceSummary) -> dict[str, Any]:
+    """序列化设备快照，同时保留能力信息与最近连接结果。"""
     return {
         "deviceId": device.device_id,
         "name": device.name,
@@ -156,6 +164,7 @@ def _to_iso(value: datetime | None) -> str | None:
 
 
 def _build_storage_for_export(export_path: Path) -> SQLiteStorage:
+    """根据导出目录推断应写入哪份 SQLite 数据库。"""
     if export_path.parent.name.lower() == "diagnostics":
         return SQLiteStorage(db_path=export_path.parent.parent / "audioblue.db")
     return SQLiteStorage(db_path=export_path.parent / "audioblue.db")

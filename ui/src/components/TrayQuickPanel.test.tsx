@@ -1,3 +1,4 @@
+// 覆盖托盘快速面板在连接态、无活动设备态下的关键交互。
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
@@ -6,6 +7,7 @@ import { LanguageProvider } from '../i18n'
 import type { DeviceViewModel } from '../types'
 
 const connectedDevice: DeviceViewModel = {
+  // 复用一份已连接设备，避免每个用例重复拼装相同的状态快照。
   id: 'device-buds',
   name: 'Galaxy Buds',
   isConnected: true,

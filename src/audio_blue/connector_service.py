@@ -1,3 +1,5 @@
+"""封装 WinRT 设备枚举、连接与后台观察器调度。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -26,6 +28,7 @@ _STABLE_CONNECTION_WINDOW_SECONDS = 1.5
 
 
 def run_awaitable_blocking(awaitable: Awaitable[AwaitableResult]) -> AwaitableResult:
+    """在同步调用栈中安全等待 WinRT 异步结果。"""
     async def runner() -> AwaitableResult:
         return await awaitable
 
@@ -54,6 +57,8 @@ def get_audio_playback_selector() -> str:
 
 @dataclass(slots=True)
 class WinRTConnectionHandle:
+    """保存单个连接对象以及关联的 WinRT 事件令牌。"""
+
     device_id: str
     connection: AudioPlaybackConnection
     token: object
@@ -61,6 +66,8 @@ class WinRTConnectionHandle:
 
 @dataclass(slots=True)
 class WinRTWatcherHandle:
+    """保存观察器本体和所有已注册事件令牌，方便统一释放。"""
+
     watcher: object
     added_token: object
     updated_token: object
@@ -70,6 +77,8 @@ class WinRTWatcherHandle:
 
 
 class ConnectorBackend(Protocol):
+    """定义连接服务依赖的后端能力，便于测试替身注入。"""
+
     def list_devices(self) -> list[DeviceSummary]: ...
 
     def connect(
@@ -86,6 +95,8 @@ class ConnectorBackend(Protocol):
 
 
 class WinRTConnectorBackend:
+    """直接对接 WinRT API，负责真实设备枚举与连接。"""
+
     def list_devices(self) -> list[DeviceSummary]:
         selector = get_audio_playback_selector()
         devices = run_awaitable_blocking(
@@ -136,6 +147,7 @@ class WinRTConnectorBackend:
             enumeration_completed_token=watcher.add_enumeration_completed(on_enumeration_completed),
             stopped_token=watcher.add_stopped(on_stopped),
         )
+        # 只有在所有回调都挂好之后再启动观察器，避免丢失首批事件。
         watcher.start()
         return handle
 
@@ -206,6 +218,8 @@ class _WorkerJob:
 
 
 class ConnectorService:
+    """向上层提供线程安全的设备刷新、连接和观察器事件整合能力。"""
+
     def __init__(
         self,
         device_provider: DeviceProvider | None = None,

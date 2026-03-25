@@ -6,6 +6,8 @@ import winreg
 
 
 class RegistryValueStore(Protocol):
+    """抽象注册表读写能力，便于测试时替换真实注册表访问。"""
+
     def get_value(self, key_path: str, value_name: str) -> str | None: ...
 
     def set_value(self, key_path: str, value_name: str, value: str) -> None: ...
@@ -14,6 +16,8 @@ class RegistryValueStore(Protocol):
 
 
 class WinRegistryValueStore:
+    """直接对接 Windows 注册表的默认实现。"""
+
     def get_value(self, key_path: str, value_name: str) -> str | None:
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
@@ -35,6 +39,8 @@ class WinRegistryValueStore:
 
 
 class AutostartManager:
+    """管理 AudioBlue 在当前用户下的开机自启动注册表项。"""
+
     RUN_KEY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
     APP_NAME = "AudioBlue"
 
@@ -47,6 +53,7 @@ class AutostartManager:
         self._executable_path = executable_path
 
     def is_enabled(self) -> bool:
+        """通过 Run 键是否存在来判断自启动开关。"""
         return self._registry.get_value(self.RUN_KEY_PATH, self.APP_NAME) is not None
 
     def set_enabled(self, enabled: bool) -> None:
@@ -61,9 +68,11 @@ class AutostartManager:
         self._registry.delete_value(self.RUN_KEY_PATH, self.APP_NAME)
 
     def build_command(self) -> str:
+        """根据可执行文件路径拼接带后台启动参数的命令字符串。"""
         executable = self._executable_path or Path(__file__).resolve().parents[2] / "audioblue.exe"
         return build_autostart_command(executable)
 
 
 def build_autostart_command(executable_path: Path | str) -> str:
+    """生成写入注册表的自启动命令行。"""
     return f'"{executable_path}" --background'

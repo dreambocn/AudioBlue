@@ -1,4 +1,4 @@
-"""Application entry point for AudioBlue."""
+"""AudioBlue 桌面程序入口，负责组装运行时依赖并选择宿主模式。"""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from audio_blue.tray_host import TrayHost
 
 
 def _resolve_runtime_storage(logger: Logger) -> Any | None:
+    """尽力解析运行时存储实现；失败时退回无持久化模式。"""
     try:
         from audio_blue import storage as storage_module
     except Exception:
@@ -64,6 +65,7 @@ def restore_reconnect_devices(
     retry_backoff_seconds: float = 0.5,
     wait_timeout_seconds: float = 5.0,
 ) -> None:
+    """在启动阶段尝试恢复上次可重连设备。"""
     if not getattr(config, "reconnect", False):
         return
     if observability is not None:
@@ -171,6 +173,8 @@ def is_hybrid_ui_unavailable_error(exc: BaseException) -> bool:
 
 
 class HybridAppHost:
+    """优先启动混合桌面界面，失败时自动降级到托盘模式。"""
+
     def __init__(
         self,
         *,
@@ -187,6 +191,7 @@ class HybridAppHost:
         self._tray_lock = Lock()
 
     def _start_tray_host(self) -> None:
+        """确保托盘宿主只被启动一次。"""
         with self._tray_lock:
             if self._tray_thread is not None:
                 return
@@ -215,6 +220,7 @@ def create_default_host(
     storage=None,
     observability: ObservabilityService | None = None,
 ):
+    """按当前环境装配默认宿主、状态协调器与诊断能力。"""
     app_state = AppStateStore(config=config, history_provider=storage)
     autostart_manager = AutostartManager()
     notification_service = NotificationService(policy=config.notification.policy)

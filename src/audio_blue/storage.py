@@ -1,3 +1,5 @@
+"""提供 AudioBlue 的 SQLite 持久化与旧文件迁移能力。"""
+
 from __future__ import annotations
 
 import json
@@ -26,6 +28,7 @@ _POLICY_VALUES = {"silent", "failures", "all"}
 
 
 def get_default_db_path() -> Path:
+    """解析默认数据库路径，优先跟随 Windows 本地应用数据目录。"""
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
         return Path(local_app_data) / "AudioBlue" / "audioblue.db"
@@ -45,6 +48,8 @@ storage = get_storage
 
 
 class SQLiteStorage:
+    """封装配置、设备缓存、历史记录和诊断数据的 SQLite 访问。"""
+
     def __init__(
         self,
         *,
@@ -61,8 +66,10 @@ class SQLiteStorage:
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
+        """统一创建带事务语义的数据库连接。"""
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
+        # WAL 与 busy_timeout 的组合更适合桌面应用的轻并发写入场景。
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA busy_timeout=5000")
@@ -76,6 +83,7 @@ class SQLiteStorage:
             connection.close()
 
     def initialize(self) -> None:
+        """初始化数据库结构，并补齐历史版本缺失的列。"""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             connection.executescript(
@@ -182,6 +190,7 @@ class SQLiteStorage:
             )
 
     def migrate_legacy_files(self) -> None:
+        """把旧版 JSON、日志与诊断目录迁移到 SQLite。"""
         self.initialize()
         with self._connect() as connection:
             migrated = connection.execute(
@@ -364,6 +373,7 @@ class SQLiteStorage:
         details: dict[str, Any] | None = None,
         happened_at: datetime | None = None,
     ) -> int:
+        """记录一次连接尝试，供历史页和诊断页复用。"""
         timestamp = (happened_at or _utc_now()).astimezone(UTC).isoformat()
         with self._connect() as connection:
             cursor = connection.execute(

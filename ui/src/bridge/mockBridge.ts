@@ -10,6 +10,7 @@ import type {
 
 const nowIso = () => new Date().toISOString()
 
+// Mock bridge 提供脱离 pywebview 时的测试状态与事件流。
 const createInitialState = (): AppState => ({
   devices: [
     {
@@ -165,6 +166,7 @@ const createInitialState = (): AppState => ({
   },
 })
 
+// 用于将设备列表中单个设备按补丁进行就地更新。
 const updateDevice = (
   devices: DeviceViewModel[],
   deviceId: string,
@@ -176,10 +178,12 @@ export const createMockBridge = (): BackendBridge => {
   let state = createInitialState()
   const listeners = new Set<(event: BridgeEvent) => void>()
 
+  // 通俗地把事件推给所有监听者，模拟 pywebview.onEvent。
   const emit = (event: BridgeEvent) => {
     listeners.forEach((listener) => listener(event))
   }
 
+  // 独立函数逐个 emit 更新，保持设置/历史/活动与真实 bridge 一致。
   const emitSettings = () => {
     emit({
       type: 'settings_changed',
@@ -205,6 +209,7 @@ export const createMockBridge = (): BackendBridge => {
     })
   }
 
+  // 用于在 mock 状态中插入新的活动记录，并触发 activity/diagnostics 更新。
   const prependActivity = (
     title: string,
     detail: string,
@@ -236,6 +241,7 @@ export const createMockBridge = (): BackendBridge => {
     })
   }
 
+  // 暴露的 mock bridge 接口，与真实后端一致以保持测试可替换性。
   return {
     async getInitialState() {
       return structuredClone(state)

@@ -1,3 +1,5 @@
+"""验证核心数据模型的默认值保持稳定。"""
+
 from audio_blue.models import AppConfig, DeviceSummary
 
 

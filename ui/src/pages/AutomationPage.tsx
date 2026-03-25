@@ -15,6 +15,7 @@ export function AutomationPage({
   const { t } = useI18n()
 
   const moveDevice = (index: number, direction: -1 | 1) => {
+    // 这里直接交换当前顺序中的两个 id，再交给宿主侧统一持久化优先级。
     const nextIndex = index + direction
     if (nextIndex < 0 || nextIndex >= devices.length) {
       return
@@ -41,6 +42,7 @@ export function AutomationPage({
     <section className="page-grid">
       <article className="surface-card">
         <h2>{t('automation.rules')}</h2>
+        {/* 说明卡片把自动化规则的适用范围和行为意图一起展示出来。 */}
         <div className="feature-note" data-testid="automation-note">
           <div className="feature-note-header">
             <span className="feature-note-icon" aria-hidden="true">
@@ -73,6 +75,7 @@ export function AutomationPage({
 
       <article className="surface-card">
         <h3>{t('automation.priority')}</h3>
+        {/* 使用上下按钮而非拖拽，保证 WebView 环境与键盘操作都更稳定。 */}
         <ol className="compact-list">
           {devices.map((device, index) => (
             <li key={device.id} className="priority-list-item">

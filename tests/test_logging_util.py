@@ -1,3 +1,5 @@
+"""验证日志配置是否把记录写入 SQLite 存储。"""
+
 import logging
 import sqlite3
 
@@ -5,6 +7,7 @@ from audio_blue.logging_util import configure_logging
 
 
 def _reset_audio_blue_logger() -> None:
+    """清理测试残留 handler，避免不同用例之间互相污染。"""
     logger = logging.getLogger("audio_blue")
     for handler in list(logger.handlers):
         logger.removeHandler(handler)

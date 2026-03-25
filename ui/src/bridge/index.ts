@@ -36,6 +36,7 @@ type PyWebviewApi = {
 type RawRecord = Record<string, unknown>
 type RawSnapshot = RawRecord
 
+// 浏览器环境下桥接对象可能由 pywebview 注入，也可能由测试桩提供。
 declare global {
   interface Window {
     audioblueBridge?: BackendBridge
@@ -45,6 +46,7 @@ declare global {
   }
 }
 
+// 所有快照入口先收敛成对象，避免后续字段读取时散落判空逻辑。
 const asRecord = (value: unknown): RawRecord =>
   typeof value === 'object' && value !== null ? (value as RawRecord) : {}
 
@@ -59,6 +61,7 @@ const asOptionalString = (value: unknown): string | undefined =>
 const getPriority = (rawRule: RawRecord): number =>
   typeof rawRule.priority === 'number' ? rawRule.priority : Number.MAX_SAFE_INTEGER
 
+// 兼容蛇形与驼峰字段，保证后端快照和测试桩都能映射为统一规则结构。
 const normalizeRule = (rawRule: RawRecord = {}) => {
   const autoConnectOnStartup = Boolean(
     rawRule.autoConnectOnStartup ?? rawRule.auto_connect_on_startup,
@@ -75,6 +78,7 @@ const normalizeRule = (rawRule: RawRecord = {}) => {
   }
 }
 
+// 设备历史需要同时呈现“历史记录”和“当前是否可见”两个维度，因此这里额外接入可见设备集合。
 const normalizeHistoryEntry = (
   rawHistory: RawRecord,
   visibleDeviceIds: Set<string>,
@@ -146,6 +150,7 @@ const normalizeHistoryEntry = (
   }
 }
 
+// 活动流既要兼容旧字符串日志，也要兼容新结构化事件。
 const normalizeActivityEntry = (
   rawEvent: unknown,
   index: number,
@@ -189,6 +194,7 @@ const normalizeActivityEntry = (
   }
 }
 
+// 最近错误只保留界面可展示的核心字段，避免把任意负载直接暴露到 UI。
 const normalizeRecentErrors = (value: unknown): DiagnosticsErrorSummary[] => {
   if (!Array.isArray(value)) {
     return []
@@ -211,6 +217,7 @@ const normalizeRecentErrors = (value: unknown): DiagnosticsErrorSummary[] => {
   return errors
 }
 
+// 连接概览优先使用后端提供的 connectionOverview，缺失时再从设备列表回推当前连接设备。
 const normalizeConnection = (
   snapshot: RawSnapshot,
   devices: AppState['devices'],

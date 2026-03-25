@@ -1,7 +1,11 @@
+"""验证单实例协调器在重复启动时的信号与释放行为。"""
+
 from audio_blue.single_instance import InstanceCoordinator, SingleInstanceManager
 
 
 class MemoryCoordinator(InstanceCoordinator):
+    """以内存集合模拟互斥体与激活信号。"""
+
     def __init__(self):
         self.acquired: set[str] = set()
         self.signaled: list[str] = []

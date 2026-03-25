@@ -1,3 +1,5 @@
+"""覆盖图标资源在仓库中的存在性契约。"""
+
 from pathlib import Path
 
 

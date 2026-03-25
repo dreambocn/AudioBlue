@@ -1,3 +1,5 @@
+"""覆盖应用主入口在单实例和混合宿主模式下的运行路径。"""
+
 import logging
 import threading
 from threading import Event
@@ -9,6 +11,8 @@ from audio_blue.models import AppConfig, DeviceSummary
 
 
 class InstanceManagerStub:
+    """模拟单实例管理器，验证入口在不同抢占结果下的分支。"""
+
     def __init__(self, acquired: bool):
         self.acquired = acquired
         self.release_called = False
@@ -21,6 +25,8 @@ class InstanceManagerStub:
 
 
 class ServiceStub:
+    """模拟运行时服务，记录启动刷新与自动重连行为。"""
+
     def __init__(self):
         self.known_devices = {}
         self.active_connections = {}
@@ -43,6 +49,8 @@ class ServiceStub:
 
 
 class HostStub:
+    """模拟传统宿主，便于断言 run_app 传入的构造参数。"""
+
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         self.run_called = False
@@ -52,6 +60,8 @@ class HostStub:
 
 
 class DesktopHostStub:
+    """模拟桌面宿主，可按需抛错触发 hybrid fallback 分支。"""
+
     def __init__(self, error: Exception | None = None):
         self.error = error
         self.run_called = False
@@ -67,6 +77,8 @@ class DesktopHostStub:
 
 
 class TrayThreadHostStub:
+    """模拟托盘线程宿主，用事件通知测试托盘线程已启动。"""
+
     def __init__(self, started: Event):
         self.started = started
         self.run_called = False

@@ -1,3 +1,5 @@
+"""验证运行时存储工厂始终返回 SQLite 实现。"""
+
 from audio_blue.storage import SQLiteStorage, get_default_storage, get_storage
 
 

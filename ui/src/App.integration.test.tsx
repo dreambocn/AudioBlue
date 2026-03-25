@@ -1,3 +1,4 @@
+// 覆盖控制中心在 mock bridge 下的主要页面联动与用户交互。
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -11,6 +12,7 @@ afterEach(() => {
 })
 
 describe('AudioBlue Control Center integration', () => {
+  // 基线快照同时覆盖设备列表、历史、诊断与设置，便于各用例按需覆写局部字段。
   const baseState = {
     devices: [
       {

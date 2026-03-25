@@ -7,6 +7,7 @@ interface OverviewPageProps {
 
 export function OverviewPage({ state }: OverviewPageProps) {
   const { t } = useI18n()
+  // 摘要区优先命中当前连接设备 id，旧快照缺失时再回退到任意已连接设备。
   const connectedDevice =
     state.devices.find(
       (device) =>
@@ -63,6 +64,7 @@ export function OverviewPage({ state }: OverviewPageProps) {
           <h3>{t('overview.recentActivity')}</h3>
           <span className="status-pill subtle">{state.recentActivity.length}</span>
         </div>
+        {/* 活动流同时保留用户可读文案与诊断字段，方便界面查看和问题排查。 */}
         {state.recentActivity.length === 0 ? (
           <p className="muted">{t('overview.noActivity')}</p>
         ) : (

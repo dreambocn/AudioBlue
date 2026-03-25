@@ -1,3 +1,5 @@
+"""验证应用状态快照如何聚合设备、失败与历史信息。"""
+
 from datetime import UTC, datetime
 
 from audio_blue.app_state import AppStateStore, humanize_connection_failure
@@ -114,6 +116,7 @@ def test_app_state_snapshot_includes_full_device_history_payload():
     setattr(
         store,
         "_history_provider",
+        # 用结构化历史载荷模拟 SQLite 查询结果，锁定 snapshot 的字段映射。
         lambda limit=10: [
             {
                 "device_id": "device-visible",
@@ -186,6 +189,8 @@ def test_app_state_snapshot_includes_full_device_history_payload():
 
 def test_app_state_snapshot_uses_structured_activity_connection_overview_and_diagnostics():
     class Provider:
+        """提供历史、活动和诊断替身，复现控制中心依赖的完整数据面。"""
+
         def list_device_history(self, limit=10):
             return []
 

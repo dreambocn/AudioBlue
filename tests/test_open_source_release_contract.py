@@ -1,3 +1,5 @@
+"""覆盖开源发布物与仓库元数据的基础契约。"""
+
 from pathlib import Path
 
 

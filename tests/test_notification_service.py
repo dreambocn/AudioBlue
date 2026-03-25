@@ -1,3 +1,5 @@
+"""验证通知服务在不同策略下的发布过滤行为。"""
+
 from audio_blue.notification_service import NotificationMessage, NotificationService
 
 

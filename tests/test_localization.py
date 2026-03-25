@@ -1,3 +1,5 @@
+"""验证后端本地化词典对托盘与失败文案的映射。"""
+
 from audio_blue.localization import (
     connection_failure_message,
     notification_copy,

@@ -14,6 +14,7 @@ export function TrayQuickPanelView({ bridge }: TrayQuickPanelViewProps) {
   const [state, setState] = useState<AppState | null>(null)
 
   useEffect(() => {
+    // 订阅桥接事件，并把增量更新折叠进本地状态，保持托盘快速面板与主界面一致。
     let alive = true
     resolvedBridge.getInitialState().then((initial) => {
       if (alive) {
@@ -22,6 +23,7 @@ export function TrayQuickPanelView({ bridge }: TrayQuickPanelViewProps) {
     })
 
     const unsub = resolvedBridge.onEvent((event) => {
+      // 托盘面板只同步自己会展示的字段，避免复用整套控制中心状态机。
       if (event.type === 'devices_changed') {
         setState((current) => (current ? { ...current, devices: event.devices } : current))
       }
@@ -59,10 +61,12 @@ export function TrayQuickPanelView({ bridge }: TrayQuickPanelViewProps) {
     return <div className="loading-shell">Loading quick panel…</div>
   }
 
+  // 托盘视图沿用主界面的音频源判定规则，避免两边提示口径不一致。
   const activeDevice = state.devices.find(
     (device) => device.id === state.connection.currentDeviceId,
   )
   const audioDevices = state.devices.filter((device) => device.supportsAudio)
+  // 快速面板只关心三种状态：桥接不可用、暂无音频源、已有可操作设备。
   const sourceAvailability =
     state.runtime.bridgeMode === 'unavailable'
       ? 'unavailable'

@@ -1,3 +1,5 @@
+"""负责把运行态设备信息整理成前端快照。"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, replace
@@ -10,10 +12,13 @@ from audio_blue.rules_engine import RulesEngine
 
 
 def humanize_connection_failure(state: str, *, language: str = "system") -> str:
+    """把连接失败状态码转换为界面可直接展示的文案。"""
     return connection_failure_message(state, language=language)
 
 
 class AppStateStore:
+    """维护控制中心所需的内存态快照，并负责事件到界面模型的映射。"""
+
     def __init__(self, config: AppConfig, history_provider: Any | None = None) -> None:
         self.config = config
         self._history_provider = history_provider
@@ -25,6 +30,7 @@ class AppStateStore:
         self._devices = {device.device_id: device for device in devices}
 
     def handle_connector_event(self, payload: dict[str, Any]) -> None:
+        """吸收连接层事件，并把它们折叠成统一的设备状态。"""
         event_name = payload.get("event")
         device_id = payload.get("device_id")
         trigger = payload.get("trigger")
@@ -63,6 +69,7 @@ class AppStateStore:
             self.config.device_rules[device_id] = replace(current_rule, priority=index)
 
     def snapshot(self) -> dict[str, Any]:
+        """生成供前端桥接层消费的完整快照。"""
         rules_engine = RulesEngine(self.config)
         auto_connect_candidates = rules_engine.get_auto_connect_candidates(
             devices=list(self._devices.values()),
@@ -97,6 +104,7 @@ class AppStateStore:
         if device is None:
             return
 
+        # 每次状态切换都同步生成一次连接尝试记录，确保前端历史区与诊断区基于同一份事实。
         attempt = ConnectionAttempt(
             trigger=trigger,
             succeeded=state == "connected",

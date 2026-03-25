@@ -12,6 +12,8 @@ NotificationSink = Callable[["NotificationMessage"], None]
 
 @dataclass(slots=True)
 class NotificationMessage:
+    """统一描述一次可投递的通知消息。"""
+
     title: str
     body: str
     level: NotificationLevel
@@ -19,6 +21,8 @@ class NotificationMessage:
 
 
 class NotificationService:
+    """按用户通知策略过滤并分发通知。"""
+
     def __init__(
         self,
         policy: NotificationPolicy = "failures",
@@ -32,6 +36,7 @@ class NotificationService:
         return self._policy
 
     def update_policy(self, policy: NotificationPolicy) -> None:
+        """更新通知策略时保持和初始化阶段一致的校验规则。"""
         self._policy = self._validate_policy(policy)
 
     def publish_success(self, title: str, body: str) -> None:
@@ -44,9 +49,11 @@ class NotificationService:
         if not self._should_publish(level):
             return
 
+        # 统一通过 sink 交给外部实现，保持通知入口的可替换性。
         self._sink(NotificationMessage(title=title, body=body, level=level))
 
     def _should_publish(self, level: NotificationLevel) -> bool:
+        """把策略判断收敛在一处，避免调用方自行分支。"""
         if self._policy == "silent":
             return False
         if self._policy == "all":
@@ -55,6 +62,7 @@ class NotificationService:
 
     @staticmethod
     def _validate_policy(policy: str) -> NotificationPolicy:
+        """只接受前后端约定过的通知策略枚举值。"""
         if policy not in {"silent", "failures", "all"}:
             raise ValueError(f"Unsupported notification policy: {policy}")
         return policy

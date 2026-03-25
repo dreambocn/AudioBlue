@@ -1,3 +1,5 @@
+"""覆盖扩展配置字段在加载与保存时的兼容性。"""
+
 import json
 
 from audio_blue.config import load_config, save_config

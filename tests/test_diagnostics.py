@@ -1,3 +1,5 @@
+"""验证诊断快照与支持包导出的结构完整性。"""
+
 import json
 import sqlite3
 import zipfile

@@ -4,6 +4,7 @@ export type SupportedLanguage = 'zh-CN' | 'en-US'
 export type LanguagePreference = 'system' | SupportedLanguage
 type TranslationVariables = Record<string, string | number>
 
+// 这里只维护核心语言包，页面通过统一键名取词条。
 const messages: Record<SupportedLanguage, Record<string, string>> = {
   'zh-CN': {
     'app.subtitle': 'Win11 混合控制中心',
@@ -293,6 +294,7 @@ export function resolveLanguage(
   preference: LanguagePreference,
   systemLanguage?: string,
 ): SupportedLanguage {
+  // “跟随系统”只在这里解析一次，后续组件统一消费明确语言值。
   if (preference === 'system') {
     return resolveSystemLanguage(systemLanguage)
   }
@@ -304,6 +306,7 @@ interface LanguageProviderProps {
   children: ReactNode
 }
 
+// 语言上下文统一处理“跟随系统”逻辑，确保组件只消费已解析结果和翻译函数。
 export function LanguageProvider({ preference, children }: LanguageProviderProps) {
   const language = resolveLanguage(preference, globalThis.navigator?.language)
   const catalog = messages[language]
@@ -316,12 +319,14 @@ export function LanguageProvider({ preference, children }: LanguageProviderProps
         if (!variables) {
           return template
         }
+        // 简单占位符替换足以覆盖当前文案需求，避免引入额外格式化依赖。
         return Object.entries(variables).reduce(
           (value, [name, variable]) => value.replaceAll(`{${name}}`, String(variable)),
           template,
         )
       },
     }),
+    // 语言词条或语言偏好变化时，需要重新生成翻译函数。
     [catalog, language, preference],
   )
 
@@ -331,6 +336,7 @@ export function LanguageProvider({ preference, children }: LanguageProviderProps
 export function useI18n(): I18nContextValue {
   const context = useContext(I18nContext)
   if (!context) {
+    // 开发期直接抛错，便于尽早发现语言上下文缺失问题。
     throw new Error('useI18n must be used within a LanguageProvider.')
   }
   return context

@@ -1,3 +1,4 @@
+// 验证 pywebview 在首屏缺席、稍后注入时的桥接切换行为。
 import { render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -9,6 +10,7 @@ afterEach(() => {
 
 describe('AudioBlue pywebview bridge bootstrap', () => {
   it('switches from unavailable bridge to native bridge when pywebview api becomes ready after initial render', async () => {
+    // 先以“桥接不可用”启动，再模拟宿主延迟注入 API。
     delete window.pywebview
     delete window.audioblueBridge
     vi.resetModules()

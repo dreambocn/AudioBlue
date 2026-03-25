@@ -1,3 +1,5 @@
+"""覆盖连接服务的基础契约与状态发布行为。"""
+
 from audio_blue.connector_service import ConnectorService
 from audio_blue.models import DeviceSummary
 

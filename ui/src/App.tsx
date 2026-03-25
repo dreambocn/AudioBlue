@@ -19,6 +19,7 @@ import type {
 } from './types'
 import './App.css'
 
+// 统一维护左侧导航，避免页面标题和按钮文本来源分散。
 const navItems: { key: AppRoute; labelKey: string }[] = [
   { key: 'overview', labelKey: 'nav.overview' },
   { key: 'devices', labelKey: 'nav.devices' },
@@ -26,6 +27,7 @@ const navItems: { key: AppRoute; labelKey: string }[] = [
   { key: 'settings', labelKey: 'nav.settings' },
 ]
 
+// 当用户选择“跟随系统”时，界面主题始终由系统深浅色偏好驱动。
 const getSystemTheme = (): Exclude<ThemeMode, 'system'> =>
   globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 
@@ -41,6 +43,7 @@ const subscribeSystemTheme = (onStoreChange: () => void) => {
   }
 }
 
+// 将显式主题与系统主题收敛为最终渲染主题，组件只消费确定值。
 const useResolvedTheme = (themeMode?: ThemeMode): Exclude<ThemeMode, 'system'> => {
   const systemTheme = useSyncExternalStore<Exclude<ThemeMode, 'system'>>(
     subscribeSystemTheme,
@@ -55,6 +58,7 @@ const useResolvedTheme = (themeMode?: ThemeMode): Exclude<ThemeMode, 'system'> =
   return systemTheme
 }
 
+// 仅替换目标设备的规则，保持其余设备引用稳定，减少无关重渲染。
 const updateDeviceRule = (
   devices: DeviceViewModel[],
   deviceId: string,
@@ -69,6 +73,7 @@ const updateDeviceRule = (
       : device,
   )
 
+// 后端返回的是优先列表，这里把优先设备前置，其余设备保留原有顺序。
 const reorderDevicesByPriority = (
   devices: DeviceViewModel[],
   prioritizedDeviceIds: string[],
@@ -81,6 +86,7 @@ const reorderDevicesByPriority = (
   return [...prioritized, ...remaining]
 }
 
+// 将桥接层事件统一折叠成前端状态快照，便于 React 端只维护单一状态源。
 const applyBridgeEvent = (state: AppState, event: BridgeEvent): AppState => {
   switch (event.type) {
     case 'devices_changed':
@@ -584,6 +590,7 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
 }
 
 function App({ bridge }: AppProps) {
+  // 先解析实际桥接实现，再交给主壳层管理页面状态与副作用。
   const resolvedBridge = useResolvedBridge(bridge)
 
   return <ControlCenterShell bridge={resolvedBridge} />

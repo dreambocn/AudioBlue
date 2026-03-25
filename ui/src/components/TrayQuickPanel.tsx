@@ -32,6 +32,7 @@ export function TrayQuickPanel({
   onRefreshDevices,
 }: TrayQuickPanelProps) {
   const { t } = useI18n()
+  // 优先展示当前已连接设备；若尚未连接，则退化为第一个可操作的音频源设备。
   const targetDevice = currentDevice ?? matchedSourceDevices[0]
   const hasTargetDevice = Boolean(targetDevice)
 
@@ -62,6 +63,7 @@ export function TrayQuickPanel({
         </span>
       </div>
 
+      {/* 快捷区只暴露最常用操作，避免托盘场景下信息过载。 */}
       <div className="tray-actions" data-testid="tray-action-row">
         {currentDevice?.isConnected ? (
           <button
@@ -88,6 +90,7 @@ export function TrayQuickPanel({
         </button>
       </div>
 
+      {/* 这里切换的是“下次启动时重连”偏好，而不是立即重连。 */}
       <div className="tray-preference-bar">
         <span className="tray-preference-label">{t('tray.startupPreference')}</span>
         <button

@@ -1,3 +1,5 @@
+"""管理系统托盘图标、菜单构建与托盘动作分发。"""
+
 from __future__ import annotations
 
 import logging
@@ -20,6 +22,7 @@ WMAPP_NOTIFYCALLBACK = win32con.WM_APP + 1
 
 
 def find_app_icon_path(base_dir: Path | None = None) -> Path:
+    """解析托盘图标路径，兼容开发态与打包态目录结构。"""
     if base_dir is not None:
         root = base_dir
     elif getattr(sys, "frozen", False):
@@ -40,6 +43,8 @@ def find_app_icon_path(base_dir: Path | None = None) -> Path:
 
 @dataclass(slots=True)
 class MenuEntry:
+    """描述一项托盘菜单节点。"""
+
     action: str
     label: str
     checked: bool = False
@@ -56,6 +61,7 @@ def build_menu_entries(
     language: str = "system",
     selected_language: str | None = None,
 ) -> list[MenuEntry]:
+    """根据当前设备状态与语言配置生成托盘菜单树。"""
     selected = selected_language or language
     entries = [
         MenuEntry(action="refresh_devices", label=tray_label("refresh_devices", language=language)),
@@ -92,6 +98,7 @@ def build_menu_entries(
     ]
 
     for device in devices:
+        # 菜单动作直接跟随当前连接态切换，避免前端和托盘入口出现语义分叉。
         if device.connection_state == "connected":
             entries.append(
                 MenuEntry(
@@ -126,6 +133,8 @@ def build_exit_config(config: AppConfig, service: ConnectorService) -> AppConfig
 
 
 class TrayHost:
+    """负责托盘窗口生命周期、菜单点击路由与后台常驻模式。"""
+
     def __init__(
         self,
         service: ConnectorService,

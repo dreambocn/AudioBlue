@@ -1,3 +1,5 @@
+"""覆盖托盘菜单文案、命令映射与窗口交互路径。"""
+
 import logging
 
 import pywintypes
@@ -50,6 +52,8 @@ def test_build_menu_entries_localizes_labels():
 
 
 class ServiceStub:
+    """提供托盘宿主所需的最小服务接口。"""
+
     def __init__(self):
         self.known_devices = {}
         self.active_connections = {}
@@ -60,6 +64,8 @@ class ServiceStub:
 
 
 class SessionStateStub:
+    """模拟托盘读取的会话快照与设备操作入口。"""
+
     def __init__(self):
         self.calls: list[str] = []
         self._devices = [

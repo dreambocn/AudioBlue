@@ -1,9 +1,13 @@
+"""验证自启动管理器如何读写注册表命令。"""
+
 from pathlib import Path
 
 from audio_blue.autostart_manager import AutostartManager, RegistryValueStore
 
 
 class FakeRegistry(RegistryValueStore):
+    """以内存字典代替注册表，避免测试触碰真实系统设置。"""
+
     def __init__(self):
         self.values: dict[tuple[str, str], str] = {}
 

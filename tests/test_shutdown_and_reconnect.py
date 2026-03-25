@@ -1,3 +1,5 @@
+"""覆盖应用关闭与启动重连之间的状态衔接。"""
+
 import logging
 
 from audio_blue.connector_service import ConnectorService

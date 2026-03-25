@@ -1,3 +1,5 @@
+"""覆盖设备观察器驱动下的连接服务状态变化。"""
+
 import time
 
 from audio_blue.connector_service import ConnectorService
@@ -5,6 +7,8 @@ from audio_blue.models import DeviceSummary
 
 
 class WatcherBackendStub:
+    """模拟带观察器回调的连接后端，便于主动推送设备变化。"""
+
     def __init__(self) -> None:
         self.devices: list[DeviceSummary] = []
         self.watcher_callback = None
@@ -35,6 +39,7 @@ class WatcherBackendStub:
 
 
 def _wait_until(predicate, timeout: float = 1.0) -> None:
+    """等待后台线程完成观察器注册，避免测试与异步初始化抢跑。"""
     deadline = time.time() + timeout
     while time.time() < deadline:
         if predicate():

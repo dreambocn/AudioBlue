@@ -1,3 +1,5 @@
+"""覆盖 DesktopHost 在运行时窗口管理上的关键路径。"""
+
 import threading
 from pathlib import Path
 
@@ -10,6 +12,8 @@ from audio_blue.notification_service import NotificationService
 
 
 class WebviewWindowStub:
+    """模拟 pywebview 窗口对象，记录显示、隐藏和脚本注入行为。"""
+
     def __init__(self, title: str, url: str):
         self.title = title
         self.url = url
@@ -34,6 +38,8 @@ class WebviewWindowStub:
 
 
 class ClosingEventStub:
+    """模拟 pywebview 的关闭事件集合，便于主动触发回调。"""
+
     def __init__(self):
         self.handlers: list[object] = []
 
@@ -46,6 +52,8 @@ class ClosingEventStub:
 
 
 class WebviewModuleStub:
+    """模拟 pywebview 模块，记录建窗参数和 start 调用。"""
+
     def __init__(self):
         self.calls: list[dict[str, object]] = []
         self.start_call: dict[str, object] | None = None
@@ -66,6 +74,7 @@ class WebviewModuleStub:
 
 
 def create_api(tmp_path: Path):
+    """构造运行时宿主测试共用的最小 DesktopApi。"""
     return DesktopApi(
         service=type("ServiceStub", (), {"known_devices": {}, "active_connections": {}})(),
         app_state=AppStateStore(config=AppConfig()),
@@ -239,6 +248,8 @@ def test_main_window_close_hides_window_instead_of_exiting(tmp_path):
 
 
 class SessionStateStub:
+    """模拟会话状态推送通道，验证浏览器事件桥接。"""
+
     def __init__(self):
         self.listener = None
 

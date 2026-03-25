@@ -1,3 +1,5 @@
+"""封装运行时事件记录与支持包导出入口。"""
+
 from __future__ import annotations
 
 import logging
@@ -8,6 +10,8 @@ from audio_blue.diagnostics import export_support_bundle
 
 
 class ObservabilityService:
+    """把业务事件同时写入存储与日志，供排障和界面回放复用。"""
+
     def __init__(self, *, storage=None, logger: logging.Logger | None = None) -> None:
         self._storage = storage
         self._logger = logger
@@ -24,6 +28,7 @@ class ObservabilityService:
         error_code: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
+        """记录结构化事件，并在有日志器时附带输出到日志。"""
         storage_method = getattr(self._storage, "record_activity_event", None)
         if callable(storage_method):
             storage_method(
@@ -58,6 +63,7 @@ class ObservabilityService:
         device_id: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
+        """把异常转换为标准错误事件，减少调用侧重复拼装。"""
         self.record_event(
             area=area,
             event_type=event_type,
@@ -70,4 +76,5 @@ class ObservabilityService:
         )
 
     def export_support_bundle(self, *, snapshot: dict[str, Any], path: Path) -> Path:
+        """复用诊断模块导出支持包。"""
         return export_support_bundle(snapshot=snapshot, path=path, storage=self._storage)
