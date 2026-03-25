@@ -10,6 +10,7 @@ import type {
 export type BridgeEvent =
   | { type: 'devices_changed'; devices: AppState['devices'] }
   | { type: 'history_changed'; deviceHistory: AppState['deviceHistory'] }
+  | { type: 'activity_changed'; recentActivity: AppState['recentActivity'] }
   | { type: 'connection_changed'; connection: AppState['connection'] }
   | { type: 'connection_failed'; message: string }
   | { type: 'rules_changed'; deviceId: string; rule: DeviceRule }
@@ -31,6 +32,8 @@ export interface BackendBridge {
   setLanguage(language: LanguagePreference): Promise<void>
   setNotificationPolicy(policy: NotificationPolicy): Promise<void>
   openBluetoothSettings(): Promise<void>
+  exportSupportBundle(): Promise<string>
   exportDiagnostics(): Promise<string>
+  recordClientEvent(payload: Record<string, unknown>): Promise<void>
   onEvent(handler: (event: BridgeEvent) => void): () => void
 }

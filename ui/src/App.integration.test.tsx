@@ -49,9 +49,24 @@ describe('AudioBlue Control Center integration', () => {
       },
     ],
     prioritizedDeviceIds: ['device-1', 'device-2'],
-    recentActivity: ['Ready'],
+    recentActivity: [
+      {
+        id: 'evt-1',
+        area: 'connection',
+        eventType: 'connection.failed',
+        level: 'error',
+        title: '连接失败',
+        detail: 'Surface Headphones 连接超时。',
+        happenedAt: '2026-03-25T10:00:00+00:00',
+        deviceId: 'device-1',
+      },
+    ],
     connection: {
       status: 'disconnected',
+      currentPhase: 'disconnected',
+      lastAttemptAt: '2026-03-25T10:00:00+00:00',
+      lastErrorCode: 'connection.timeout',
+      lastErrorMessage: 'Surface Headphones 连接超时。',
     },
     startup: {
       autostart: false,
@@ -69,8 +84,20 @@ describe('AudioBlue Control Center integration', () => {
       policy: 'failures',
     },
     diagnostics: {
-      lastProbe: 'ok',
-      probeResult: 'ok',
+      lastProbe: '2026-03-25T10:00:00+00:00',
+      probeResult: '检测到最近一次连接失败。',
+      databasePath: 'C:\\Users\\DreamBo\\AppData\\Local\\AudioBlue\\audioblue.db',
+      logRetentionDays: 90,
+      activityEventCount: 3,
+      connectionAttemptCount: 2,
+      logRecordCount: 12,
+      recentErrors: [
+        {
+          title: '连接失败',
+          detail: 'Surface Headphones 连接超时。',
+          happenedAt: '2026-03-25T10:00:00+00:00',
+        },
+      ],
     },
     runtime: {
       bridgeMode: 'native',
@@ -80,9 +107,13 @@ describe('AudioBlue Control Center integration', () => {
         id: 'device-archived',
         name: 'Archived Receiver',
         supportsAudio: true,
+        firstSeen: '2026-03-20T10:00:00+00:00',
         lastSeen: '2026-03-20T11:00:00+00:00',
         lastConnectionAt: '2026-03-20T10:55:00+00:00',
         lastResult: 'Connection timed out before audio could start.',
+        lastFailureAt: '2026-03-20T10:55:00+00:00',
+        successCount: 1,
+        failureCount: 2,
         savedRule: {
           isFavorite: true,
           isIgnored: false,
@@ -126,9 +157,13 @@ describe('AudioBlue Control Center integration', () => {
     async setLanguage() {},
     async setNotificationPolicy() {},
     async openBluetoothSettings() {},
+    async exportSupportBundle() {
+      return ''
+    },
     async exportDiagnostics() {
       return ''
     },
+    async recordClientEvent() {},
     onEvent() {
       return () => undefined
     },
@@ -191,7 +226,9 @@ describe('AudioBlue Control Center integration', () => {
       setLanguage: vi.fn(async () => undefined),
       setNotificationPolicy: vi.fn(async () => undefined),
       openBluetoothSettings: vi.fn(async () => undefined),
+      exportSupportBundle: vi.fn(async () => ''),
       exportDiagnostics: vi.fn(async () => ''),
+      recordClientEvent: vi.fn(async () => undefined),
       onEvent(handler) {
         listeners.add(handler)
         return () => {
@@ -210,6 +247,7 @@ describe('AudioBlue Control Center integration', () => {
     expect(screen.getByRole('button', { name: 'Auto Connect' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Settings' })).toBeVisible()
     expect(await screen.findByText('Connection Overview')).toBeVisible()
+    expect(await screen.findByText('设备已连接')).toBeVisible()
   })
 
   it('binds rule toggles to state changes', async () => {
@@ -304,6 +342,11 @@ describe('AudioBlue Control Center integration', () => {
       diagnostics: {
         lastProbe: 'ok',
         probeResult: 'ok',
+        logRetentionDays: 90,
+        activityEventCount: 0,
+        connectionAttemptCount: 0,
+        logRecordCount: 0,
+        recentErrors: [],
       },
       runtime: {
         bridgeMode: 'native',
@@ -360,9 +403,8 @@ describe('AudioBlue Control Center integration', () => {
     expect(screen.getByRole('heading', { name: 'Archived Receiver' })).toBeVisible()
     expect(screen.getByText('Favorite')).toBeVisible()
     expect(screen.getByText('Auto-connect on reappear')).toBeVisible()
-    expect(
-      screen.getByText('When this device returns, these saved settings will be reused automatically.'),
-    ).toBeVisible()
+    expect(screen.getByText('1 successful attempts')).toBeVisible()
+    expect(screen.getByText('2 failed attempts')).toBeVisible()
   })
 
   it('calls bridge updateDeviceRule when favorite is toggled', async () => {

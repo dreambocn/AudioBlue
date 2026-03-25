@@ -90,8 +90,8 @@ def test_desktop_api_updates_rules_settings_and_exports_diagnostics(tmp_path):
     assert snapshot["settings"]["ui"]["theme"] == "dark"
     assert snapshot["settings"]["notification"]["policy"] == "all"
     assert api.autostart_manager.is_enabled() is True
-    assert export_path.endswith(".json")
-    assert exported_paths and exported_paths[0].parent == tmp_path
+    assert export_path.endswith(".zip")
+    assert exported_paths and exported_paths[0].parent.name == "support-bundles"
 
 
 def test_desktop_api_set_language_updates_config_and_returns_snapshot(tmp_path):
@@ -112,3 +112,44 @@ def test_desktop_api_set_language_updates_config_and_returns_snapshot(tmp_path):
 
     assert getattr(app_state.config.ui, "language", None) == "zh-CN"
     assert snapshot["settings"]["ui"].get("language") == "zh-CN"
+
+
+def test_desktop_api_exports_support_bundle_and_records_client_events(tmp_path):
+    exported_paths: list[Path] = []
+    observed_events: list[dict] = []
+    service = ServiceStub()
+    app_state = AppStateStore(config=AppConfig())
+    api = DesktopApi(
+        service=service,
+        app_state=app_state,
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(),
+        diagnostics_exporter=lambda snapshot, path: exported_paths.append(path) or path,
+        open_bluetooth_settings=lambda: None,
+        diagnostics_output_dir=tmp_path,
+        session_state=type(
+            "SessionStateStub",
+            (),
+            {
+                "snapshot": lambda _self: {"devices": []},
+                "record_client_event": lambda _self, payload: observed_events.append(payload),
+            },
+        )(),
+    )
+
+    support_bundle_path = api.export_support_bundle()
+    alias_path = api.export_diagnostics()
+    api.record_client_event(
+        {
+            "area": "ui",
+            "eventType": "ui.error",
+            "level": "error",
+            "title": "页面异常",
+            "detail": "按钮点击失败。",
+        }
+    )
+
+    assert support_bundle_path.endswith(".zip")
+    assert alias_path.endswith(".zip")
+    assert exported_paths[0].suffix == ".zip"
+    assert observed_events[0]["eventType"] == "ui.error"

@@ -47,6 +47,8 @@ class DesktopApi:
         open_bluetooth_settings: Callable[[], None],
         diagnostics_output_dir: Path,
         session_state=None,
+        support_bundle_exporter: DiagnosticsExporter | None = None,
+        observability=None,
     ) -> None:
         self.service = service
         self.app_state = app_state
@@ -54,9 +56,11 @@ class DesktopApi:
         self.notification_service = notification_service
         self.session_state = session_state
         self._diagnostics_exporter = diagnostics_exporter
+        self._support_bundle_exporter = support_bundle_exporter or diagnostics_exporter
         self._open_bluetooth_settings = open_bluetooth_settings
         self._diagnostics_output_dir = diagnostics_output_dir
         self._window_theme_sync: Callable[[str], bool] | None = None
+        self._observability = observability
 
     def get_initial_state(self) -> dict[str, Any]:
         if self.session_state is not None:
@@ -152,9 +156,31 @@ class DesktopApi:
         return {"mode": mode, "applied": applied}
 
     def open_bluetooth_settings(self) -> None:
-        self._open_bluetooth_settings()
+        try:
+            self._open_bluetooth_settings()
+        except Exception as exc:
+            if self._observability is not None and hasattr(self._observability, "record_exception"):
+                self._observability.record_exception(
+                    area="desktop",
+                    event_type="desktop.open_bluetooth_settings.failed",
+                    title="打开蓝牙设置失败",
+                    exc=exc,
+                )
+            raise
+        if self._observability is not None and hasattr(self._observability, "record_event"):
+            self._observability.record_event(
+                area="desktop",
+                event_type="desktop.open_bluetooth_settings.succeeded",
+                level="info",
+                title="已打开蓝牙设置",
+                detail="已请求打开 Windows 蓝牙设置。",
+            )
 
     def export_diagnostics(self) -> str:
+        return self.export_support_bundle()
+
+    def export_support_bundle(self) -> str:
+        runtime_snapshot = self.get_initial_state()
         snapshot = build_diagnostics_snapshot(
             config=self.app_state.config,
             devices=list(getattr(self.service, "known_devices", {}).values()),
@@ -165,9 +191,70 @@ class DesktopApi:
             ],
             source="desktop-api",
         )
+        snapshot.update(
+            {
+                "connectionOverview": runtime_snapshot.get(
+                    "connectionOverview",
+                    runtime_snapshot.get("connection"),
+                ),
+                "recentActivity": runtime_snapshot.get("recentActivity", []),
+                "deviceHistory": runtime_snapshot.get("deviceHistory", []),
+                "diagnostics": runtime_snapshot.get("diagnostics", {}),
+                "settings": runtime_snapshot.get("settings", {}),
+            }
+        )
         timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-        export_path = self._diagnostics_output_dir / f"diagnostics-{timestamp}.json"
-        return str(self._diagnostics_exporter(snapshot, export_path))
+        export_path = self._diagnostics_output_dir / "support-bundles" / f"support-bundle-{timestamp}.zip"
+        try:
+            path = self._support_bundle_exporter(snapshot, export_path)
+        except Exception as exc:
+            if self._observability is not None and hasattr(self._observability, "record_exception"):
+                self._observability.record_exception(
+                    area="export",
+                    event_type="export.support_bundle.failed",
+                    title="支持包导出失败",
+                    exc=exc,
+                    details={"path": str(export_path)},
+                )
+            raise
+        if self._observability is not None and hasattr(self._observability, "record_event"):
+            self._observability.record_event(
+                area="export",
+                event_type="export.support_bundle.succeeded",
+                level="info",
+                title="支持包导出成功",
+                detail=f"支持包已导出到 {path}。",
+                details={"path": str(path)},
+            )
+        return str(path)
+
+    def record_client_event(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.session_state is not None and hasattr(self.session_state, "record_client_event"):
+            return self.session_state.record_client_event(payload)
+        if self._observability is not None and hasattr(self._observability, "record_event"):
+            self._observability.record_event(
+                area=str(payload.get("area", "ui")),
+                event_type=str(payload.get("eventType", payload.get("event_type", "ui.event"))),
+                level=str(payload.get("level", "error")),
+                title=str(payload.get("title", "界面事件")),
+                detail=(
+                    str(payload.get("detail"))
+                    if payload.get("detail") is not None
+                    else None
+                ),
+                device_id=(
+                    str(payload.get("deviceId"))
+                    if payload.get("deviceId") is not None
+                    else None
+                ),
+                error_code=(
+                    str(payload.get("errorCode"))
+                    if payload.get("errorCode") is not None
+                    else None
+                ),
+                details=payload.get("details") if isinstance(payload.get("details"), dict) else None,
+            )
+        return self.get_initial_state()
 
     def _sync_from_service(self) -> None:
         self.app_state.sync_devices(list(getattr(self.service, "known_devices", {}).values()))

@@ -3,6 +3,8 @@ export type NotificationPolicy = 'silent' | 'failures' | 'all'
 export type DeviceRuleMode = 'manual' | 'appear'
 export type LanguagePreference = 'system' | 'zh-CN' | 'en-US'
 export type BridgeMode = 'native' | 'mock' | 'unavailable'
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'failed'
+export type ActivityLevel = 'info' | 'warning' | 'error'
 
 export interface DeviceRule {
   mode: DeviceRuleMode
@@ -40,17 +42,49 @@ export interface DeviceHistoryEntry {
   id: string
   name: string
   supportsAudio: boolean
+  firstSeen?: string
   lastSeen: string
   lastConnectionAt?: string
   lastConnectionState?: string
   lastConnectionTrigger?: string
   lastResult: string
+  lastSuccessAt?: string
+  lastFailureAt?: string
+  lastPresentAt?: string
+  lastAbsentAt?: string
+  lastErrorCode?: string
+  lastPresentReason?: string
+  lastAbsentReason?: string
+  successCount: number
+  failureCount: number
+  isCurrentlyVisible?: boolean
   savedRule: DeviceHistorySavedRule
 }
 
+export interface ActivityEvent {
+  id: string
+  area: string
+  level: ActivityLevel | string
+  eventType: string
+  title: string
+  detail: string
+  happenedAt: string
+  deviceId?: string
+  errorCode?: string
+  details?: Record<string, unknown>
+}
+
 export interface ConnectionState {
-  status: 'disconnected' | 'connecting' | 'connected'
+  status: ConnectionStatus
   currentDeviceId?: string
+  currentDeviceName?: string
+  currentPhase?: string
+  lastSuccessAt?: string
+  lastAttemptAt?: string
+  lastTrigger?: string
+  lastErrorCode?: string
+  lastErrorMessage?: string
+  lastStateChangedAt?: string
   lastFailure?: string
 }
 
@@ -72,10 +106,37 @@ export interface NotificationPreferences {
   policy: NotificationPolicy
 }
 
+export interface DiagnosticsErrorSummary {
+  title: string
+  detail?: string
+  happenedAt?: string
+  errorCode?: string
+}
+
+export interface WatcherDiagnostics {
+  initialEnumerationCompleted: boolean
+  startupReconnectCompleted: boolean
+  knownDeviceCount: number
+  activeConnectionCount: number
+  serviceShutdown: boolean
+}
+
 export interface DiagnosticsState {
-  lastProbe: string
-  probeResult: string
+  lastProbe?: string
+  probeResult?: string
+  databasePath?: string
+  storageEngine?: string
+  logRetentionDays: number
+  activityEventCount: number
+  connectionAttemptCount: number
+  logRecordCount: number
   lastExportPath?: string
+  lastExportAt?: string
+  lastSupportBundlePath?: string
+  lastSupportBundleAt?: string
+  recentErrors: DiagnosticsErrorSummary[]
+  runtimeMode?: string
+  watcher?: WatcherDiagnostics
 }
 
 export interface RuntimeState {
@@ -88,7 +149,7 @@ export interface AppState {
   devices: DeviceViewModel[]
   deviceHistory: DeviceHistoryEntry[]
   prioritizedDeviceIds: string[]
-  recentActivity: string[]
+  recentActivity: ActivityEvent[]
   connection: ConnectionState
   startup: StartupPreferences
   ui: UiPreferences

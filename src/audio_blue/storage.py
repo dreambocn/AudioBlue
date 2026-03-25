@@ -129,6 +129,20 @@ class SQLiteStorage:
                     created_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS activity_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_type TEXT NOT NULL,
+                    area TEXT NOT NULL,
+                    level TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    detail TEXT,
+                    device_id TEXT,
+                    error_code TEXT,
+                    details_json TEXT,
+                    happened_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS diagnostics_snapshots (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     source TEXT NOT NULL,
@@ -156,6 +170,7 @@ class SQLiteStorage:
                 );
                 """
             )
+            self._ensure_column(connection, "device_cache", "first_seen_at", "TEXT")
             now = _utc_now().isoformat()
             connection.execute(
                 """
@@ -249,15 +264,17 @@ class SQLiteStorage:
                     connection_state,
                     supports_audio_playback,
                     supports_microphone,
+                    first_seen_at,
                     last_seen_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(device_id) DO UPDATE SET
                     name = excluded.name,
                     connection_state = excluded.connection_state,
                     supports_audio_playback = excluded.supports_audio_playback,
                     supports_microphone = excluded.supports_microphone,
+                    first_seen_at = COALESCE(device_cache.first_seen_at, excluded.first_seen_at),
                     last_seen_at = excluded.last_seen_at,
                     updated_at = excluded.updated_at
                 """,
@@ -267,6 +284,7 @@ class SQLiteStorage:
                     connection_state,
                     int(supports_audio_playback),
                     int(supports_microphone),
+                    _to_iso(last_seen_at),
                     _to_iso(last_seen_at),
                     _utc_now().isoformat(),
                 ),
@@ -333,6 +351,52 @@ class SQLiteStorage:
             )
             return int(cursor.lastrowid)
 
+    def record_activity_event(
+        self,
+        *,
+        area: str,
+        event_type: str,
+        level: str,
+        title: str,
+        detail: str | None = None,
+        device_id: str | None = None,
+        error_code: str | None = None,
+        details: dict[str, Any] | None = None,
+        happened_at: datetime | None = None,
+    ) -> int:
+        timestamp = (happened_at or _utc_now()).astimezone(UTC).isoformat()
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO activity_events(
+                    event_type,
+                    area,
+                    level,
+                    title,
+                    detail,
+                    device_id,
+                    error_code,
+                    details_json,
+                    happened_at,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event_type,
+                    area,
+                    level,
+                    title,
+                    detail,
+                    device_id,
+                    error_code,
+                    json.dumps(details, ensure_ascii=False, sort_keys=True) if details else None,
+                    timestamp,
+                    _utc_now().isoformat(),
+                ),
+            )
+            return int(cursor.lastrowid)
+
     def purge_expired_records(
         self,
         *,
@@ -344,11 +408,159 @@ class SQLiteStorage:
         with self._connect() as connection:
             connection.execute("DELETE FROM log_records WHERE created_at < ?", (cutoff_iso,))
             connection.execute("DELETE FROM connection_history WHERE happened_at < ?", (cutoff_iso,))
+            connection.execute("DELETE FROM activity_events WHERE happened_at < ?", (cutoff_iso,))
             connection.execute("DELETE FROM diagnostics_exports WHERE exported_at < ?", (cutoff_iso,))
             connection.execute(
                 "DELETE FROM diagnostics_snapshots WHERE generated_at < ?",
                 (cutoff_iso,),
             )
+
+    def list_activity_events(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    id,
+                    event_type,
+                    area,
+                    level,
+                    title,
+                    detail,
+                    device_id,
+                    error_code,
+                    details_json,
+                    happened_at
+                FROM activity_events
+                ORDER BY happened_at DESC, id DESC
+                LIMIT ?
+                """,
+                (max(limit, 0),),
+            ).fetchall()
+
+        events: list[dict[str, Any]] = []
+        for row in rows:
+            details = None
+            if row["details_json"]:
+                try:
+                    details = json.loads(row["details_json"])
+                except json.JSONDecodeError:
+                    details = None
+            events.append(
+                {
+                    "id": row["id"],
+                    "event_type": row["event_type"],
+                    "area": row["area"],
+                    "level": row["level"],
+                    "title": row["title"],
+                    "detail": row["detail"],
+                    "device_id": row["device_id"],
+                    "error_code": row["error_code"],
+                    "details": details,
+                    "happened_at": row["happened_at"],
+                }
+            )
+        return events
+
+    def list_connection_attempts(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    history.device_id,
+                    COALESCE(cache.name, history.device_id) AS device_name,
+                    history.trigger,
+                    history.succeeded,
+                    history.state,
+                    history.failure_reason,
+                    history.failure_code,
+                    history.happened_at
+                FROM connection_history AS history
+                LEFT JOIN device_cache AS cache
+                    ON cache.device_id = history.device_id
+                ORDER BY history.happened_at DESC, history.id DESC
+                LIMIT ?
+                """,
+                (max(limit, 0),),
+            ).fetchall()
+
+        return [
+            {
+                "device_id": row["device_id"],
+                "device_name": row["device_name"],
+                "trigger": row["trigger"],
+                "succeeded": bool(row["succeeded"]),
+                "state": row["state"],
+                "failure_reason": row["failure_reason"],
+                "failure_code": row["failure_code"],
+                "happened_at": row["happened_at"],
+            }
+            for row in rows
+        ]
+
+    def build_runtime_diagnostics(self, *, recent_error_limit: int = 5) -> dict[str, Any]:
+        with self._connect() as connection:
+            activity_event_count = connection.execute(
+                "SELECT COUNT(*) FROM activity_events"
+            ).fetchone()[0]
+            connection_attempt_count = connection.execute(
+                "SELECT COUNT(*) FROM connection_history"
+            ).fetchone()[0]
+            log_record_count = connection.execute(
+                "SELECT COUNT(*) FROM log_records"
+            ).fetchone()[0]
+            latest_export = connection.execute(
+                """
+                SELECT export_path, exported_at
+                FROM diagnostics_exports
+                ORDER BY exported_at DESC, id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            latest_support_bundle = connection.execute(
+                """
+                SELECT export_path, exported_at
+                FROM diagnostics_exports
+                WHERE lower(export_path) LIKE '%.zip'
+                ORDER BY exported_at DESC, id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            recent_error_rows = connection.execute(
+                """
+                SELECT title, detail, happened_at, error_code
+                FROM activity_events
+                WHERE level = 'error'
+                ORDER BY happened_at DESC, id DESC
+                LIMIT ?
+                """,
+                (max(recent_error_limit, 0),),
+            ).fetchall()
+
+        return {
+            "databasePath": str(self.db_path),
+            "storageEngine": "sqlite",
+            "logRetentionDays": 90,
+            "activityEventCount": int(activity_event_count),
+            "connectionAttemptCount": int(connection_attempt_count),
+            "logRecordCount": int(log_record_count),
+            "lastExportPath": latest_export["export_path"] if latest_export else None,
+            "lastExportAt": latest_export["exported_at"] if latest_export else None,
+            "lastSupportBundlePath": (
+                latest_support_bundle["export_path"] if latest_support_bundle else None
+            ),
+            "lastSupportBundleAt": (
+                latest_support_bundle["exported_at"] if latest_support_bundle else None
+            ),
+            "recentErrors": [
+                {
+                    "title": row["title"],
+                    "detail": row["detail"],
+                    "happenedAt": row["happened_at"],
+                    "errorCode": row["error_code"],
+                }
+                for row in recent_error_rows
+            ],
+        }
 
     def list_device_history(self, *, limit: int = 10) -> list[dict[str, Any]]:
         with self._connect() as connection:
@@ -359,6 +571,7 @@ class SQLiteStorage:
                     name,
                     supports_audio_playback,
                     supports_microphone,
+                    first_seen_at,
                     last_seen_at
                 FROM device_cache
                 """
@@ -392,19 +605,48 @@ class SQLiteStorage:
             last_device_rows = connection.execute(
                 "SELECT position, device_id FROM last_devices ORDER BY position ASC"
             ).fetchall()
+            presence_rows = connection.execute(
+                """
+                SELECT device_id, event_type, happened_at, details_json
+                FROM activity_events
+                WHERE event_type IN ('device.present', 'device.absent')
+                ORDER BY happened_at DESC, id DESC
+                """
+            ).fetchall()
 
         cache_by_id = {
             row["device_id"]: {
                 "name": row["name"],
                 "supports_audio_playback": bool(row["supports_audio_playback"]),
                 "supports_microphone": bool(row["supports_microphone"]),
+                "first_seen_at": row["first_seen_at"],
                 "last_seen_at": row["last_seen_at"],
             }
             for row in cache_rows
         }
         latest_connection_by_id: dict[str, dict[str, Any]] = {}
+        connection_counts_by_id: dict[str, dict[str, Any]] = {}
         for row in connection_rows:
             device_id = row["device_id"]
+            summary = connection_counts_by_id.setdefault(
+                device_id,
+                {
+                    "success_count": 0,
+                    "failure_count": 0,
+                    "last_success_at": None,
+                    "last_failure_at": None,
+                    "last_error_code": None,
+                },
+            )
+            if row["succeeded"]:
+                summary["success_count"] += 1
+                if summary["last_success_at"] is None:
+                    summary["last_success_at"] = row["happened_at"]
+            else:
+                summary["failure_count"] += 1
+                if summary["last_failure_at"] is None:
+                    summary["last_failure_at"] = row["happened_at"]
+                    summary["last_error_code"] = row["failure_code"]
             if device_id in latest_connection_by_id:
                 continue
             latest_connection_by_id[device_id] = {
@@ -425,9 +667,40 @@ class SQLiteStorage:
             for row in rule_rows
         }
         last_device_ids = [row["device_id"] for row in last_device_rows]
+        presence_by_id: dict[str, dict[str, Any]] = {}
+        for row in presence_rows:
+            device_id = row["device_id"]
+            if not isinstance(device_id, str):
+                continue
+            entry = presence_by_id.setdefault(
+                device_id,
+                {
+                    "last_present_at": None,
+                    "last_absent_at": None,
+                    "last_present_reason": None,
+                    "last_absent_reason": None,
+                },
+            )
+            details: dict[str, Any] = {}
+            raw_details = row["details_json"]
+            if isinstance(raw_details, str) and raw_details:
+                try:
+                    parsed_details = json.loads(raw_details)
+                except json.JSONDecodeError:
+                    parsed_details = {}
+                if isinstance(parsed_details, dict):
+                    details = parsed_details
+            if row["event_type"] == "device.present" and entry["last_present_at"] is None:
+                entry["last_present_at"] = row["happened_at"]
+                entry["last_present_reason"] = details.get("change")
+            if row["event_type"] == "device.absent" and entry["last_absent_at"] is None:
+                entry["last_absent_at"] = row["happened_at"]
+                entry["last_absent_reason"] = details.get("change")
 
         candidate_ids = {
+            *cache_by_id.keys(),
             *latest_connection_by_id.keys(),
+            *presence_by_id.keys(),
             *rules_by_id.keys(),
             *last_device_ids,
         }
@@ -437,6 +710,8 @@ class SQLiteStorage:
                 cache=cache_by_id.get(device_id),
                 latest_connection=latest_connection_by_id.get(device_id),
                 saved_rule=rules_by_id.get(device_id),
+                connection_summary=connection_counts_by_id.get(device_id),
+                presence_summary=presence_by_id.get(device_id),
             )
             for device_id in candidate_ids
         ]
@@ -725,6 +1000,8 @@ class SQLiteStorage:
         cache: dict[str, Any] | None,
         latest_connection: dict[str, Any] | None,
         saved_rule: dict[str, Any] | None,
+        connection_summary: dict[str, Any] | None,
+        presence_summary: dict[str, Any] | None,
     ) -> dict[str, Any]:
         return {
             "device_id": device_id,
@@ -739,6 +1016,7 @@ class SQLiteStorage:
             "supports_microphone": bool(
                 cache.get("supports_microphone", False) if isinstance(cache, dict) else False
             ),
+            "first_seen_at": cache.get("first_seen_at") if isinstance(cache, dict) else None,
             "last_seen_at": cache.get("last_seen_at") if isinstance(cache, dict) else None,
             "last_connection_at": (
                 latest_connection.get("last_connection_at")
@@ -765,6 +1043,51 @@ class SQLiteStorage:
                 if isinstance(latest_connection, dict)
                 else None
             ),
+            "success_count": (
+                int(connection_summary.get("success_count", 0))
+                if isinstance(connection_summary, dict)
+                else 0
+            ),
+            "failure_count": (
+                int(connection_summary.get("failure_count", 0))
+                if isinstance(connection_summary, dict)
+                else 0
+            ),
+            "last_success_at": (
+                connection_summary.get("last_success_at")
+                if isinstance(connection_summary, dict)
+                else None
+            ),
+            "last_failure_at": (
+                connection_summary.get("last_failure_at")
+                if isinstance(connection_summary, dict)
+                else None
+            ),
+            "last_error_code": (
+                connection_summary.get("last_error_code")
+                if isinstance(connection_summary, dict)
+                else None
+            ),
+            "last_present_at": (
+                presence_summary.get("last_present_at")
+                if isinstance(presence_summary, dict)
+                else None
+            ),
+            "last_absent_at": (
+                presence_summary.get("last_absent_at")
+                if isinstance(presence_summary, dict)
+                else None
+            ),
+            "last_present_reason": (
+                presence_summary.get("last_present_reason")
+                if isinstance(presence_summary, dict)
+                else None
+            ),
+            "last_absent_reason": (
+                presence_summary.get("last_absent_reason")
+                if isinstance(presence_summary, dict)
+                else None
+            ),
             "saved_rule": {
                 "is_favorite": bool(saved_rule.get("is_favorite", False))
                 if isinstance(saved_rule, dict)
@@ -778,6 +1101,21 @@ class SQLiteStorage:
                 "priority": saved_rule.get("priority") if isinstance(saved_rule, dict) else None,
             },
         }
+
+    def _ensure_column(
+        self,
+        connection: sqlite3.Connection,
+        table_name: str,
+        column_name: str,
+        column_definition: str,
+    ) -> None:
+        rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+        existing = {row["name"] for row in rows}
+        if column_name in existing:
+            return
+        connection.execute(
+            f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
+        )
 
 
 def _utc_now() -> datetime:

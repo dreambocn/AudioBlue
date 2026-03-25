@@ -46,6 +46,23 @@ describe('resolveBridge', () => {
       deviceRules: {},
       lastFailure: null,
       lastTrigger: 'manual',
+      recentActivity: [
+        {
+          id: "evt-2",
+          area: "connection",
+          eventType: "connection.connected",
+          level: "info",
+          title: "设备已连接",
+          detail: "Desk Speaker 已连接。",
+          happenedAt: "2026-03-25T10:05:00+00:00",
+        },
+      ],
+      connectionOverview: {
+        status: "connected",
+        currentDeviceId: "device-2",
+        currentPhase: "connected",
+        lastSuccessAt: "2026-03-25T10:05:00+00:00",
+      },
       settings: {
         notification: { policy: 'all' },
         startup: {
@@ -57,6 +74,14 @@ describe('resolveBridge', () => {
         ui: { theme: 'light', highContrast: false, language: 'zh-CN' },
       },
       autoConnectCandidates: ['device-2'],
+      diagnostics: {
+        databasePath: 'C:\\Users\\DreamBo\\AppData\\Local\\AudioBlue\\audioblue.db',
+        logRetentionDays: 90,
+        activityEventCount: 3,
+        connectionAttemptCount: 2,
+        lastSupportBundlePath: 'C:\\Users\\DreamBo\\AppData\\Local\\AudioBlue\\support-bundles\\bundle.zip',
+        recentErrors: [],
+      },
       deviceHistory: [
         {
           deviceId: 'archived-1',
@@ -101,6 +126,28 @@ describe('resolveBridge', () => {
           },
           lastFailure: null,
           lastTrigger: 'manual',
+          recentActivity: [
+            {
+              id: "evt-1",
+              area: "connection",
+              eventType: "connection.failed",
+              level: "error",
+              title: "连接失败",
+              detail: "Surface Headphones 连接超时。",
+              happenedAt: "2026-03-25T10:00:00+00:00",
+              deviceId: "device-1",
+            },
+          ],
+          connectionOverview: {
+            status: "connected",
+            currentDeviceId: "device-1",
+            currentPhase: "connected",
+            lastSuccessAt: "2026-03-25T09:59:00+00:00",
+            lastAttemptAt: "2026-03-25T10:00:00+00:00",
+            lastTrigger: "manual",
+            lastErrorCode: "connection.timeout",
+            lastErrorMessage: "Surface Headphones 连接超时。",
+          },
           settings: {
             notification: { policy: 'failures' },
             startup: {
@@ -112,6 +159,20 @@ describe('resolveBridge', () => {
             ui: { theme: 'dark', highContrast: false, language: 'en-US' },
           },
           autoConnectCandidates: ['device-1'],
+          diagnostics: {
+            databasePath: 'C:\\Users\\DreamBo\\AppData\\Local\\AudioBlue\\audioblue.db',
+            logRetentionDays: 90,
+            activityEventCount: 4,
+            connectionAttemptCount: 2,
+            lastSupportBundlePath: 'C:\\Users\\DreamBo\\AppData\\Local\\AudioBlue\\support-bundles\\bundle.zip',
+            recentErrors: [
+              {
+                title: '连接失败',
+                detail: 'Surface Headphones 连接超时。',
+                happenedAt: '2026-03-25T10:00:00+00:00',
+              },
+            ],
+          },
           deviceHistory: [
             {
               deviceId: 'archived-1',
@@ -205,6 +266,8 @@ describe('resolveBridge', () => {
     expect(state.runtime.bridgeMode).toBe('native')
     expect(state.ui.language).toBe('en-US')
     expect(state.ui.themeMode).toBe('dark')
+    expect(state.recentActivity[0].title).toBe('连接失败')
+    expect(state.diagnostics.databasePath).toMatch(/audioblue\.db$/i)
     expect(state.devices[0].id).toBe('device-1')
     expect(state.deviceHistory[0]).toEqual(
       expect.objectContaining({
@@ -239,6 +302,7 @@ describe('resolveBridge', () => {
       connection: expect.objectContaining({
         status: 'connected',
         currentDeviceId: 'device-2',
+        lastSuccessAt: '2026-03-25T10:05:00+00:00',
       }),
     })
     expect(listeners).toContainEqual({

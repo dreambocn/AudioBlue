@@ -38,6 +38,11 @@ export function SettingsPage({
   onExportDiagnostics,
 }: SettingsPageProps) {
   const { t } = useI18n()
+  const supportBundlePath =
+    state.diagnostics.lastSupportBundlePath ?? state.diagnostics.lastExportPath
+  const supportBundleTime =
+    state.diagnostics.lastSupportBundleAt ?? state.diagnostics.lastExportAt
+
   return (
     <section className="page-grid">
       <article className="surface-card">
@@ -107,15 +112,103 @@ export function SettingsPage({
             {t('settings.diagnostics.export')}
           </button>
         </div>
-        <p className="muted">{state.diagnostics.lastProbe}</p>
-        <p className="muted">{state.diagnostics.probeResult}</p>
-        {state.diagnostics.lastExportPath ? (
+        <div className="diagnostics-grid">
+          <div className="diagnostics-stat">
+            <span>{t('settings.diagnostics.activityCount')}</span>
+            <strong>{state.diagnostics.activityEventCount}</strong>
+          </div>
+          <div className="diagnostics-stat">
+            <span>{t('settings.diagnostics.connectionCount')}</span>
+            <strong>{state.diagnostics.connectionAttemptCount}</strong>
+          </div>
+          <div className="diagnostics-stat">
+            <span>{t('settings.diagnostics.logCount')}</span>
+            <strong>{state.diagnostics.logRecordCount}</strong>
+          </div>
+          <div className="diagnostics-stat">
+            <span>{t('settings.diagnostics.runtimeMode')}</span>
+            <strong>{state.diagnostics.runtimeMode ?? bridgeMode}</strong>
+          </div>
+        </div>
+        <p className="muted">
+          {t('settings.diagnostics.databasePath', {
+            value: state.diagnostics.databasePath ?? t('common.notAvailable'),
+          })}
+        </p>
+        {supportBundlePath ? (
           <p className="muted">
             {t('settings.diagnostics.exportedTo', {
-              path: state.diagnostics.lastExportPath,
+              path: supportBundlePath,
             })}
           </p>
         ) : null}
+        {supportBundleTime ? (
+          <p className="muted">
+            {t('settings.diagnostics.supportBundleTime', {
+              value: supportBundleTime,
+            })}
+          </p>
+        ) : null}
+        <details className="diagnostics-details">
+          <summary>{t('settings.diagnostics.technicalDetails')}</summary>
+          <div className="diagnostics-details-content">
+            <div className="details-list">
+              <p>
+                {t('settings.diagnostics.watcher.enumerationCompleted', {
+                  value:
+                    state.diagnostics.watcher?.initialEnumerationCompleted
+                      ? t('common.on')
+                      : t('common.off'),
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.watcher.startupReconnect', {
+                  value:
+                    state.diagnostics.watcher?.startupReconnectCompleted
+                      ? t('common.on')
+                      : t('common.off'),
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.watcher.knownDevices', {
+                  value: state.diagnostics.watcher?.knownDeviceCount ?? totalDevices,
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.watcher.activeConnections', {
+                  value: state.diagnostics.watcher?.activeConnectionCount ?? 0,
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.watcher.serviceShutdown', {
+                  value:
+                    state.diagnostics.watcher?.serviceShutdown
+                      ? t('common.on')
+                      : t('common.off'),
+                })}
+              </p>
+            </div>
+            <div className="error-list">
+              <h4>{t('settings.diagnostics.recentErrors')}</h4>
+              {state.diagnostics.recentErrors.length === 0 ? (
+                <p className="muted">{t('settings.diagnostics.recentErrors.empty')}</p>
+              ) : (
+                state.diagnostics.recentErrors.map((item, index) => (
+                  <article key={`${item.title}-${index}`} className="surface-card compact-card">
+                    <strong>{item.title}</strong>
+                    {item.detail ? <p className="muted">{item.detail}</p> : null}
+                    {item.happenedAt ? <p className="muted">{item.happenedAt}</p> : null}
+                    {item.errorCode ? (
+                      <p className="muted">
+                        {t('overview.activity.code', { value: item.errorCode })}
+                      </p>
+                    ) : null}
+                  </article>
+                ))
+              )}
+            </div>
+          </div>
+        </details>
         <details className="diagnostics-details">
           <summary>{t('settings.diagnostics.a2dpDetails')}</summary>
           <div className="diagnostics-details-content">

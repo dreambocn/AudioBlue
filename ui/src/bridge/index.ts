@@ -1,10 +1,15 @@
 import { createMockBridge } from './mockBridge'
 import type { BackendBridge, BridgeEvent } from './types'
 import type {
+  ActivityEvent,
   AppState,
+  ConnectionState,
+  ConnectionStatus,
   DeviceHistoryEntry,
   DeviceRuleMode,
   DeviceRulePatch,
+  DiagnosticsErrorSummary,
+  DiagnosticsState,
   LanguagePreference,
   ThemeMode,
 } from '../types'
@@ -23,7 +28,9 @@ type PyWebviewApi = {
   set_language?: (language: string) => Promise<unknown>
   set_notification_policy?: (policy: string) => Promise<unknown>
   open_bluetooth_settings?: () => Promise<void>
+  export_support_bundle?: () => Promise<string>
   export_diagnostics?: () => Promise<string>
+  record_client_event?: (payload: Record<string, unknown>) => Promise<unknown>
 }
 
 type RawRecord = Record<string, unknown>
@@ -46,15 +53,18 @@ const asRecordMap = (value: unknown): Record<string, RawRecord> =>
     Object.entries(asRecord(value)).map(([key, entry]) => [key, asRecord(entry)]),
   )
 
+const asOptionalString = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.length > 0 ? value : undefined
+
 const getPriority = (rawRule: RawRecord): number =>
   typeof rawRule.priority === 'number' ? rawRule.priority : Number.MAX_SAFE_INTEGER
 
 const normalizeRule = (rawRule: RawRecord = {}) => {
   const autoConnectOnStartup = Boolean(
-    rawRule?.autoConnectOnStartup ?? rawRule?.auto_connect_on_startup,
+    rawRule.autoConnectOnStartup ?? rawRule.auto_connect_on_startup,
   )
   const autoConnectOnAppear = Boolean(
-    rawRule?.autoConnectOnReappear ?? rawRule?.auto_connect_on_reappear,
+    rawRule.autoConnectOnReappear ?? rawRule.auto_connect_on_reappear,
   )
   const mode: DeviceRuleMode = autoConnectOnAppear ? 'appear' : 'manual'
 
@@ -65,7 +75,10 @@ const normalizeRule = (rawRule: RawRecord = {}) => {
   }
 }
 
-const normalizeHistoryEntry = (rawHistory: RawRecord): DeviceHistoryEntry => {
+const normalizeHistoryEntry = (
+  rawHistory: RawRecord,
+  visibleDeviceIds: Set<string>,
+): DeviceHistoryEntry => {
   const rawLastConnectionAt =
     rawHistory.lastConnectionAt ?? rawHistory.last_connection_at
   const lastConnectionState = String(
@@ -76,22 +89,25 @@ const normalizeHistoryEntry = (rawHistory: RawRecord): DeviceHistoryEntry => {
   const lastFailureReason =
     rawHistory.lastFailureReason ?? rawHistory.last_failure_reason
   const rawSavedRule = asRecord(rawHistory.savedRule ?? rawHistory.saved_rule)
+  const deviceId = String(rawHistory.deviceId ?? rawHistory.device_id ?? '')
 
   return {
-    id: String(rawHistory.deviceId ?? rawHistory.device_id),
+    id: deviceId,
     name: String(rawHistory.name ?? rawHistory.deviceId ?? rawHistory.device_id),
     supportsAudio: Boolean(
       rawHistory.supportsAudioPlayback ??
         rawHistory.supports_audio_playback ??
         false,
     ),
+    firstSeen: asOptionalString(rawHistory.firstSeenAt ?? rawHistory.first_seen_at),
     lastSeen:
       rawHistory.lastSeenAt != null
         ? String(rawHistory.lastSeenAt)
         : rawHistory.last_seen_at != null
           ? String(rawHistory.last_seen_at)
           : 'Unknown',
-    lastConnectionAt: rawLastConnectionAt != null ? String(rawLastConnectionAt) : undefined,
+    lastConnectionAt:
+      rawLastConnectionAt != null ? String(rawLastConnectionAt) : undefined,
     lastConnectionState: lastConnectionState || undefined,
     lastConnectionTrigger:
       rawLastConnectionTrigger != null ? String(rawLastConnectionTrigger) : undefined,
@@ -101,6 +117,20 @@ const normalizeHistoryEntry = (rawHistory: RawRecord): DeviceHistoryEntry => {
         : lastConnectionState === 'connected'
           ? 'Connected'
           : lastConnectionState || 'Previously seen',
+    lastSuccessAt: asOptionalString(rawHistory.lastSuccessAt ?? rawHistory.last_success_at),
+    lastFailureAt: asOptionalString(rawHistory.lastFailureAt ?? rawHistory.last_failure_at),
+    lastPresentAt: asOptionalString(rawHistory.lastPresentAt ?? rawHistory.last_present_at),
+    lastAbsentAt: asOptionalString(rawHistory.lastAbsentAt ?? rawHistory.last_absent_at),
+    lastErrorCode: asOptionalString(rawHistory.lastErrorCode ?? rawHistory.last_error_code),
+    lastPresentReason: asOptionalString(
+      rawHistory.lastPresentReason ?? rawHistory.last_present_reason,
+    ),
+    lastAbsentReason: asOptionalString(
+      rawHistory.lastAbsentReason ?? rawHistory.last_absent_reason,
+    ),
+    successCount: Number(rawHistory.successCount ?? rawHistory.success_count ?? 0),
+    failureCount: Number(rawHistory.failureCount ?? rawHistory.failure_count ?? 0),
+    isCurrentlyVisible: visibleDeviceIds.has(deviceId),
     savedRule: {
       isFavorite: Boolean(rawSavedRule.isFavorite ?? rawSavedRule.is_favorite),
       isIgnored: Boolean(rawSavedRule.isIgnored ?? rawSavedRule.is_ignored),
@@ -115,6 +145,149 @@ const normalizeHistoryEntry = (rawHistory: RawRecord): DeviceHistoryEntry => {
     },
   }
 }
+
+const normalizeActivityEntry = (
+  rawEvent: unknown,
+  index: number,
+): ActivityEvent | null => {
+  if (typeof rawEvent === 'string') {
+    return {
+      id: `legacy-${index}`,
+      area: 'runtime',
+      level: 'info',
+      eventType: 'runtime.note',
+      title: rawEvent,
+      detail: '',
+      happenedAt: '',
+    }
+  }
+
+  const event = asRecord(rawEvent)
+  const title = String(event.title ?? event.message ?? event.eventType ?? event.event_type ?? '').trim()
+  if (!title) {
+    return null
+  }
+
+  return {
+    id: String(event.id ?? `event-${index}`),
+    area: String(event.area ?? 'runtime'),
+    level: String(event.level ?? 'info'),
+    eventType: String(event.eventType ?? event.event_type ?? 'runtime.event'),
+    title,
+    detail:
+      typeof event.detail === 'string'
+        ? event.detail
+        : typeof event.message === 'string'
+          ? event.message
+          : '',
+    happenedAt: String(event.happenedAt ?? event.happened_at ?? ''),
+    deviceId: asOptionalString(event.deviceId ?? event.device_id),
+    errorCode: asOptionalString(event.errorCode ?? event.error_code),
+    details: typeof event.details === 'object' && event.details !== null
+      ? (event.details as Record<string, unknown>)
+      : undefined,
+  }
+}
+
+const normalizeRecentErrors = (value: unknown): DiagnosticsErrorSummary[] => {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const errors: DiagnosticsErrorSummary[] = []
+  for (const item of value) {
+    const raw = asRecord(item)
+    const title = asOptionalString(raw.title)
+    if (!title) {
+      continue
+    }
+    errors.push({
+      title,
+      detail: asOptionalString(raw.detail),
+      happenedAt: asOptionalString(raw.happenedAt ?? raw.happened_at),
+      errorCode: asOptionalString(raw.errorCode ?? raw.error_code),
+    })
+  }
+  return errors
+}
+
+const normalizeConnection = (
+  snapshot: RawSnapshot,
+  devices: AppState['devices'],
+): ConnectionState => {
+  const rawConnection = asRecord(snapshot.connectionOverview ?? snapshot.connection)
+  const connectedDevice =
+    devices.find((device) => device.id === rawConnection.currentDeviceId && device.isConnected) ??
+    devices.find((device) => device.isConnected)
+  const statusValue = String(
+    rawConnection.status ?? (connectedDevice ? 'connected' : 'disconnected'),
+  )
+  const statusSet = new Set<ConnectionStatus>([
+    'disconnected',
+    'connecting',
+    'connected',
+    'failed',
+  ])
+  const status = statusSet.has(statusValue as ConnectionStatus)
+    ? (statusValue as ConnectionStatus)
+    : 'disconnected'
+  const lastErrorMessage = asOptionalString(
+    rawConnection.lastErrorMessage ?? rawConnection.lastFailure,
+  )
+  const currentPhase =
+    asOptionalString(rawConnection.currentPhase) ??
+    (status === 'disconnected' && lastErrorMessage ? 'failed' : status)
+
+  return {
+    status,
+    currentDeviceId: asOptionalString(rawConnection.currentDeviceId) ?? connectedDevice?.id,
+    currentDeviceName:
+      asOptionalString(rawConnection.currentDeviceName) ?? connectedDevice?.name,
+    currentPhase,
+    lastSuccessAt: asOptionalString(rawConnection.lastSuccessAt),
+    lastAttemptAt: asOptionalString(rawConnection.lastAttemptAt),
+    lastTrigger: asOptionalString(rawConnection.lastTrigger),
+    lastErrorCode: asOptionalString(rawConnection.lastErrorCode),
+    lastErrorMessage,
+    lastStateChangedAt: asOptionalString(rawConnection.lastStateChangedAt),
+    lastFailure: lastErrorMessage,
+  }
+}
+
+const normalizeDiagnostics = (
+  rawDiagnostics: RawRecord,
+): DiagnosticsState => ({
+  lastProbe: asOptionalString(rawDiagnostics.lastProbe),
+  probeResult: asOptionalString(rawDiagnostics.probeResult),
+  databasePath: asOptionalString(rawDiagnostics.databasePath),
+  storageEngine: asOptionalString(rawDiagnostics.storageEngine),
+  logRetentionDays: Number(rawDiagnostics.logRetentionDays ?? 90),
+  activityEventCount: Number(rawDiagnostics.activityEventCount ?? 0),
+  connectionAttemptCount: Number(rawDiagnostics.connectionAttemptCount ?? 0),
+  logRecordCount: Number(rawDiagnostics.logRecordCount ?? 0),
+  lastExportPath: asOptionalString(rawDiagnostics.lastExportPath),
+  lastExportAt: asOptionalString(rawDiagnostics.lastExportAt),
+  lastSupportBundlePath: asOptionalString(rawDiagnostics.lastSupportBundlePath),
+  lastSupportBundleAt: asOptionalString(rawDiagnostics.lastSupportBundleAt),
+  recentErrors: normalizeRecentErrors(rawDiagnostics.recentErrors),
+  runtimeMode: asOptionalString(rawDiagnostics.runtimeMode),
+  watcher:
+    typeof rawDiagnostics.watcher === 'object' && rawDiagnostics.watcher !== null
+      ? {
+          initialEnumerationCompleted: Boolean(
+            asRecord(rawDiagnostics.watcher).initialEnumerationCompleted,
+          ),
+          startupReconnectCompleted: Boolean(
+            asRecord(rawDiagnostics.watcher).startupReconnectCompleted,
+          ),
+          knownDeviceCount: Number(asRecord(rawDiagnostics.watcher).knownDeviceCount ?? 0),
+          activeConnectionCount: Number(
+            asRecord(rawDiagnostics.watcher).activeConnectionCount ?? 0,
+          ),
+          serviceShutdown: Boolean(asRecord(rawDiagnostics.watcher).serviceShutdown),
+        }
+      : undefined,
+})
 
 const toPythonRulePatch = (rulePatch: DeviceRulePatch) => {
   const nextPatch: Record<string, unknown> = {}
@@ -149,13 +322,12 @@ const toPythonRulePatch = (rulePatch: DeviceRulePatch) => {
 }
 
 const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
-  const ruleMap = asRecordMap(snapshot.deviceRules)
+  const ruleMap = asRecordMap(snapshot.deviceRules ?? snapshot.device_rules)
   const rawDevices = Array.isArray(snapshot.devices) ? snapshot.devices : []
   const settings = asRecord(snapshot.settings)
   const startupSettings = asRecord(settings.startup)
   const uiSettings = asRecord(settings.ui)
   const notificationSettings = asRecord(settings.notification)
-  const lastFailure = asRecord(snapshot.lastFailure)
   const devices = rawDevices.map((rawDevice) => {
     const device = asRecord(rawDevice)
     const deviceId = String(device.deviceId ?? device.device_id ?? '')
@@ -185,16 +357,31 @@ const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
       lastSeen: device.lastSeenAt ? String(device.lastSeenAt) : 'Unknown',
       lastResult:
         failureReason ??
-        (connectionState === 'connected' ? 'Connected' : 'Ready to connect'),
+        (connectionState === 'connected'
+          ? 'Connected'
+          : connectionState === 'connecting'
+            ? 'Connecting'
+            : 'Ready to connect'),
       rule,
     }
   })
+  const visibleDeviceIds = new Set(devices.map((device) => device.id))
   const rawHistory = Array.isArray(snapshot.deviceHistory ?? snapshot.device_history)
     ? ((snapshot.deviceHistory ?? snapshot.device_history) as unknown[])
     : []
-  const deviceHistory = rawHistory.map((entry) => normalizeHistoryEntry(asRecord(entry)))
+  const deviceHistory = rawHistory.map((entry) =>
+    normalizeHistoryEntry(asRecord(entry), visibleDeviceIds),
+  )
+  const rawRecentActivity = Array.isArray(snapshot.recentActivity)
+    ? snapshot.recentActivity
+    : Array.isArray(snapshot.recent_activity)
+      ? snapshot.recent_activity
+      : []
+  const recentActivity = rawRecentActivity
+    .map((entry, index) => normalizeActivityEntry(entry, index))
+    .filter((entry): entry is ActivityEvent => entry !== null)
+  const connection = normalizeConnection(snapshot, devices)
 
-  const connectedDevice = devices.find((device) => device.isConnected)
   const prioritizedFromRules = Object.entries(ruleMap)
     .sort(([, left], [, right]) => getPriority(left) - getPriority(right))
     .map(([deviceId]) => deviceId)
@@ -206,16 +393,8 @@ const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
     devices,
     deviceHistory,
     prioritizedDeviceIds: [...prioritizedFromRules, ...remainingDeviceIds],
-    recentActivity: lastFailure.message
-      ? [String(lastFailure.message)]
-      : ['Ready to manage Bluetooth audio devices.'],
-    connection: {
-      status: connectedDevice ? 'connected' : 'disconnected',
-      currentDeviceId: connectedDevice?.id,
-      lastFailure: lastFailure.message
-        ? String(lastFailure.message)
-        : undefined,
-    },
+    recentActivity,
+    connection,
     startup: {
       autostart: Boolean(startupSettings.autostart),
       backgroundStart: Boolean(startupSettings.runInBackground),
@@ -236,12 +415,7 @@ const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
     notifications: {
       policy: String(notificationSettings.policy ?? 'failures') as AppState['notifications']['policy'],
     },
-    diagnostics: {
-      lastProbe: 'Desktop bridge connected',
-      probeResult: lastFailure.message
-        ? 'Recent connection issue captured.'
-        : 'No critical warnings.',
-    },
+    diagnostics: normalizeDiagnostics(asRecord(snapshot.diagnostics)),
     runtime: {
       bridgeMode: 'native',
     },
@@ -259,6 +433,12 @@ const emitState = (
     listener({
       type: 'history_changed',
       deviceHistory: structuredClone(state.deviceHistory),
+    }),
+  )
+  listeners.forEach((listener) =>
+    listener({
+      type: 'activity_changed',
+      recentActivity: structuredClone(state.recentActivity),
     }),
   )
   listeners.forEach((listener) =>
@@ -286,9 +466,10 @@ const emitState = (
       diagnostics: structuredClone(state.diagnostics),
     }),
   )
-  if (state.connection.lastFailure) {
+  const lastFailure = state.connection.lastFailure
+  if (lastFailure) {
     listeners.forEach((listener) =>
-      listener({ type: 'connection_failed', message: state.connection.lastFailure! }),
+      listener({ type: 'connection_failed', message: lastFailure }),
     )
   }
 }
@@ -315,6 +496,9 @@ const createPyWebviewBridge = (api: PyWebviewApi): BackendBridge => {
       applySnapshot(customEvent.detail)
     })
   }
+
+  const exportSupportBundle = async () =>
+    (await api.export_support_bundle?.()) ?? (await api.export_diagnostics?.()) ?? ''
 
   return {
     async getInitialState() {
@@ -387,8 +571,16 @@ const createPyWebviewBridge = (api: PyWebviewApi): BackendBridge => {
     async openBluetoothSettings() {
       await api.open_bluetooth_settings?.()
     },
+    async exportSupportBundle() {
+      return exportSupportBundle()
+    },
     async exportDiagnostics() {
-      return (await api.export_diagnostics?.()) ?? ''
+      return exportSupportBundle()
+    },
+    async recordClientEvent(payload) {
+      if (api.record_client_event) {
+        applySnapshot(await api.record_client_event(payload))
+      }
     },
     onEvent(handler) {
       listeners.add(handler)
@@ -406,6 +598,7 @@ const createUnavailableState = (): AppState => ({
   recentActivity: [],
   connection: {
     status: 'disconnected',
+    currentPhase: 'disconnected',
   },
   startup: {
     autostart: false,
@@ -425,6 +618,11 @@ const createUnavailableState = (): AppState => ({
   diagnostics: {
     lastProbe: 'Bridge unavailable',
     probeResult: 'Native desktop bridge is not available in this runtime.',
+    logRetentionDays: 90,
+    activityEventCount: 0,
+    connectionAttemptCount: 0,
+    logRecordCount: 0,
+    recentErrors: [],
   },
   runtime: {
     bridgeMode: 'unavailable',
@@ -451,9 +649,13 @@ const createUnavailableBridge = (): BackendBridge => {
     async setLanguage() {},
     async setNotificationPolicy() {},
     async openBluetoothSettings() {},
+    async exportSupportBundle() {
+      return ''
+    },
     async exportDiagnostics() {
       return ''
     },
+    async recordClientEvent() {},
     onEvent(handler) {
       listeners.add(handler)
       return () => {
@@ -476,7 +678,8 @@ export const resolveBridge = (): BackendBridge => {
     return bridgeCache.pywebviewBridge!
   }
 
-  const isMockEnabled = import.meta.env.DEV && import.meta.env.VITE_AUDIOBLUE_ENABLE_MOCK_BRIDGE === 'true'
+  const isMockEnabled =
+    import.meta.env.DEV && import.meta.env.VITE_AUDIOBLUE_ENABLE_MOCK_BRIDGE === 'true'
   if (isMockEnabled) {
     bridgeCache.mockBridge ??= createMockBridge()
     return bridgeCache.mockBridge

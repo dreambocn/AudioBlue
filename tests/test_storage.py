@@ -28,6 +28,7 @@ def test_initialize_creates_schema_tables(tmp_path):
         "last_devices",
         "device_cache",
         "connection_history",
+        "activity_events",
         "diagnostics_snapshots",
         "diagnostics_exports",
         "log_records",
@@ -266,10 +267,11 @@ def test_list_device_history_merges_rules_cache_attempts_and_last_devices(tmp_pa
 
     history = storage.list_device_history(limit=10)
 
-    assert [item["device_id"] for item in history] == ["device-3", "device-2"]
+    assert [item["device_id"] for item in history] == ["device-3", "device-2", "device-1"]
     assert history[0]["name"] == "Phone"
     assert history[0]["last_connection_state"] == "connected"
     assert history[0]["last_connection_trigger"] == "manual"
+    assert history[0]["first_seen_at"] == (now - timedelta(hours=1)).isoformat()
     assert history[0]["saved_rule"] == {
         "is_favorite": False,
         "is_ignored": False,
@@ -284,4 +286,49 @@ def test_list_device_history_merges_rules_cache_attempts_and_last_devices(tmp_pa
         "auto_connect_on_reappear": False,
         "priority": 2,
     }
-    assert all(item["device_id"] != "device-1" for item in history)
+    assert history[2]["device_id"] == "device-1"
+    assert history[2]["name"] == "Cache Only"
+
+
+def test_activity_events_and_connection_summaries_are_queryable(tmp_path):
+    storage = SQLiteStorage(db_path=tmp_path / "audioblue.db")
+    storage.initialize()
+    happened_at = datetime(2026, 3, 25, 10, 0, tzinfo=UTC)
+
+    storage.record_activity_event(
+        area="connection",
+        event_type="connection.connected",
+        level="info",
+        title="设备已连接",
+        detail="Phone 已通过 startup 自动连接。",
+        device_id="device-1",
+        happened_at=happened_at,
+        details={"trigger": "startup"},
+    )
+    storage.record_connection_attempt(
+        device_id="device-1",
+        trigger="startup",
+        succeeded=True,
+        state="connected",
+        happened_at=happened_at,
+    )
+    storage.record_connection_attempt(
+        device_id="device-1",
+        trigger="reappear",
+        succeeded=False,
+        state="timeout",
+        failure_reason="连接超时",
+        failure_code="connection.timeout",
+        happened_at=happened_at + timedelta(minutes=5),
+    )
+
+    events = storage.list_activity_events(limit=10)
+    attempts = storage.list_connection_attempts(limit=10)
+    diagnostics = storage.build_runtime_diagnostics()
+
+    assert events[0]["event_type"] == "connection.connected"
+    assert events[0]["details"] == {"trigger": "startup"}
+    assert attempts[0]["state"] == "timeout"
+    assert attempts[0]["failure_code"] == "connection.timeout"
+    assert diagnostics["activityEventCount"] == 1
+    assert diagnostics["connectionAttemptCount"] == 2

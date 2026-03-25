@@ -136,12 +136,14 @@ class TrayHost:
         show_main_window: Callable[[], None] | None = None,
         shutdown_ui: Callable[[], None] | None = None,
         session_state=None,
+        observability=None,
     ) -> None:
         self._service = service
         self._config = config
         self._logger = logger
         self._background = background
         self._session_state = session_state
+        self._observability = observability
         self._show_quick_panel = show_quick_panel or self._show_menu
         self._show_main_window = show_main_window or (lambda: None)
         self._shutdown_ui = shutdown_ui or (lambda: None)
@@ -215,7 +217,19 @@ class TrayHost:
             else:
                 self._service.refresh_devices()
         except Exception:
+            self._record_exception(
+                area="tray",
+                event_type="tray.refresh.failed",
+                title="托盘刷新设备失败",
+            )
             self._logger.exception("Failed to refresh devices.")
+            return
+        self._record_event(
+            area="tray",
+            event_type="tray.refresh.succeeded",
+            level="info",
+            title="托盘已刷新设备",
+        )
 
     def _show_menu(self) -> None:
         if self._hwnd is None:
@@ -259,36 +273,60 @@ class TrayHost:
         if entry is None:
             return 0
 
-        if entry.action == "refresh_devices":
-            self._refresh_devices()
-        elif entry.action == "toggle_reconnect":
-            reconnect_enabled, _ = self._resolve_menu_preferences()
-            next_enabled = not reconnect_enabled
-            if self._session_state is not None and hasattr(self._session_state, "set_reconnect"):
-                self._session_state.set_reconnect(next_enabled)
-            else:
-                self._config.reconnect = next_enabled
-        elif entry.action == "open_control_center":
-            self._show_main_window()
-        elif entry.action == "connect_device" and entry.device_id:
-            if self._session_state is not None:
-                self._session_state.connect_device(entry.device_id)
-            else:
-                self._service.connect(entry.device_id)
-        elif entry.action == "disconnect_device" and entry.device_id:
-            if self._session_state is not None:
-                self._session_state.disconnect_device(entry.device_id)
-            else:
-                self._service.disconnect(entry.device_id)
-        elif entry.action == "set_language" and isinstance(entry.language, str):
-            if self._session_state is not None and hasattr(self._session_state, "set_language"):
-                self._session_state.set_language(entry.language)
-            else:
-                self._config.ui.language = entry.language
-        elif entry.action == "open_bluetooth_settings":
-            os.startfile("ms-settings:bluetooth")
-        elif entry.action == "exit":
-            win32gui.DestroyWindow(hwnd)
+        try:
+            if entry.action == "refresh_devices":
+                self._refresh_devices()
+            elif entry.action == "toggle_reconnect":
+                reconnect_enabled, _ = self._resolve_menu_preferences()
+                next_enabled = not reconnect_enabled
+                if self._session_state is not None and hasattr(self._session_state, "set_reconnect"):
+                    self._session_state.set_reconnect(next_enabled)
+                else:
+                    self._config.reconnect = next_enabled
+            elif entry.action == "open_control_center":
+                self._show_main_window()
+            elif entry.action == "connect_device" and entry.device_id:
+                if self._session_state is not None:
+                    self._session_state.connect_device(entry.device_id)
+                else:
+                    self._service.connect(entry.device_id)
+            elif entry.action == "disconnect_device" and entry.device_id:
+                if self._session_state is not None:
+                    self._session_state.disconnect_device(entry.device_id)
+                else:
+                    self._service.disconnect(entry.device_id)
+            elif entry.action == "set_language" and isinstance(entry.language, str):
+                if self._session_state is not None and hasattr(self._session_state, "set_language"):
+                    self._session_state.set_language(entry.language)
+                else:
+                    self._config.ui.language = entry.language
+            elif entry.action == "open_bluetooth_settings":
+                os.startfile("ms-settings:bluetooth")
+            elif entry.action == "exit":
+                win32gui.DestroyWindow(hwnd)
+        except Exception:
+            self._record_exception(
+                area="tray",
+                event_type="tray.command.failed",
+                title="托盘命令执行失败",
+                details={
+                    "action": entry.action,
+                    "deviceId": entry.device_id,
+                    "language": getattr(entry, "language", None),
+                },
+            )
+            self._logger.exception("Failed to execute tray command: %s", entry.action)
+            return 0
+
+        self._record_event(
+            area="tray",
+            event_type="tray.command.executed",
+            level="info",
+            title="托盘命令已执行",
+            detail=f"已执行托盘命令 {entry.action}。",
+            device_id=entry.device_id,
+            details={"action": entry.action, "language": getattr(entry, "language", None)},
+        )
 
         return 0
 
@@ -338,8 +376,82 @@ class TrayHost:
     def _on_destroy(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
         if self._notify_id is not None:
             win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, self._notify_id)
+        self._record_event(
+            area="tray",
+            event_type="tray.shutdown",
+            level="info",
+            title="托盘宿主已退出",
+        )
         self._shutdown_ui()
         save_config(build_exit_config(self._config, self._service))
         self._service.shutdown()
         win32gui.PostQuitMessage(0)
         return 0
+
+    def _record_event(
+        self,
+        *,
+        area: str,
+        event_type: str,
+        level: str,
+        title: str,
+        detail: str | None = None,
+        device_id: str | None = None,
+        details: dict[str, object] | None = None,
+    ) -> None:
+        if self._session_state is not None and hasattr(self._session_state, "record_client_event"):
+            self._session_state.record_client_event(
+                {
+                    "area": area,
+                    "eventType": event_type,
+                    "level": level,
+                    "title": title,
+                    "detail": detail,
+                    "deviceId": device_id,
+                    "details": details,
+                }
+            )
+            return
+        if self._observability is not None and hasattr(self._observability, "record_event"):
+            self._observability.record_event(
+                area=area,
+                event_type=event_type,
+                level=level,
+                title=title,
+                detail=detail,
+                device_id=device_id,
+                details=details,
+            )
+
+    def _record_exception(
+        self,
+        *,
+        area: str,
+        event_type: str,
+        title: str,
+        details: dict[str, object] | None = None,
+    ) -> None:
+        exc_type, exc_value, _ = sys.exc_info()
+        if exc_value is None:
+            return
+        if self._session_state is not None and hasattr(self._session_state, "record_client_event"):
+            self._session_state.record_client_event(
+                {
+                    "area": area,
+                    "eventType": event_type,
+                    "level": "error",
+                    "title": title,
+                    "detail": f"{type(exc_value).__name__}: {exc_value}",
+                    "errorCode": exc_type.__name__ if exc_type is not None else None,
+                    "details": details,
+                }
+            )
+            return
+        if self._observability is not None and hasattr(self._observability, "record_exception"):
+            self._observability.record_exception(
+                area=area,
+                event_type=event_type,
+                title=title,
+                exc=exc_value,
+                details=details,
+            )

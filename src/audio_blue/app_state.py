@@ -70,15 +70,20 @@ class AppStateStore:
         )
         startup_settings = asdict(self.config.startup)
         startup_settings["reconnectOnNextStart"] = self.config.reconnect
+        recent_activity = self._load_recent_activity(limit=20)
+        connection_overview = self._build_connection_overview()
         return {
             "devices": [self._serialize_device(device) for device in self._devices.values()],
             "deviceHistory": self._serialize_device_history(),
+            "recentActivity": recent_activity,
+            "connectionOverview": connection_overview,
             "deviceRules": {
                 device_id: self._serialize_rule(rule)
                 for device_id, rule in self.config.device_rules.items()
             },
             "lastFailure": self._last_failure,
             "lastTrigger": self._last_trigger,
+            "diagnostics": self._build_diagnostics_state(),
             "settings": {
                 "notification": asdict(self.config.notification),
                 "startup": startup_settings,
@@ -127,6 +132,7 @@ class AppStateStore:
                 "state": device.last_connection_attempt.state,
                 "failureReason": device.last_connection_attempt.failure_reason,
                 "failureCode": device.last_connection_attempt.failure_code,
+                "happenedAt": device.last_connection_attempt.happened_at.isoformat(),
             }
         return payload
 
@@ -141,16 +147,128 @@ class AppStateStore:
 
     def _serialize_device_history(self) -> list[dict[str, Any]]:
         raw_entries = self._load_device_history(limit=10)
-        visible_device_ids = {
-            device.device_id
-            for device in self._devices.values()
-            if device.connection_state == "connected" or device.capabilities.supports_audio_playback
+        return [self._serialize_device_history_entry(entry) for entry in raw_entries]
+
+    def _load_recent_activity(self, *, limit: int) -> list[dict[str, Any]]:
+        provider = getattr(self, "_history_provider", None)
+        loader = getattr(provider, "list_activity_events", None)
+        if not callable(loader):
+            return []
+        entries = loader(limit=limit)
+        if not isinstance(entries, list):
+            return []
+        normalized: list[dict[str, Any]] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            normalized.append(
+                {
+                    "id": str(entry.get("id", "")),
+                    "area": str(entry.get("area", "runtime")),
+                    "eventType": str(entry.get("event_type", entry.get("eventType", "runtime.event"))),
+                    "level": str(entry.get("level", "info")),
+                    "title": str(entry.get("title", "")),
+                    "detail": str(entry.get("detail", "")) if entry.get("detail") is not None else "",
+                    "deviceId": (
+                        str(entry.get("device_id"))
+                        if entry.get("device_id") is not None
+                        else str(entry.get("deviceId"))
+                        if entry.get("deviceId") is not None
+                        else None
+                    ),
+                    "happenedAt": str(entry.get("happened_at", entry.get("happenedAt", ""))),
+                    "errorCode": (
+                        str(entry.get("error_code"))
+                        if entry.get("error_code") is not None
+                        else str(entry.get("errorCode"))
+                        if entry.get("errorCode") is not None
+                        else None
+                    ),
+                    "details": entry.get("details") if isinstance(entry.get("details"), dict) else None,
+                }
+            )
+        return normalized
+
+    def _build_connection_overview(self) -> dict[str, Any]:
+        current_device = next(
+            (
+                device
+                for device in self._devices.values()
+                if device.connection_state in {"connected", "connecting"}
+            ),
+            None,
+        )
+        attempts = self._load_connection_attempts(limit=20)
+        last_attempt = attempts[0] if attempts else None
+        last_success = next((item for item in attempts if item.get("succeeded") is True), None)
+        last_failure = next((item for item in attempts if item.get("succeeded") is False), None)
+        current_status = (
+            current_device.connection_state
+            if current_device is not None
+            else "disconnected"
+        )
+        current_phase = current_status
+        if current_device is None and isinstance(last_attempt, dict) and last_attempt.get("succeeded") is False:
+            current_phase = "failed"
+        return {
+            "status": current_status,
+            "currentDeviceId": current_device.device_id if current_device is not None else None,
+            "currentDeviceName": current_device.name if current_device is not None else None,
+            "currentPhase": current_phase,
+            "lastSuccessAt": last_success.get("happened_at") if isinstance(last_success, dict) else None,
+            "lastAttemptAt": last_attempt.get("happened_at") if isinstance(last_attempt, dict) else None,
+            "lastTrigger": last_attempt.get("trigger") if isinstance(last_attempt, dict) else self._last_trigger,
+            "lastErrorCode": (
+                last_failure.get("failure_code")
+                if isinstance(last_failure, dict)
+                else self._last_failure.get("code")
+                if isinstance(self._last_failure, dict)
+                else None
+            ),
+            "lastErrorMessage": (
+                last_failure.get("failure_reason")
+                if isinstance(last_failure, dict)
+                else self._last_failure.get("message")
+                if isinstance(self._last_failure, dict)
+                else None
+            ),
+            "lastStateChangedAt": (
+                current_device.last_connection_attempt.happened_at.isoformat()
+                if current_device is not None and current_device.last_connection_attempt is not None
+                else None
+            ),
         }
-        return [
-            self._serialize_device_history_entry(entry)
-            for entry in raw_entries
-            if str(entry.get("device_id", "")) not in visible_device_ids
-        ]
+
+    def _build_diagnostics_state(self) -> dict[str, Any]:
+        provider = getattr(self, "_history_provider", None)
+        builder = getattr(provider, "build_runtime_diagnostics", None)
+        if callable(builder):
+            result = builder()
+            if isinstance(result, dict):
+                return result
+        return {
+            "databasePath": None,
+            "storageEngine": "sqlite",
+            "logRetentionDays": 90,
+            "activityEventCount": 0,
+            "connectionAttemptCount": 0,
+            "logRecordCount": 0,
+            "lastExportPath": None,
+            "lastExportAt": None,
+            "lastSupportBundlePath": None,
+            "lastSupportBundleAt": None,
+            "recentErrors": [],
+        }
+
+    def _load_connection_attempts(self, *, limit: int) -> list[dict[str, Any]]:
+        provider = getattr(self, "_history_provider", None)
+        loader = getattr(provider, "list_connection_attempts", None)
+        if not callable(loader):
+            return []
+        result = loader(limit=limit)
+        if not isinstance(result, list):
+            return []
+        return [entry for entry in result if isinstance(entry, dict)]
 
     def _load_device_history(self, *, limit: int) -> list[dict[str, Any]]:
         provider = getattr(self, "_history_provider", None)
@@ -177,11 +295,21 @@ class AppStateStore:
             "deviceId": str(entry.get("device_id", "")),
             "name": str(entry.get("name", entry.get("device_id", ""))),
             "supportsAudioPlayback": bool(entry.get("supports_audio_playback", False)),
+            "firstSeenAt": _serialize_history_timestamp(entry.get("first_seen_at")),
             "lastSeenAt": _serialize_history_timestamp(entry.get("last_seen_at")),
             "lastConnectionAt": _serialize_history_timestamp(entry.get("last_connection_at")),
             "lastConnectionState": _string_or_none(entry.get("last_connection_state")),
             "lastConnectionTrigger": _string_or_none(entry.get("last_connection_trigger")),
             "lastFailureReason": _string_or_none(entry.get("last_failure_reason")),
+            "lastSuccessAt": _serialize_history_timestamp(entry.get("last_success_at")),
+            "lastFailureAt": _serialize_history_timestamp(entry.get("last_failure_at")),
+            "lastAbsentAt": _serialize_history_timestamp(entry.get("last_absent_at")),
+            "lastPresentAt": _serialize_history_timestamp(entry.get("last_present_at")),
+            "successCount": int(entry.get("success_count", 0) or 0),
+            "failureCount": int(entry.get("failure_count", 0) or 0),
+            "lastErrorCode": _string_or_none(entry.get("last_error_code")),
+            "lastPresentReason": _string_or_none(entry.get("last_present_reason")),
+            "lastAbsentReason": _string_or_none(entry.get("last_absent_reason")),
             "savedRule": {
                 "isFavorite": bool(saved_rule.get("is_favorite", False)),
                 "isIgnored": bool(saved_rule.get("is_ignored", False)),

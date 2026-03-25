@@ -15,6 +15,8 @@ class RuntimeStorage(Protocol):
 
     def upsert_device_cache(self, **payload: Any) -> None: ...
 
+    def record_activity_event(self, **payload: Any) -> None: ...
+
 
 class SessionStateCoordinator:
     def __init__(
@@ -25,12 +27,14 @@ class SessionStateCoordinator:
         autostart_manager,
         notification_service,
         storage: RuntimeStorage | None = None,
+        observability=None,
     ) -> None:
         self.service = service
         self.app_state = app_state
         self.autostart_manager = autostart_manager
         self.notification_service = notification_service
         self.storage = storage
+        self.observability = observability
         self._listeners: list[Callable[[dict[str, Any]], None]] = []
         self._startup_auto_connect_completed = self._detect_startup_phase_completed()
         self._bind_service_callback()
@@ -59,72 +63,161 @@ class SessionStateCoordinator:
             for device_id, device in getattr(self.service, "known_devices", {}).items()
         }
 
-        self.service.refresh_devices()
-        self._sync_from_service()
-        self._sync_device_cache()
+        try:
+            self.service.refresh_devices()
+            self._sync_from_service()
+            self._sync_device_cache()
 
-        devices = list(getattr(self.service, "known_devices", {}).values())
-        if not self._startup_auto_connect_completed:
-            self._attempt_auto_connect(trigger="startup", devices=devices)
-            self._startup_auto_connect_completed = True
-        else:
-            reappeared = [
-                device
-                for device in devices
-                if getattr(device, "present_in_last_scan", True)
-                and not previous_presence.get(device.device_id, False)
-            ]
-            if reappeared:
-                self._attempt_auto_connect(trigger="reappear", devices=reappeared)
+            devices = list(getattr(self.service, "known_devices", {}).values())
+            if not self._startup_auto_connect_completed:
+                self._attempt_auto_connect(trigger="startup", devices=devices)
+                self._startup_auto_connect_completed = True
+            else:
+                reappeared = [
+                    device
+                    for device in devices
+                    if getattr(device, "present_in_last_scan", True)
+                    and not previous_presence.get(device.device_id, False)
+                ]
+                if reappeared:
+                    self._attempt_auto_connect(trigger="reappear", devices=reappeared)
 
-        self._sync_from_service()
-        return self._publish_snapshot()
+            self._record_activity_event(
+                area="device",
+                event_type="device.refresh.completed",
+                level="info",
+                title="设备列表已刷新",
+                detail=f"本轮共同步 {len(devices)} 个设备。",
+                details={"deviceCount": len(devices)},
+            )
+            self._sync_from_service()
+            return self._publish_snapshot()
+        except Exception as exc:
+            self._record_exception(
+                area="device",
+                event_type="device.refresh.failed",
+                title="刷新设备失败",
+                exc=exc,
+            )
+            raise
 
     def connect_device(self, device_id: str) -> dict[str, Any]:
-        self._connect_service_device(device_id, trigger="manual")
+        try:
+            self._connect_service_device(device_id, trigger="manual")
+        except Exception as exc:
+            self._record_exception(
+                area="connection",
+                event_type="connection.manual_connect.failed",
+                title="手动连接失败",
+                exc=exc,
+                device_id=device_id,
+            )
+            raise
         self._sync_from_service()
         return self._publish_snapshot()
 
     def disconnect_device(self, device_id: str) -> dict[str, Any]:
-        self._disconnect_service_device(device_id, trigger="manual")
+        try:
+            self._disconnect_service_device(device_id, trigger="manual")
+        except Exception as exc:
+            self._record_exception(
+                area="connection",
+                event_type="connection.manual_disconnect.failed",
+                title="手动断开失败",
+                exc=exc,
+                device_id=device_id,
+            )
+            raise
         self._sync_from_service()
         return self._publish_snapshot()
 
     def update_device_rule(self, device_id: str, rule_patch: dict[str, Any]) -> dict[str, Any]:
         self.app_state.update_device_rule(device_id, rule_patch)
         self._persist_config()
+        self._record_activity_event(
+            area="automation",
+            event_type="automation.rule.updated",
+            level="info",
+            title="自动连接规则已更新",
+            detail=f"{device_id} 的自动连接规则已更新。",
+            device_id=device_id,
+            details=rule_patch,
+        )
         return self._publish_snapshot()
 
     def reorder_device_priority(self, device_ids: list[str]) -> dict[str, Any]:
         self.app_state.reorder_device_priority(device_ids)
         self._persist_config()
+        self._record_activity_event(
+            area="automation",
+            event_type="automation.priority.reordered",
+            level="info",
+            title="自动连接顺序已更新",
+            detail="自动连接设备优先级已重新排序。",
+            details={"deviceIds": list(device_ids)},
+        )
         return self._publish_snapshot()
 
     def set_autostart(self, enabled: bool) -> dict[str, Any]:
         self.autostart_manager.set_enabled(enabled)
         self.app_state.config.startup.autostart = enabled
         self._persist_config()
+        self._record_activity_event(
+            area="settings",
+            event_type="settings.autostart.updated",
+            level="info",
+            title="随 Windows 启动设置已更新",
+            detail=f"随 Windows 启动已{'开启' if enabled else '关闭'}。",
+        )
         return self._publish_snapshot()
 
     def set_reconnect(self, enabled: bool) -> dict[str, Any]:
         self.app_state.config.reconnect = enabled
         self._persist_config()
+        self._record_activity_event(
+            area="settings",
+            event_type="settings.reconnect.updated",
+            level="info",
+            title="启动自动重连设置已更新",
+            detail=f"下次启动自动重连已{'开启' if enabled else '关闭'}。",
+        )
         return self._publish_snapshot()
 
     def set_theme(self, mode: str) -> dict[str, Any]:
         self.app_state.config.ui.theme = mode
         self._persist_config()
+        self._record_activity_event(
+            area="settings",
+            event_type="settings.theme.updated",
+            level="info",
+            title="主题模式已更新",
+            detail=f"主题模式已切换为 {mode}。",
+        )
         return self._publish_snapshot()
 
     def set_language(self, language: str) -> dict[str, Any]:
         setattr(self.app_state.config.ui, "language", language)
         self._persist_config()
+        self._record_activity_event(
+            area="settings",
+            event_type="settings.language.updated",
+            level="info",
+            title="界面语言已更新",
+            detail=f"界面语言已切换为 {language}。",
+        )
         return self._publish_snapshot()
 
     def set_notification_policy(self, policy: str) -> dict[str, Any]:
         self.notification_service.update_policy(policy)
         self.app_state.config.notification.policy = policy
         self._persist_config()
+        self._record_activity_event(
+            area="settings",
+            event_type="settings.notification.updated",
+            level="info",
+            title="通知策略已更新",
+            detail=f"通知策略已切换为 {policy}。",
+        )
         return self._publish_snapshot()
 
     def handle_service_event(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -132,8 +225,34 @@ class SessionStateCoordinator:
         self._sync_from_service()
         self._sync_device_cache()
         self._record_connection_attempt(payload)
+        self._record_service_activity(payload)
         self._publish_notification(payload)
         self._handle_auto_connect_event(payload)
+        return self._publish_snapshot()
+
+    def record_client_event(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self._record_activity_event(
+            area=str(payload.get("area", "ui")),
+            event_type=str(payload.get("eventType", payload.get("event_type", "ui.event"))),
+            level=str(payload.get("level", "error")),
+            title=str(payload.get("title", "界面事件")),
+            detail=(
+                str(payload.get("detail"))
+                if payload.get("detail") is not None
+                else None
+            ),
+            device_id=(
+                str(payload.get("deviceId"))
+                if payload.get("deviceId") is not None
+                else None
+            ),
+            error_code=(
+                str(payload.get("errorCode"))
+                if payload.get("errorCode") is not None
+                else None
+            ),
+            details=payload.get("details") if isinstance(payload.get("details"), dict) else None,
+        )
         return self._publish_snapshot()
 
     def _sync_from_service(self) -> None:
@@ -162,6 +281,16 @@ class SessionStateCoordinator:
         startup_settings.setdefault("reconnectOnNextStart", bool(self.app_state.config.reconnect))
         ui_settings = settings.setdefault("ui", {})
         ui_settings.setdefault("language", getattr(self.app_state.config.ui, "language", "system"))
+        diagnostics = snapshot.setdefault("diagnostics", {})
+        if isinstance(diagnostics, dict):
+            diagnostics.setdefault("runtimeMode", "native")
+            diagnostics["watcher"] = {
+                "initialEnumerationCompleted": bool(self._detect_startup_phase_completed()),
+                "startupReconnectCompleted": bool(self._startup_auto_connect_completed),
+                "knownDeviceCount": len(getattr(self.service, "known_devices", {})),
+                "activeConnectionCount": len(getattr(self.service, "active_connections", {})),
+                "serviceShutdown": bool(getattr(self.service, "is_shutdown", False)),
+            }
         return snapshot
 
     def _detect_startup_phase_completed(self) -> bool:
@@ -181,13 +310,30 @@ class SessionStateCoordinator:
             devices=devices,
             trigger=trigger,
         )
+        if candidates:
+            self._record_activity_event(
+                area="automation",
+                event_type=f"automation.{trigger}.scheduled",
+                level="info",
+                title="自动连接任务已排队",
+                detail=f"{trigger} 阶段共有 {len(candidates)} 个候选设备待尝试。",
+                details={"trigger": trigger, "deviceIds": [device.device_id for device in candidates]},
+            )
         for device in candidates:
             if getattr(device, "connection_state", "disconnected") == "connected":
                 return
 
             try:
                 self._connect_service_device(device.device_id, trigger=trigger)
-            except Exception:
+            except Exception as exc:
+                self._record_exception(
+                    area="automation",
+                    event_type=f"automation.{trigger}.failed",
+                    title="自动连接执行失败",
+                    exc=exc,
+                    device_id=device.device_id,
+                    details={"trigger": trigger},
+                )
                 self.handle_service_event(
                     {
                         "event": "device_connection_failed",
@@ -307,6 +453,152 @@ class SessionStateCoordinator:
             reason=reason,
         )
         self.notification_service.publish_failure(title, body)
+
+    def _record_service_activity(self, payload: dict[str, Any]) -> None:
+        event_name = payload.get("event")
+        device_id = payload.get("device_id")
+        device_name = getattr(
+            getattr(self.service, "known_devices", {}).get(device_id),
+            "name",
+            device_id,
+        )
+        trigger = payload.get("trigger")
+        trigger_name = trigger if isinstance(trigger, str) else "manual"
+        state = payload.get("state")
+        if event_name == "device_connected":
+            self._record_activity_event(
+                area="connection",
+                event_type="connection.connected",
+                level="info",
+                title="连接成功",
+                detail=f"{device_name} 已通过 {trigger_name} 建立连接。",
+                device_id=device_id if isinstance(device_id, str) else None,
+                details={"trigger": trigger_name},
+            )
+        elif event_name == "device_connection_failed":
+            self._record_activity_event(
+                area="connection",
+                event_type="connection.failed",
+                level="error",
+                title="连接失败",
+                detail=(
+                    f"{device_name} 连接失败：{connection_failure_message(str(state), language=getattr(self.app_state.config.ui, 'language', 'system'))}"
+                    if isinstance(device_name, str)
+                    else "设备连接失败。"
+                ),
+                device_id=device_id if isinstance(device_id, str) else None,
+                error_code=f"connection.{state}" if isinstance(state, str) else None,
+                details={"trigger": trigger_name, "state": state},
+            )
+        elif event_name == "device_disconnected":
+            self._record_activity_event(
+                area="connection",
+                event_type="connection.disconnected",
+                level="info",
+                title="连接已断开",
+                detail=f"{device_name} 已断开连接。",
+                device_id=device_id if isinstance(device_id, str) else None,
+                details={"trigger": trigger_name},
+            )
+        elif event_name == "device_presence_changed":
+            present = payload.get("present")
+            self._record_activity_event(
+                area="device",
+                event_type="device.present" if present else "device.absent",
+                level="info",
+                title="设备已出现" if present else "设备已离线",
+                detail=f"{device_name} {'重新出现在扫描结果中' if present else '已从扫描结果中消失'}。",
+                device_id=device_id if isinstance(device_id, str) else None,
+                details={
+                    "change": payload.get("change"),
+                    "previousPresent": payload.get("previous_present"),
+                },
+            )
+        elif event_name == "device_watcher_enumeration_completed":
+            self._record_activity_event(
+                area="watcher",
+                event_type="watcher.enumeration.completed",
+                level="info",
+                title="设备首轮发现已完成",
+                detail="蓝牙音频设备首轮发现完成，后续将持续监听设备出现与离线事件。",
+            )
+        elif event_name == "devices_refreshed":
+            self._record_activity_event(
+                area="device",
+                event_type="device.refresh.cache_updated",
+                level="info",
+                title="设备缓存已刷新",
+                detail="连接服务已完成一次设备刷新。",
+                details={"deviceIds": payload.get("device_ids")},
+            )
+
+    def _record_activity_event(
+        self,
+        *,
+        area: str,
+        event_type: str,
+        level: str,
+        title: str,
+        detail: str | None = None,
+        device_id: str | None = None,
+        error_code: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        if self.observability is not None and hasattr(self.observability, "record_event"):
+            self.observability.record_event(
+                area=area,
+                event_type=event_type,
+                level=level,
+                title=title,
+                detail=detail,
+                device_id=device_id,
+                error_code=error_code,
+                details=details,
+            )
+            return
+
+        self._invoke_storage_method(
+            "record_activity_event",
+            area=area,
+            event_type=event_type,
+            level=level,
+            title=title,
+            detail=detail,
+            device_id=device_id,
+            error_code=error_code,
+            details=details,
+        )
+
+    def _record_exception(
+        self,
+        *,
+        area: str,
+        event_type: str,
+        title: str,
+        exc: BaseException,
+        device_id: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        if self.observability is not None and hasattr(self.observability, "record_exception"):
+            self.observability.record_exception(
+                area=area,
+                event_type=event_type,
+                title=title,
+                exc=exc,
+                device_id=device_id,
+                details=details,
+            )
+            return
+        self._record_activity_event(
+            area=area,
+            event_type=event_type,
+            level="error",
+            title=title,
+            detail=f"{type(exc).__name__}: {exc}",
+            device_id=device_id,
+            error_code=type(exc).__name__,
+            details=details,
+        )
 
     def _handle_auto_connect_event(self, payload: dict[str, Any]) -> None:
         event_name = payload.get("event")

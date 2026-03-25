@@ -642,6 +642,79 @@
   min-height: 100vh;
 }
 
+.overview-summary-grid,
+.diagnostics-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.timeline-list {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.activity-item {
+  background: color-mix(in srgb, var(--ab-card-bg) 92%, white);
+  border: 1px solid color-mix(in srgb, var(--ab-card-border) 78%, transparent);
+  border-radius: 18px;
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.activity-item.warning {
+  border-color: color-mix(in srgb, #e6a23c 40%, var(--ab-card-border));
+}
+
+.activity-item.error {
+  border-color: color-mix(in srgb, #d45757 48%, var(--ab-card-border));
+}
+
+.activity-head,
+.activity-meta,
+.details-list {
+  display: grid;
+  gap: 6px;
+}
+
+.activity-head {
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.activity-meta {
+  color: var(--ab-text-muted);
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.activity-detail {
+  margin: 0;
+}
+
+.diagnostics-stat {
+  background: color-mix(in srgb, var(--ab-card-bg) 94%, white);
+  border: 1px solid color-mix(in srgb, var(--ab-card-border) 80%, transparent);
+  border-radius: 18px;
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+}
+
+.diagnostics-stat strong {
+  color: var(--ab-text);
+  font-size: 1.2rem;
+}
+
+.error-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 @media (max-width: 1180px) {
   .app-root {
     grid-template-columns: 208px minmax(0, 1fr);

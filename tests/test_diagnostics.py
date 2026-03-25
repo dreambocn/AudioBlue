@@ -1,10 +1,13 @@
 import json
 import sqlite3
+import zipfile
 from datetime import UTC, datetime
+from pathlib import Path
 
 from audio_blue.diagnostics import (
     build_diagnostics_snapshot,
     export_diagnostics_snapshot,
+    export_support_bundle,
 )
 from audio_blue.models import (
     AppConfig,
@@ -13,6 +16,7 @@ from audio_blue.models import (
     DeviceRule,
     DeviceSummary,
 )
+from audio_blue.storage import SQLiteStorage
 
 
 def test_snapshot_serializes_config_devices_and_attempts():
@@ -78,3 +82,61 @@ def test_export_snapshot_writes_json_file(tmp_path):
 
     assert snapshot_count == 1
     assert export_count == 1
+
+
+def test_export_support_bundle_writes_required_files_and_records_export(tmp_path):
+    storage = SQLiteStorage(db_path=tmp_path / "audioblue.db")
+    storage.initialize()
+    storage.record_activity_event(
+        area="connection",
+        event_type="connection.failed",
+        level="error",
+        title="连接失败",
+        detail="Phone 连接超时。",
+        device_id="device-1",
+    )
+    storage.record_connection_attempt(
+        device_id="device-1",
+        trigger="startup",
+        succeeded=False,
+        state="timeout",
+        failure_reason="连接超时",
+        failure_code="connection.timeout",
+    )
+    snapshot = build_diagnostics_snapshot(
+        config=AppConfig(reconnect=True, last_devices=["device-1"]),
+        devices=[],
+        attempts=[],
+        source="unit-test",
+    )
+    bundle_path = tmp_path / "support-bundles" / "support-bundle.zip"
+
+    written_path = export_support_bundle(
+        snapshot=snapshot,
+        path=bundle_path,
+        storage=storage,
+    )
+
+    assert written_path == bundle_path
+    with zipfile.ZipFile(bundle_path) as archive:
+        names = set(archive.namelist())
+        assert {
+            "summary.json",
+            "activity-events.json",
+            "connection-history.json",
+            "device-history.json",
+            "diagnostics.json",
+            "config.json",
+        }.issubset(names)
+        summary = json.loads(archive.read("summary.json").decode("utf-8"))
+        assert summary["source"] == "unit-test"
+
+    with sqlite3.connect(storage.db_path) as connection:
+        export_paths = [
+            row[0]
+            for row in connection.execute(
+                "SELECT export_path FROM diagnostics_exports ORDER BY id DESC"
+            ).fetchall()
+        ]
+
+    assert str(bundle_path) in export_paths

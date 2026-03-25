@@ -87,10 +87,19 @@ const applyBridgeEvent = (state: AppState, event: BridgeEvent): AppState => {
       return { ...state, devices: event.devices }
     case 'history_changed':
       return { ...state, deviceHistory: event.deviceHistory }
+    case 'activity_changed':
+      return { ...state, recentActivity: event.recentActivity }
     case 'connection_changed':
       return { ...state, connection: event.connection }
     case 'connection_failed':
-      return { ...state, connection: { ...state.connection, lastFailure: event.message } }
+      return {
+        ...state,
+        connection: {
+          ...state.connection,
+          lastFailure: event.message,
+          lastErrorMessage: event.message,
+        },
+      }
     case 'rules_changed':
       return {
         ...state,
@@ -261,6 +270,41 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
   const [isLoading, setIsLoading] = useState(true)
   const resolvedTheme = useResolvedTheme(state?.ui.themeMode)
 
+  const recordBridgeFailure = async (
+    title: string,
+    error: unknown,
+    details?: Record<string, unknown>,
+  ) => {
+    const detail =
+      error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+    try {
+      await bridge.recordClientEvent({
+        area: 'ui',
+        eventType: 'ui.action.failed',
+        level: 'error',
+        title,
+        detail,
+        errorCode: error instanceof Error ? error.name : 'UnknownError',
+        details,
+      })
+    } catch {
+      return
+    }
+  }
+
+  const runBridgeTask = async <T,>(
+    title: string,
+    action: () => Promise<T>,
+    details?: Record<string, unknown>,
+  ): Promise<T | undefined> => {
+    try {
+      return await action()
+    } catch (error) {
+      await recordBridgeFailure(title, error, details)
+      return undefined
+    }
+  }
+
   useEffect(() => {
     let alive = true
     bridge.getInitialState().then((initialState) => {
@@ -278,6 +322,46 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
     return () => {
       alive = false
       unsubscribe()
+    }
+  }, [bridge])
+
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      void bridge.recordClientEvent({
+        area: 'ui',
+        eventType: 'ui.window.error',
+        level: 'error',
+        title: '界面运行错误',
+        detail: event.message,
+        errorCode: 'WindowError',
+        details: {
+          filename: event.filename,
+          lineno: event.lineno,
+          colno: event.colno,
+        },
+      })
+    }
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason =
+        event.reason instanceof Error
+          ? `${event.reason.name}: ${event.reason.message}`
+          : String(event.reason)
+      void bridge.recordClientEvent({
+        area: 'ui',
+        eventType: 'ui.promise_rejection',
+        level: 'error',
+        title: '未处理的 Promise 异常',
+        detail: reason,
+        errorCode: event.reason instanceof Error ? event.reason.name : 'UnhandledPromiseRejection',
+      })
+    }
+
+    window.addEventListener('error', handleError)
+    window.addEventListener('unhandledrejection', handleUnhandledRejection)
+
+    return () => {
+      window.removeEventListener('error', handleError)
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection)
     }
   }, [bridge])
 
@@ -333,57 +417,118 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
   }, [audioDevices.length, state])
 
   const handleConnect = async (deviceId: string) => {
-    await bridge.connectDevice(deviceId)
-  }
-
-  const handleDisconnect = async (deviceId: string) => {
-    await bridge.disconnectDevice(deviceId)
-  }
-
-  const handleToggleFavorite = async (deviceId: string, nextFavorite: boolean) => {
-    await bridge.updateDeviceRule(deviceId, { isFavorite: nextFavorite })
-  }
-
-  const handleToggleAppearRule = async (deviceId: string, enabled: boolean) => {
-    await bridge.updateDeviceRule(deviceId, {
-      autoConnectOnAppear: enabled,
-      mode: enabled ? 'appear' : 'manual',
+    await runBridgeTask('连接设备失败', () => bridge.connectDevice(deviceId), {
+      action: 'connectDevice',
+      deviceId,
     })
   }
 
+  const handleDisconnect = async (deviceId: string) => {
+    await runBridgeTask('断开设备失败', () => bridge.disconnectDevice(deviceId), {
+      action: 'disconnectDevice',
+      deviceId,
+    })
+  }
+
+  const handleToggleFavorite = async (deviceId: string, nextFavorite: boolean) => {
+    await runBridgeTask(
+      '更新收藏状态失败',
+      () => bridge.updateDeviceRule(deviceId, { isFavorite: nextFavorite }),
+      {
+        action: 'updateDeviceRule',
+        deviceId,
+        nextFavorite,
+      },
+    )
+  }
+
+  const handleToggleAppearRule = async (deviceId: string, enabled: boolean) => {
+    await runBridgeTask(
+      '更新再次出现自动连接规则失败',
+      () =>
+        bridge.updateDeviceRule(deviceId, {
+          autoConnectOnAppear: enabled,
+          mode: enabled ? 'appear' : 'manual',
+        }),
+      {
+        action: 'updateDeviceRule',
+        deviceId,
+        enabled,
+      },
+    )
+  }
+
   const handleThemeChange = async (theme: ThemeMode) => {
-    await bridge.setTheme(theme)
+    await runBridgeTask('切换主题失败', () => bridge.setTheme(theme), {
+      action: 'setTheme',
+      theme,
+    })
   }
 
   const handleReorderPriority = async (deviceIds: string[]) => {
-    await bridge.reorderDevicePriority(deviceIds)
+    await runBridgeTask(
+      '更新自动连接顺序失败',
+      () => bridge.reorderDevicePriority(deviceIds),
+      {
+        action: 'reorderDevicePriority',
+        deviceIds,
+      },
+    )
   }
 
   const handleAutostartChange = async (enabled: boolean) => {
-    await bridge.setAutostart(enabled)
+    await runBridgeTask('更新随 Windows 启动设置失败', () => bridge.setAutostart(enabled), {
+      action: 'setAutostart',
+      enabled,
+    })
   }
 
   const handleSetReconnect = async (enabled: boolean) => {
-    await bridge.setReconnect(enabled)
+    await runBridgeTask('更新启动自动重连设置失败', () => bridge.setReconnect(enabled), {
+      action: 'setReconnect',
+      enabled,
+    })
   }
 
   const handleNotificationPolicyChange = async (policy: NotificationPolicy) => {
-    await bridge.setNotificationPolicy(policy)
+    await runBridgeTask(
+      '更新通知策略失败',
+      () => bridge.setNotificationPolicy(policy),
+      {
+        action: 'setNotificationPolicy',
+        policy,
+      },
+    )
   }
 
   const handleLanguageChange = async (language: LanguagePreference) => {
-    await bridge.setLanguage(language)
+    await runBridgeTask('切换语言失败', () => bridge.setLanguage(language), {
+      action: 'setLanguage',
+      language,
+    })
   }
 
   const handleExportDiagnostics = async () => {
-    const exportPath = await bridge.exportDiagnostics()
+    const exportPath = await runBridgeTask(
+      '导出支持包失败',
+      () => bridge.exportSupportBundle(),
+      {
+        action: 'exportSupportBundle',
+      },
+    )
+    if (!exportPath) {
+      return
+    }
     setState((current) =>
       current
         ? {
             ...current,
             diagnostics: {
               ...current.diagnostics,
+              lastSupportBundlePath: exportPath,
+              lastSupportBundleAt: new Date().toISOString(),
               lastExportPath: exportPath,
+              lastExportAt: new Date().toISOString(),
             },
           }
         : current,
@@ -391,11 +536,19 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
   }
 
   const handleOpenBluetoothSettings = async () => {
-    await bridge.openBluetoothSettings()
+    await runBridgeTask(
+      '打开蓝牙设置失败',
+      () => bridge.openBluetoothSettings(),
+      {
+        action: 'openBluetoothSettings',
+      },
+    )
   }
 
   const handleRefreshDevices = async () => {
-    await bridge.refreshDevices()
+    await runBridgeTask('刷新设备失败', () => bridge.refreshDevices(), {
+      action: 'refreshDevices',
+    })
   }
 
   if (isLoading || !state) {

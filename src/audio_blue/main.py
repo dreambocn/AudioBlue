@@ -18,6 +18,7 @@ from audio_blue.logging_util import configure_logging
 from audio_blue.app_state import AppStateStore
 from audio_blue.autostart_manager import AutostartManager
 from audio_blue.notification_service import NotificationService
+from audio_blue.observability import ObservabilityService
 from audio_blue.rules_engine import RulesEngine
 from audio_blue.session_state import SessionStateCoordinator
 from audio_blue.single_instance import SingleInstanceManager
@@ -57,6 +58,7 @@ def restore_reconnect_devices(
     config,
     logger: Logger,
     *,
+    observability: ObservabilityService | None = None,
     initial_delay_seconds: float = 0,
     retry_attempts: int = 0,
     retry_backoff_seconds: float = 0.5,
@@ -64,6 +66,14 @@ def restore_reconnect_devices(
 ) -> None:
     if not getattr(config, "reconnect", False):
         return
+    if observability is not None:
+        observability.record_event(
+            area="automation",
+            event_type="automation.startup_restore.started",
+            level="info",
+            title="启动自动重连已开始",
+            detail="应用启动后开始尝试恢复上次连接设备。",
+        )
     if initial_delay_seconds > 0:
         sleep(initial_delay_seconds)
 
@@ -89,13 +99,40 @@ def restore_reconnect_devices(
                         service.connect(device.device_id, trigger="startup")
                     except TypeError:
                         service.connect(device.device_id)
-                except Exception:
+                except Exception as exc:
+                    if observability is not None:
+                        observability.record_exception(
+                            area="automation",
+                            event_type="automation.startup_restore.failed",
+                            title="启动自动重连失败",
+                            exc=exc,
+                            device_id=device.device_id,
+                            details={"trigger": "startup"},
+                        )
                     logger.exception("Failed to auto-connect device %s during startup", device.device_id)
                     continue
                 if device.device_id in getattr(service, "active_connections", {}):
+                    if observability is not None:
+                        observability.record_event(
+                            area="connection",
+                            event_type="connection.startup_restore.succeeded",
+                            level="info",
+                            title="启动自动重连成功",
+                            detail=f"{device.name} 已在启动阶段恢复连接。",
+                            device_id=device.device_id,
+                            details={"trigger": "startup"},
+                        )
                     return
         if attempt_index < total_attempts - 1 and retry_backoff_seconds > 0:
             sleep(retry_backoff_seconds)
+    if observability is not None:
+        observability.record_event(
+            area="automation",
+            event_type="automation.startup_restore.exhausted",
+            level="warning",
+            title="启动自动重连未命中可用设备",
+            detail="启动阶段已完成有限重试，但未恢复任何连接。",
+        )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -176,16 +213,19 @@ def create_default_host(
     logger,
     background: bool,
     storage=None,
+    observability: ObservabilityService | None = None,
 ):
     app_state = AppStateStore(config=config, history_provider=storage)
     autostart_manager = AutostartManager()
     notification_service = NotificationService(policy=config.notification.policy)
+    runtime_observability = observability or ObservabilityService(storage=storage, logger=logger)
     session_state = SessionStateCoordinator(
         service=service,
         app_state=app_state,
         autostart_manager=autostart_manager,
         notification_service=notification_service,
         storage=storage,
+        observability=runtime_observability,
     )
 
     def build_tray_only_host() -> TrayHost:
@@ -195,6 +235,7 @@ def create_default_host(
             logger=logger,
             background=background,
             session_state=session_state,
+            observability=runtime_observability,
         )
 
     try:
@@ -210,6 +251,8 @@ def create_default_host(
             open_bluetooth_settings=lambda: os.startfile("ms-settings:bluetooth"),
             diagnostics_output_dir=get_config_path().parent / "diagnostics",
             session_state=session_state,
+            support_bundle_exporter=lambda snapshot, path: runtime_observability.export_support_bundle(snapshot=snapshot, path=path),
+            observability=runtime_observability,
         )
         desktop_host = DesktopHost(api=desktop_api, ui_entrypoint=ui_entrypoint, webview_module=webview)
         return HybridAppHost(
@@ -222,6 +265,7 @@ def create_default_host(
                 show_main_window=desktop_host.show_main_window,
                 shutdown_ui=desktop_host.shutdown,
                 session_state=session_state,
+                observability=runtime_observability,
             ),
             fallback_host_factory=build_tray_only_host,
             logger=logger,
@@ -250,10 +294,19 @@ def run_app(
     try:
         service = service_factory()
         runtime_storage = storage or _resolve_runtime_storage(app_logger)
+        observability = ObservabilityService(storage=runtime_storage, logger=app_logger)
+        observability.record_event(
+            area="runtime",
+            event_type="runtime.app.started",
+            level="info",
+            title="应用已启动",
+            detail=f"当前以{'后台' if background else '前台'}模式启动。",
+        )
         restore_reconnect_devices(
             service=service,
             config=app_config,
             logger=app_logger,
+            observability=observability,
             initial_delay_seconds=(
                 app_config.startup.launch_delay_seconds
                 if background
@@ -269,6 +322,7 @@ def run_app(
             logger=app_logger,
             background=background,
             storage=runtime_storage,
+            observability=observability,
         )
         host.run()
         return 0

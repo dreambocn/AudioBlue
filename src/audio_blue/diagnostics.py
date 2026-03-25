@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 from typing import Any, Sequence
 
 from audio_blue.models import AppConfig, ConnectionAttempt, DeviceRule, DeviceSummary
@@ -33,6 +35,55 @@ def export_diagnostics_snapshot(snapshot: dict[str, Any], path: Path) -> Path:
     storage.initialize()
     snapshot_id = storage.save_diagnostics_snapshot(snapshot)
     storage.record_diagnostics_export(export_path=path, snapshot_id=snapshot_id)
+    storage.purge_expired_records()
+    return path
+
+
+def export_support_bundle(
+    *,
+    snapshot: dict[str, Any],
+    path: Path,
+    storage: SQLiteStorage,
+) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    diagnostics_state = storage.build_runtime_diagnostics()
+    connection_overview = snapshot.get("connectionOverview")
+    if not isinstance(connection_overview, dict):
+        connection_overview = snapshot.get("connection")
+    state_diagnostics = snapshot.get("diagnostics")
+    payloads = {
+        "summary.json": {
+            "source": snapshot.get("source", "unknown"),
+            "generatedAt": snapshot.get("generatedAt"),
+            "version": _read_project_version(),
+            "status": connection_overview.get("status")
+            if isinstance(connection_overview, dict)
+            else None,
+            "currentPhase": connection_overview.get("currentPhase")
+            if isinstance(connection_overview, dict)
+            else None,
+            "lastErrorCode": connection_overview.get("lastErrorCode")
+            if isinstance(connection_overview, dict)
+            else None,
+        },
+        "activity-events.json": storage.list_activity_events(limit=200),
+        "connection-history.json": storage.list_connection_attempts(limit=200),
+        "device-history.json": storage.list_device_history(limit=200),
+        "diagnostics.json": {
+            **snapshot,
+            "diagnostics": (
+                {**diagnostics_state, **state_diagnostics}
+                if isinstance(state_diagnostics, dict)
+                else diagnostics_state
+            ),
+        },
+        "config.json": snapshot.get("config", {}),
+    }
+    with ZipFile(path, mode="w", compression=ZIP_DEFLATED) as archive:
+        for name, payload in payloads.items():
+            archive.writestr(name, json.dumps(payload, indent=2, ensure_ascii=False))
+
+    storage.record_diagnostics_export(export_path=path, snapshot_id=None)
     storage.purge_expired_records()
     return path
 
@@ -108,3 +159,14 @@ def _build_storage_for_export(export_path: Path) -> SQLiteStorage:
     if export_path.parent.name.lower() == "diagnostics":
         return SQLiteStorage(db_path=export_path.parent.parent / "audioblue.db")
     return SQLiteStorage(db_path=export_path.parent / "audioblue.db")
+
+
+def _read_project_version() -> str | None:
+    pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    if not pyproject_path.exists():
+        return None
+    content = pyproject_path.read_text(encoding="utf-8")
+    match = re.search(r'(?m)^version\s*=\s*"(?P<version>[^"]+)"', content)
+    if not match:
+        return None
+    return match.group("version")

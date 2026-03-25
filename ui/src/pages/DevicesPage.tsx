@@ -18,8 +18,6 @@ export function DevicesPage({
   onToggleFavorite,
 }: DevicesPageProps) {
   const { t } = useI18n()
-  const visibleDeviceIds = new Set(devices.map((device) => device.id))
-  const historyItems = deviceHistory.filter((entry) => !visibleDeviceIds.has(entry.id))
 
   const renderHistoryTags = (entry: DeviceHistoryEntry) => {
     const tags: string[] = []
@@ -47,12 +45,10 @@ export function DevicesPage({
     ))
   }
 
-  const resolveHistoryResult = (entry: DeviceHistoryEntry) => {
-    if (entry.lastConnectionState === 'connected') {
-      return t('device.status.connected')
-    }
-    return entry.lastResult
-  }
+  const resolveHistoryStatus = (entry: DeviceHistoryEntry) =>
+    entry.isCurrentlyVisible
+      ? t('devices.history.status.online')
+      : t('devices.history.status.offline')
 
   return (
     <section className="page-grid">
@@ -82,40 +78,82 @@ export function DevicesPage({
       <article className="surface-card compact-card">
         <div className="card-head">
           <h3>{t('devices.history.title')}</h3>
-          <span className="status-pill subtle">{t('devices.history.status.offline')}</span>
+          <span className="status-pill subtle">{deviceHistory.length}</span>
         </div>
         <p className="muted">{t('devices.history.description')}</p>
       </article>
 
       <div className="device-history-grid">
-        {historyItems.length === 0 ? (
+        {deviceHistory.length === 0 ? (
           <article className="surface-card compact-card">
             <p className="muted">{t('devices.history.empty')}</p>
           </article>
         ) : (
-          historyItems.map((entry) => (
+          deviceHistory.map((entry) => (
             <article key={entry.id} className="surface-card history-card">
               <div className="card-head">
                 <div>
                   <h3>{entry.name}</h3>
                   <p className="muted">
-                    {t('device.lastResult', { value: resolveHistoryResult(entry) })}
+                    {t('device.lastResult', { value: entry.lastResult })}
                   </p>
                 </div>
-                <span className="status-pill subtle">{t('devices.history.status.offline')}</span>
-              </div>
-              <div className="history-meta-row">
-                {entry.lastConnectionAt ? (
-                  <span className="meta-chip">
-                    {t('devices.history.lastConnection', { value: entry.lastConnectionAt })}
-                  </span>
-                ) : null}
-                <span className="meta-chip">
-                  {t('devices.history.lastSeen', { value: entry.lastSeen })}
+                <span className={`status-pill subtle ${entry.isCurrentlyVisible ? 'connected' : ''}`}>
+                  {resolveHistoryStatus(entry)}
                 </span>
               </div>
+              <div className="history-meta-row">
+                <span className="meta-chip">
+                  {t('devices.history.successCount', { value: entry.successCount })}
+                </span>
+                <span className="meta-chip">
+                  {t('devices.history.failureCount', { value: entry.failureCount })}
+                </span>
+                {entry.lastSuccessAt ? (
+                  <span className="meta-chip">
+                    {t('devices.history.lastSuccess', { value: entry.lastSuccessAt })}
+                  </span>
+                ) : null}
+                {entry.lastFailureAt ? (
+                  <span className="meta-chip">
+                    {t('devices.history.lastFailure', { value: entry.lastFailureAt })}
+                  </span>
+                ) : null}
+              </div>
               <div className="history-tag-row">{renderHistoryTags(entry)}</div>
-              <p className="muted history-footnote">{t('devices.history.reuse')}</p>
+              <details className="diagnostics-details">
+                <summary>{t('devices.history.technicalDetails')}</summary>
+                <div className="diagnostics-details-content">
+                  <div className="details-list">
+                    <p>{t('devices.history.firstSeen', { value: entry.firstSeen ?? t('common.notAvailable') })}</p>
+                    <p>{t('devices.history.lastSeen', { value: entry.lastSeen })}</p>
+                    <p>
+                      {t('devices.history.lastConnection', {
+                        value: entry.lastConnectionAt ?? t('common.notAvailable'),
+                      })}
+                    </p>
+                    <p>
+                      {t('devices.history.lastPresent', {
+                        value: entry.lastPresentAt ?? t('common.notAvailable'),
+                      })}
+                    </p>
+                    <p>
+                      {t('devices.history.lastAbsent', {
+                        value: entry.lastAbsentAt ?? t('common.notAvailable'),
+                      })}
+                    </p>
+                    {entry.lastErrorCode ? (
+                      <p>{t('overview.activity.code', { value: entry.lastErrorCode })}</p>
+                    ) : null}
+                    {entry.lastPresentReason ? (
+                      <p>{t('devices.history.reason', { value: entry.lastPresentReason })}</p>
+                    ) : null}
+                    {entry.lastAbsentReason ? (
+                      <p>{t('devices.history.reason', { value: entry.lastAbsentReason })}</p>
+                    ) : null}
+                  </div>
+                </div>
+              </details>
             </article>
           ))
         )}

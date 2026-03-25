@@ -100,7 +100,7 @@ def test_app_state_snapshot_includes_scan_visibility_flag():
     assert snapshot["devices"][0]["presentInLastScan"] is False
 
 
-def test_app_state_snapshot_includes_history_for_non_visible_devices_only():
+def test_app_state_snapshot_includes_full_device_history_payload():
     store = AppStateStore(config=AppConfig())
     store.sync_devices(
         [
@@ -152,21 +152,118 @@ def test_app_state_snapshot_includes_history_for_non_visible_devices_only():
 
     snapshot = store.snapshot()
 
-    assert snapshot["deviceHistory"] == [
+    assert [entry["deviceId"] for entry in snapshot["deviceHistory"]] == [
+        "device-visible",
+        "device-offline",
+    ]
+    assert snapshot["deviceHistory"][1] == {
+        "deviceId": "device-offline",
+        "name": "Offline Headset",
+        "supportsAudioPlayback": True,
+        "firstSeenAt": None,
+        "lastSeenAt": "2026-03-22T18:00:00+00:00",
+        "lastConnectionAt": "2026-03-22T17:30:00+00:00",
+        "lastConnectionState": "timeout",
+        "lastConnectionTrigger": "startup",
+        "lastFailureReason": "Connection timed out before audio could start.",
+        "lastSuccessAt": None,
+        "lastFailureAt": None,
+        "lastAbsentAt": None,
+        "lastPresentAt": None,
+        "successCount": 0,
+        "failureCount": 0,
+        "lastErrorCode": None,
+        "lastPresentReason": None,
+        "lastAbsentReason": None,
+        "savedRule": {
+            "isFavorite": True,
+            "isIgnored": False,
+            "autoConnectOnReappear": True,
+            "priority": 1,
+        },
+    }
+
+
+def test_app_state_snapshot_uses_structured_activity_connection_overview_and_diagnostics():
+    class Provider:
+        def list_device_history(self, limit=10):
+            return []
+
+        def list_activity_events(self, limit=20):
+            return [
+                {
+                    "id": 7,
+                    "area": "connection",
+                    "event_type": "connection.failed",
+                    "level": "error",
+                    "title": "连接失败",
+                    "detail": "Phone 连接超时。",
+                    "device_id": "device-1",
+                    "happened_at": "2026-03-25T10:00:00+00:00",
+                }
+            ]
+
+        def list_connection_attempts(self, limit=20):
+            return [
+                {
+                    "device_id": "device-1",
+                    "device_name": "Phone",
+                    "trigger": "startup",
+                    "succeeded": False,
+                    "state": "timeout",
+                    "failure_reason": "连接超时",
+                    "failure_code": "connection.timeout",
+                    "happened_at": "2026-03-25T10:00:00+00:00",
+                }
+            ]
+
+        def build_runtime_diagnostics(self):
+            return {
+                "databasePath": "C:\\Users\\DreamBo\\AppData\\Local\\AudioBlue\\audioblue.db",
+                "logRetentionDays": 90,
+                "activityEventCount": 1,
+                "connectionAttemptCount": 1,
+                "lastExportPath": "C:\\Users\\DreamBo\\AppData\\Local\\AudioBlue\\diagnostics\\diagnostics-1.json",
+                "lastSupportBundlePath": "C:\\Users\\DreamBo\\AppData\\Local\\AudioBlue\\support-bundles\\support-1.zip",
+                "recentErrors": [
+                    {
+                        "title": "连接失败",
+                        "detail": "Phone 连接超时。",
+                        "happenedAt": "2026-03-25T10:00:00+00:00",
+                    }
+                ],
+            }
+
+    store = AppStateStore(config=AppConfig(), history_provider=Provider())
+    store.sync_devices(
+        [
+            DeviceSummary(
+                device_id="device-1",
+                name="Phone",
+                connection_state="connecting",
+                last_seen_at=datetime(2026, 3, 25, 10, 0, tzinfo=UTC),
+            )
+        ]
+    )
+
+    snapshot = store.snapshot()
+
+    assert snapshot["recentActivity"] == [
         {
-            "deviceId": "device-offline",
-            "name": "Offline Headset",
-            "supportsAudioPlayback": True,
-            "lastSeenAt": "2026-03-22T18:00:00+00:00",
-            "lastConnectionAt": "2026-03-22T17:30:00+00:00",
-            "lastConnectionState": "timeout",
-            "lastConnectionTrigger": "startup",
-            "lastFailureReason": "Connection timed out before audio could start.",
-            "savedRule": {
-                "isFavorite": True,
-                "isIgnored": False,
-                "autoConnectOnReappear": True,
-                "priority": 1,
-            },
+            "id": "7",
+            "area": "connection",
+            "eventType": "connection.failed",
+            "level": "error",
+            "title": "连接失败",
+            "detail": "Phone 连接超时。",
+            "deviceId": "device-1",
+            "happenedAt": "2026-03-25T10:00:00+00:00",
+            "errorCode": None,
+            "details": None,
         }
     ]
+    assert snapshot["connectionOverview"]["status"] == "connecting"
+    assert snapshot["connectionOverview"]["lastErrorCode"] == "connection.timeout"
+    assert snapshot["connectionOverview"]["lastErrorMessage"] == "连接超时"
+    assert snapshot["diagnostics"]["databasePath"].endswith("audioblue.db")
+    assert snapshot["diagnostics"]["recentErrors"][0]["title"] == "连接失败"
