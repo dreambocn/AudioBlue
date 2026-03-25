@@ -26,6 +26,7 @@ def test_tray_labels_are_localized_for_both_languages():
 def test_connection_failure_messages_are_localized_by_state():
     assert connection_failure_message("timeout", language="zh-CN") == "连接超时，音频未能启动。"
     assert connection_failure_message("denied", language="en-US") == "Windows denied the audio connection request."
+    assert connection_failure_message("failed", language="zh-CN") == "连接已建立，但系统未检测到稳定的音频会话。"
     assert connection_failure_message("unknown", language="zh-CN") == "AudioBlue 无法连接到该设备。"
 
 

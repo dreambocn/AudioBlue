@@ -5,9 +5,10 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from queue import Queue
 from threading import Event, Lock, Thread
+from time import monotonic, sleep
 from typing import Awaitable, Callable, Protocol, TypeVar
 
-from winrt.windows.devices.enumeration import DeviceInformation
+from winrt.windows.devices.enumeration import DeviceInformation, DeviceWatcherStatus
 from winrt.windows.media.audio import (
     AudioPlaybackConnection,
     AudioPlaybackConnectionOpenResultStatus,
@@ -19,7 +20,9 @@ from audio_blue.models import DeviceSummary
 StateCallback = Callable[[dict[str, object]], None]
 DeviceProvider = Callable[[], list[DeviceSummary]]
 ConnectionStateCallback = Callable[[str], None]
+WatcherEventCallback = Callable[[dict[str, object]], None]
 AwaitableResult = TypeVar("AwaitableResult")
+_STABLE_CONNECTION_WINDOW_SECONDS = 1.5
 
 
 def run_awaitable_blocking(awaitable: Awaitable[AwaitableResult]) -> AwaitableResult:
@@ -56,6 +59,16 @@ class WinRTConnectionHandle:
     token: object
 
 
+@dataclass(slots=True)
+class WinRTWatcherHandle:
+    watcher: object
+    added_token: object
+    updated_token: object
+    removed_token: object
+    enumeration_completed_token: object
+    stopped_token: object
+
+
 class ConnectorBackend(Protocol):
     def list_devices(self) -> list[DeviceSummary]: ...
 
@@ -66,6 +79,10 @@ class ConnectorBackend(Protocol):
     ) -> tuple[object | None, str]: ...
 
     def disconnect(self, handle: object) -> None: ...
+
+    def start_watcher(self, callback: WatcherEventCallback) -> object: ...
+
+    def stop_watcher(self, handle: object) -> None: ...
 
 
 class WinRTConnectorBackend:
@@ -79,6 +96,59 @@ class WinRTConnectorBackend:
             for device in devices
         ]
 
+    def start_watcher(self, callback: WatcherEventCallback) -> WinRTWatcherHandle:
+        watcher = DeviceInformation.create_watcher_aqs_filter(get_audio_playback_selector())
+
+        def on_added(_sender: object, device: object) -> None:
+            callback(
+                {
+                    "change": "added",
+                    "device": _device_summary_from_winrt_device(device),
+                }
+            )
+
+        def on_updated(_sender: object, update: object) -> None:
+            device_id = getattr(update, "id", None)
+            if not isinstance(device_id, str):
+                return
+            device = _load_device_by_id(device_id)
+            if device is None:
+                callback({"change": "updated", "device_id": device_id})
+                return
+            callback({"change": "updated", "device": device})
+
+        def on_removed(_sender: object, update: object) -> None:
+            device_id = getattr(update, "id", None)
+            if isinstance(device_id, str):
+                callback({"change": "removed", "device_id": device_id})
+
+        def on_enumeration_completed(_sender: object, _args: object) -> None:
+            callback({"change": "enumeration_completed"})
+
+        def on_stopped(_sender: object, _args: object) -> None:
+            callback({"change": "stopped"})
+
+        handle = WinRTWatcherHandle(
+            watcher=watcher,
+            added_token=watcher.add_added(on_added),
+            updated_token=watcher.add_updated(on_updated),
+            removed_token=watcher.add_removed(on_removed),
+            enumeration_completed_token=watcher.add_enumeration_completed(on_enumeration_completed),
+            stopped_token=watcher.add_stopped(on_stopped),
+        )
+        watcher.start()
+        return handle
+
+    def stop_watcher(self, handle: WinRTWatcherHandle) -> None:
+        handle.watcher.remove_added(handle.added_token)
+        handle.watcher.remove_updated(handle.updated_token)
+        handle.watcher.remove_removed(handle.removed_token)
+        handle.watcher.remove_enumeration_completed(handle.enumeration_completed_token)
+        handle.watcher.remove_stopped(handle.stopped_token)
+        status = getattr(handle.watcher, "status", None)
+        if status not in {DeviceWatcherStatus.STOPPED, DeviceWatcherStatus.ABORTED}:
+            handle.watcher.stop()
+
     def connect(
         self,
         device_id: str,
@@ -88,8 +158,13 @@ class WinRTConnectorBackend:
         if connection is None:
             return None, "error"
 
+        unstable_connection = Event()
+
         def on_state_changed(sender: AudioPlaybackConnection, _args: object) -> None:
-            state_callback(map_connection_state(sender.state))
+            mapped_state = map_connection_state(sender.state)
+            if mapped_state != "connected":
+                unstable_connection.set()
+            state_callback(mapped_state)
 
         token = connection.add_state_changed(on_state_changed)
 
@@ -99,6 +174,16 @@ class WinRTConnectorBackend:
             return map_open_result_status(open_result.status)
 
         state_name = run_awaitable_blocking(start_and_open())
+        if state_name == "connected":
+            deadline = monotonic() + _STABLE_CONNECTION_WINDOW_SECONDS
+            while monotonic() < deadline:
+                if unstable_connection.is_set():
+                    state_name = "failed"
+                    break
+                if connection.state != AudioPlaybackConnectionState.OPENED:
+                    state_name = "failed"
+                    break
+                sleep(0.05)
 
         if state_name != "connected":
             connection.remove_state_changed(token)
@@ -136,11 +221,17 @@ class ConnectorService:
         self.is_shutdown = False
         self._jobs: Queue[_WorkerJob | None] | None = None
         self._worker: Thread | None = None
+        self._watcher_handle: object | None = None
+        self._initial_enumeration_completed = Event()
+        self._transient_connection_states: dict[str, str] = {}
 
         if self._backend is not None:
             self._jobs = Queue()
             self._worker = Thread(target=self._worker_loop, name="audio-blue-connector", daemon=True)
             self._worker.start()
+            self._start_device_watcher()
+        else:
+            self._initial_enumeration_completed.set()
 
     def refresh_devices(self) -> list[DeviceSummary]:
         if self._device_provider is not None:
@@ -182,6 +273,7 @@ class ConnectorService:
 
             self.known_devices = next_devices
 
+        self._initial_enumeration_completed.set()
         self._emit({"event": "devices_refreshed", "device_ids": list(self.known_devices)})
         return list(self.known_devices.values())
 
@@ -193,26 +285,38 @@ class ConnectorService:
             self._emit({"event": "device_connected", "device_id": device_id, "trigger": trigger})
             return
 
+        with self._lock:
+            device = self.known_devices[device_id]
+            self.known_devices[device_id] = replace(device, connection_state="connecting")
+            self._transient_connection_states.pop(device_id, None)
+
+        self._emit({"event": "device_state_changed", "device_id": device_id, "state": "connecting"})
         handle, state = self._run_on_worker(
             lambda: self._backend.connect(device_id, lambda mapped: self._handle_connection_state(device_id, mapped))  # type: ignore[union-attr]
         )
+        transient_state = self._transient_connection_states.pop(device_id, None)
+        final_state = state
+        if state == "connected" and transient_state not in {None, "connected", "connecting"}:
+            final_state = "failed"
+            if handle is not None:
+                self._run_on_worker(lambda: self._backend.disconnect(handle))  # type: ignore[union-attr]
 
         with self._lock:
             device = self.known_devices[device_id]
-            self.known_devices[device_id] = replace(device, connection_state=state)
-            if handle is not None and state == "connected":
+            self.known_devices[device_id] = replace(device, connection_state=final_state)
+            if handle is not None and final_state == "connected":
                 self.active_connections[device_id] = handle
             else:
                 self.active_connections.pop(device_id, None)
 
-        if state == "connected":
+        if final_state == "connected":
             self._emit({"event": "device_connected", "device_id": device_id, "trigger": trigger})
         else:
             self._emit(
                 {
                     "event": "device_connection_failed",
                     "device_id": device_id,
-                    "state": state,
+                    "state": final_state,
                     "trigger": trigger,
                 }
             )
@@ -241,6 +345,8 @@ class ConnectorService:
             for device_id in list(self.active_connections):
                 self.disconnect(device_id)
 
+            if self._watcher_handle is not None:
+                self._run_on_worker(self._stop_device_watcher)
             if self._jobs is not None:
                 self._jobs.put(None)
             if self._worker is not None:
@@ -256,11 +362,126 @@ class ConnectorService:
             if device is None:
                 return
 
+            self._transient_connection_states[device_id] = state
             self.known_devices[device_id] = replace(device, connection_state=state)
             if state != "connected":
                 self.active_connections.pop(device_id, None)
 
         self._emit({"event": "device_state_changed", "device_id": device_id, "state": state})
+
+    def wait_for_initial_enumeration(self, timeout: float = 5.0) -> bool:
+        if self._device_provider is not None:
+            return True
+        return self._initial_enumeration_completed.wait(timeout=max(timeout, 0))
+
+    def _start_device_watcher(self) -> None:
+        start_watcher = getattr(self._backend, "start_watcher", None)
+        if not callable(start_watcher):
+            self._initial_enumeration_completed.set()
+            return
+        self._watcher_handle = self._run_on_worker(
+            lambda: start_watcher(self._handle_device_watcher_event)
+        )
+
+    def _stop_device_watcher(self) -> None:
+        stop_watcher = getattr(self._backend, "stop_watcher", None)
+        if not callable(stop_watcher) or self._watcher_handle is None:
+            return
+        stop_watcher(self._watcher_handle)
+        self._watcher_handle = None
+
+    def _handle_device_watcher_event(self, payload: dict[str, object]) -> None:
+        change = payload.get("change")
+        if change == "enumeration_completed":
+            self._initial_enumeration_completed.set()
+            self._emit({"event": "device_watcher_enumeration_completed"})
+            return
+        if change == "stopped":
+            return
+        if change == "removed":
+            device_id = payload.get("device_id")
+            if isinstance(device_id, str):
+                self._mark_device_absent(device_id, change="removed")
+            return
+
+        device = payload.get("device")
+        if isinstance(device, DeviceSummary):
+            self._merge_watcher_device(device, change=str(change or "updated"))
+            return
+
+        device_id = payload.get("device_id")
+        if isinstance(device_id, str):
+            resolved = self._resolve_device_by_id(device_id)
+            if resolved is not None:
+                self._merge_watcher_device(resolved, change=str(change or "updated"))
+
+    def _resolve_device_by_id(self, device_id: str) -> DeviceSummary | None:
+        devices = self._backend.list_devices() if self._backend is not None else []
+        for device in devices:
+            if device.device_id == device_id:
+                return device
+        return None
+
+    def _merge_watcher_device(self, device: DeviceSummary, *, change: str) -> None:
+        seen_at = datetime.now(UTC)
+        with self._lock:
+            existing = self.known_devices.get(device.device_id)
+            previous_present = bool(existing.present_in_last_scan) if existing is not None else False
+            connection_state = (
+                "connected"
+                if device.device_id in self.active_connections
+                else (
+                    existing.connection_state
+                    if existing is not None and existing.connection_state in {"connecting", "failed"}
+                    else device.connection_state
+                )
+            )
+            self.known_devices[device.device_id] = replace(
+                device,
+                connection_state=connection_state,
+                present_in_last_scan=True,
+                last_seen_at=seen_at,
+                last_connection_attempt=(
+                    device.last_connection_attempt
+                    or (existing.last_connection_attempt if existing is not None else None)
+                ),
+            )
+
+        self._emit(
+            {
+                "event": "device_presence_changed",
+                "device_id": device.device_id,
+                "present": True,
+                "previous_present": previous_present,
+                "change": change,
+            }
+        )
+
+    def _mark_device_absent(self, device_id: str, *, change: str) -> None:
+        with self._lock:
+            existing = self.known_devices.get(device_id)
+            if existing is None:
+                return
+            previous_present = existing.present_in_last_scan
+            had_active_connection = device_id in self.active_connections
+            self.active_connections.pop(device_id, None)
+            self.known_devices[device_id] = replace(
+                existing,
+                connection_state="disconnected" if had_active_connection else existing.connection_state,
+                present_in_last_scan=False,
+            )
+
+        self._emit(
+            {
+                "event": "device_presence_changed",
+                "device_id": device_id,
+                "present": False,
+                "previous_present": previous_present,
+                "change": change,
+            }
+        )
+        if had_active_connection:
+            self._emit({"event": "device_state_changed", "device_id": device_id, "state": "disconnected"})
 
     def _run_on_worker(self, action: Callable[[], object]) -> object:
         if self._jobs is None:
@@ -293,3 +514,18 @@ class ConnectorService:
     def _emit(self, payload: dict[str, object]) -> None:
         if self._state_callback is not None:
             self._state_callback(payload)
+
+
+def _device_summary_from_winrt_device(device: object) -> DeviceSummary:
+    return DeviceSummary(
+        device_id=str(getattr(device, "id")),
+        name=str(getattr(device, "name", getattr(device, "id"))),
+    )
+
+
+def _load_device_by_id(device_id: str) -> DeviceSummary | None:
+    try:
+        device = run_awaitable_blocking(DeviceInformation.create_from_id_async(device_id))
+    except Exception:
+        return None
+    return _device_summary_from_winrt_device(device)

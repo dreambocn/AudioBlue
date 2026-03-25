@@ -25,14 +25,17 @@ class ServiceStub:
         self.known_devices = {}
         self.active_connections = {}
         self.shutdown_called = False
+        self.calls: list[str] = []
 
     def refresh_devices(self):
+        self.calls.append("refresh")
         self.known_devices = {
             "device-1": DeviceSummary(device_id="device-1", name="Headphones"),
         }
         return list(self.known_devices.values())
 
-    def connect(self, device_id: str):
+    def connect(self, device_id: str, trigger: str = "manual"):
+        self.calls.append(f"connect:{device_id}:{trigger}")
         self.active_connections[device_id] = object()
 
     def shutdown(self):
@@ -119,6 +122,31 @@ def test_run_app_passes_background_mode_to_host():
     assert built_host.kwargs["background"] is True
     assert built_host.run_called is True
     assert instance_manager.release_called is True
+
+
+def test_run_app_restores_reconnect_devices_before_host_run():
+    built_host: HostStub | None = None
+    service = ServiceStub()
+
+    def host_factory(**kwargs):
+        nonlocal built_host
+        built_host = HostStub(**kwargs)
+        return built_host
+
+    result = run_app(
+        background=False,
+        instance_manager=InstanceManagerStub(acquired=True),
+        service_factory=lambda: service,
+        host_factory=host_factory,
+        config=AppConfig(reconnect=True, last_devices=["device-1"]),
+        logger=logging.getLogger("test"),
+        storage=object(),
+    )
+
+    assert result == 0
+    assert service.calls[:2] == ["refresh", "connect:device-1:startup"]
+    assert built_host is not None
+    assert built_host.run_called is True
 
 
 def test_hybrid_app_host_runs_desktop_on_main_thread_and_tray_on_worker():

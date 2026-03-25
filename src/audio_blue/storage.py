@@ -32,6 +32,18 @@ def get_default_db_path() -> Path:
     return Path.home() / "AppData" / "Local" / "AudioBlue" / "audioblue.db"
 
 
+def get_storage(*, db_path: Path | None = None) -> "SQLiteStorage":
+    return SQLiteStorage(db_path=db_path)
+
+
+def get_default_storage() -> "SQLiteStorage":
+    return get_storage()
+
+
+default_storage = get_default_storage
+storage = get_storage
+
+
 class SQLiteStorage:
     def __init__(
         self,

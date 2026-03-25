@@ -133,6 +133,7 @@ class SessionStateCoordinator:
         self._sync_device_cache()
         self._record_connection_attempt(payload)
         self._publish_notification(payload)
+        self._handle_auto_connect_event(payload)
         return self._publish_snapshot()
 
     def _sync_from_service(self) -> None:
@@ -297,6 +298,34 @@ class SessionStateCoordinator:
             reason=reason,
         )
         self.notification_service.publish_failure(title, body)
+
+    def _handle_auto_connect_event(self, payload: dict[str, Any]) -> None:
+        event_name = payload.get("event")
+        if event_name == "device_watcher_enumeration_completed":
+            if self._startup_auto_connect_completed:
+                return
+            devices = list(getattr(self.service, "known_devices", {}).values())
+            self._attempt_auto_connect(trigger="startup", devices=devices)
+            self._startup_auto_connect_completed = True
+            return
+
+        if event_name != "device_presence_changed":
+            return
+        if not self._startup_auto_connect_completed:
+            return
+
+        device_id = payload.get("device_id")
+        present = payload.get("present")
+        previous_present = payload.get("previous_present")
+        if not isinstance(device_id, str) or not isinstance(present, bool) or not isinstance(previous_present, bool):
+            return
+        if not present or previous_present:
+            return
+
+        device = getattr(self.service, "known_devices", {}).get(device_id)
+        if device is None:
+            return
+        self._attempt_auto_connect(trigger="reappear", devices=[device])
 
     def _invoke_storage_method(self, method_name: str, **payload: Any) -> None:
         if self.storage is None:

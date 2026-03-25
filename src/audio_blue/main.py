@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from logging import Logger
 import os
 from threading import Lock, Thread
+from time import sleep
 from typing import Any
 
 from audio_blue.config import get_config_path, load_config
@@ -55,27 +56,46 @@ def restore_reconnect_devices(
     service: ConnectorService,
     config,
     logger: Logger,
+    *,
+    initial_delay_seconds: float = 0,
+    retry_attempts: int = 0,
+    retry_backoff_seconds: float = 0.5,
+    wait_timeout_seconds: float = 5.0,
 ) -> None:
-    refreshed_devices = service.refresh_devices()
-    devices = list(getattr(service, "known_devices", {}).values()) or list(refreshed_devices or [])
-    if not devices:
+    if not getattr(config, "reconnect", False):
         return
+    if initial_delay_seconds > 0:
+        sleep(initial_delay_seconds)
 
-    candidates = RulesEngine(config).get_auto_connect_candidates(
-        devices=devices,
-        trigger="startup",
-    )
-    for device in candidates:
+    wait_for_initial_enumeration = getattr(service, "wait_for_initial_enumeration", None)
+    if callable(wait_for_initial_enumeration):
         try:
-            try:
-                service.connect(device.device_id, trigger="startup")
-            except TypeError:
-                service.connect(device.device_id)
-        except Exception:
-            logger.exception("Failed to auto-connect device %s during startup", device.device_id)
-            continue
-        if device.device_id in getattr(service, "active_connections", {}):
-            break
+            wait_for_initial_enumeration(wait_timeout_seconds)
+        except TypeError:
+            wait_for_initial_enumeration()
+
+    total_attempts = max(retry_attempts, 0) + 1
+    for attempt_index in range(total_attempts):
+        refreshed_devices = service.refresh_devices()
+        devices = list(getattr(service, "known_devices", {}).values()) or list(refreshed_devices or [])
+        if devices:
+            candidates = RulesEngine(config).get_auto_connect_candidates(
+                devices=devices,
+                trigger="startup",
+            )
+            for device in candidates:
+                try:
+                    try:
+                        service.connect(device.device_id, trigger="startup")
+                    except TypeError:
+                        service.connect(device.device_id)
+                except Exception:
+                    logger.exception("Failed to auto-connect device %s during startup", device.device_id)
+                    continue
+                if device.device_id in getattr(service, "active_connections", {}):
+                    return
+        if attempt_index < total_attempts - 1 and retry_backoff_seconds > 0:
+            sleep(retry_backoff_seconds)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -230,6 +250,18 @@ def run_app(
     try:
         service = service_factory()
         runtime_storage = storage or _resolve_runtime_storage(app_logger)
+        restore_reconnect_devices(
+            service=service,
+            config=app_config,
+            logger=app_logger,
+            initial_delay_seconds=(
+                app_config.startup.launch_delay_seconds
+                if background
+                else 0
+            ),
+            retry_attempts=2 if background else 0,
+            retry_backoff_seconds=1.0 if background else 0,
+        )
 
         host = host_factory(
             service=service,

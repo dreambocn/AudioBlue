@@ -68,6 +68,25 @@ class ConnectorServiceStub:
                 }
             )
 
+    def emit_presence_event(
+        self,
+        device: DeviceSummary,
+        *,
+        previous_present: bool,
+        change: str = "added",
+    ) -> None:
+        self.known_devices[device.device_id] = device
+        if callable(self._state_callback):
+            self._state_callback(
+                {
+                    "event": "device_presence_changed",
+                    "device_id": device.device_id,
+                    "present": device.present_in_last_scan,
+                    "previous_present": previous_present,
+                    "change": change,
+                }
+            )
+
 
 class AutostartManagerStub:
     def __init__(self):
@@ -227,6 +246,33 @@ def test_session_state_reappear_auto_connect_triggers_when_device_returns():
     session_state.refresh_devices()
     present_now = True
     session_state.refresh_devices()
+
+    assert ("device-1", "reappear") in service.connect_calls
+
+
+def test_session_state_reappear_auto_connect_triggers_from_presence_event():
+    service = ConnectorServiceStub()
+    service.known_devices = {}
+    config = AppConfig(
+        device_rules={"device-1": DeviceRule(auto_connect_on_reappear=True)}
+    )
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(config=config),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="silent"),
+        storage=StorageStub(),
+    )
+
+    session_state.refresh_devices()
+    service.emit_presence_event(
+        DeviceSummary(
+            device_id="device-1",
+            name="Headphones",
+            present_in_last_scan=True,
+        ),
+        previous_present=False,
+    )
 
     assert ("device-1", "reappear") in service.connect_calls
 
