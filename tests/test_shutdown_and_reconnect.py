@@ -2,9 +2,12 @@
 
 import logging
 
+from audio_blue.app_state import AppStateStore
 from audio_blue.connector_service import ConnectorService
 from audio_blue.main import restore_reconnect_devices
-from audio_blue.models import AppConfig, DeviceSummary
+from audio_blue.models import AppConfig, DeviceRule, DeviceSummary
+from audio_blue.notification_service import NotificationService
+from audio_blue.session_state import SessionStateCoordinator
 
 
 def test_restore_reconnect_devices_refreshes_before_connecting():
@@ -86,3 +89,81 @@ def test_shutdown_stops_worker_thread_for_backend_mode():
     assert service.active_connections == {}
     assert service._worker is not None
     assert service._worker.is_alive() is False
+
+
+def test_session_state_shutdown_cancels_pending_recover_retries():
+    class ServiceStub:
+        def __init__(self):
+            self.known_devices = {
+                "device-1": DeviceSummary(
+                    device_id="device-1",
+                    name="Headphones",
+                    connection_state="connected",
+                    present_in_last_scan=True,
+                )
+            }
+            self.active_connections = {"device-1": object()}
+            self._state_callback = None
+            self.connect_calls = []
+            self.connect_outcomes = ["timeout"]
+
+        def has_completed_initial_enumeration(self):
+            return True
+
+        def connect(self, device_id: str, trigger: str = "manual"):
+            self.connect_calls.append((device_id, trigger))
+            outcome = self.connect_outcomes.pop(0)
+            if callable(self._state_callback):
+                self._state_callback(
+                    {
+                        "event": "device_connection_failed",
+                        "device_id": device_id,
+                        "state": outcome,
+                        "trigger": trigger,
+                    }
+                )
+
+        def refresh_devices(self):
+            return list(self.known_devices.values())
+
+    class ScheduledCallStub:
+        def __init__(self, delay: float, callback):
+            self.delay = delay
+            self._callback = callback
+            self.cancelled = False
+
+        def cancel(self):
+            self.cancelled = True
+
+    scheduled_calls: list[ScheduledCallStub] = []
+
+    def retry_scheduler(delay: float, callback):
+        handle = ScheduledCallStub(delay, callback)
+        scheduled_calls.append(handle)
+        return handle
+
+    service = ServiceStub()
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(
+            config=AppConfig(
+                device_rules={"device-1": DeviceRule(auto_connect_on_reappear=True)}
+            )
+        ),
+        autostart_manager=type("AutostartManagerStub", (), {"set_enabled": lambda self, enabled: None})(),
+        notification_service=NotificationService(policy="silent"),
+        retry_scheduler=retry_scheduler,
+    )
+
+    service._state_callback(
+        {
+            "event": "device_state_changed",
+            "device_id": "device-1",
+            "state": "disconnected",
+            "trigger": "runtime",
+        }
+    )
+    session_state.shutdown()
+
+    assert [call.delay for call in scheduled_calls] == [1.0]
+    assert scheduled_calls[0].cancelled is True

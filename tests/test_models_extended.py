@@ -10,16 +10,19 @@ from audio_blue.models import (
 )
 
 
-def test_device_rule_trigger_flags_cover_startup_and_reappear():
+def test_device_rule_trigger_flags_cover_startup_reappear_and_recover():
     manual_rule = DeviceRule()
     startup_rule = DeviceRule(auto_connect_on_startup=True)
     reappear_rule = DeviceRule(auto_connect_on_reappear=True)
 
     assert manual_rule.matches_trigger("startup") is False
+    assert manual_rule.matches_trigger("recover") is False
     assert startup_rule.matches_trigger("startup") is True
     assert startup_rule.matches_trigger("reappear") is False
+    assert startup_rule.matches_trigger("recover") is False
     assert reappear_rule.matches_trigger("startup") is False
     assert reappear_rule.matches_trigger("reappear") is True
+    assert reappear_rule.matches_trigger("recover") is True
 
 
 def test_app_config_defaults_include_extended_preferences():

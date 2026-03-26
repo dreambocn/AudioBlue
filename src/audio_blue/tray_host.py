@@ -392,6 +392,8 @@ class TrayHost:
             title="托盘宿主已退出",
         )
         self._shutdown_ui()
+        if self._session_state is not None and hasattr(self._session_state, "shutdown"):
+            self._session_state.shutdown()
         save_config(build_exit_config(self._config, self._service))
         self._service.shutdown()
         win32gui.PostQuitMessage(0)

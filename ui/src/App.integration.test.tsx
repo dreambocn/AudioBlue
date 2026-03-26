@@ -258,7 +258,7 @@ describe('AudioBlue Control Center integration', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Auto Connect' }))
 
     const toggle = await screen.findByRole('checkbox', {
-      name: 'Auto-connect Office Headset when it appears again',
+      name: 'Auto-connect Office Headset after reappear or abnormal disconnect',
     })
 
     expect(toggle).toHaveClass('switch-toggle')
@@ -459,13 +459,13 @@ describe('AudioBlue Control Center integration', () => {
     await user.click(await screen.findByRole('button', { name: 'Auto Connect' }))
 
     expect(
-      await screen.findByText('Manual multi-device stays available'),
+      await screen.findByText('Manual disconnect wins for the current app run'),
     ).toBeVisible()
     expect(
-      screen.getByText('Stops after first successful auto-connect'),
+      screen.getByText('Retry after reappear or abnormal disconnect, then stop after first success'),
     ).toBeVisible()
     expect(
-      screen.getByText('Manage reappear auto-connect and attempt order.'),
+      screen.getByText('Manage auto-connect for reappear and abnormal disconnect recovery.'),
     ).toBeVisible()
   })
 

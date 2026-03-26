@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
 
-AutoConnectTrigger = Literal["startup", "reappear"]
+AutoConnectTrigger = Literal["startup", "reappear", "recover"]
 NotificationPolicy = Literal["silent", "failures", "all"]
 ThemeMode = Literal["system", "light", "dark"]
 LanguageMode = Literal["system", "zh-CN", "en-US"]
@@ -44,11 +44,9 @@ class DeviceRule:
 
     def matches_trigger(self, trigger: AutoConnectTrigger) -> bool:
         """判断当前规则是否会在指定触发场景下生效。"""
-        return (
-            self.auto_connect_on_startup
-            if trigger == "startup"
-            else self.auto_connect_on_reappear
-        )
+        if trigger == "startup":
+            return self.auto_connect_on_startup
+        return self.auto_connect_on_reappear
 
 
 @dataclass(slots=True)

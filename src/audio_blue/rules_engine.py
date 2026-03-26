@@ -10,8 +10,9 @@ from audio_blue.models import AppConfig, AutoConnectTrigger, DeviceRule, DeviceS
 class RulesEngine:
     """封装启动重连与设备再次出现两类自动连接规则。"""
 
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(self, config: AppConfig, *, suppressed_device_ids: set[str] | None = None) -> None:
         self._config = config
+        self._suppressed_device_ids = suppressed_device_ids or set()
 
     def get_auto_connect_candidates(
         self,
@@ -30,8 +31,12 @@ class RulesEngine:
         if trigger == "startup":
             return self._startup_candidates(device_map)
 
-        # 再次出现场景直接从当前扫描结果中过滤，再按收藏和优先级排序。
-        matched = [device for device in device_map.values() if self._should_include_reappear(device)]
+        # 再次出现与异常断联恢复共用同一条单设备规则。
+        matched = [
+            device
+            for device in device_map.values()
+            if self._should_include_rule_based_candidate(device)
+        ]
         matched.sort(key=self._candidate_sort_key)
         return matched
 
@@ -72,13 +77,15 @@ class RulesEngine:
             return device
         return replace(device)
 
-    def _should_include_reappear(self, device: DeviceSummary) -> bool:
-        """判断设备再次出现时是否需要自动连接。"""
+    def _should_include_rule_based_candidate(self, device: DeviceSummary) -> bool:
+        """判断设备是否应参与再次出现/异常断联恢复的自动连接。"""
         rule = self._config.device_rules.get(device.device_id, DeviceRule())
         return (
             device.capabilities.supports_audio_playback
+            and getattr(device, "present_in_last_scan", True)
             and not rule.is_ignored
             and rule.auto_connect_on_reappear
+            and device.device_id not in self._suppressed_device_ids
         )
 
     def _candidate_sort_key(self, device: DeviceSummary) -> tuple[int, int, str]:

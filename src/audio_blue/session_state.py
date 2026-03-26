@@ -3,13 +3,26 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from inspect import Parameter, signature
+from threading import Lock, Timer
 from typing import Any, Protocol
 
 from audio_blue.config import save_config
 from audio_blue.localization import connection_failure_message, notification_copy
 from audio_blue.rules_engine import RulesEngine
+
+_RECOVER_RETRY_DELAYS_SECONDS = (1.0, 2.0)
+
+
+@dataclass(slots=True)
+class _RecoverJob:
+    """记录单个设备当前异常断联恢复任务的代次与重试进度。"""
+
+    token: int
+    next_retry_index: int = 0
+    handle: object | None = None
 
 
 class RuntimeStorage(Protocol):
@@ -34,6 +47,7 @@ class SessionStateCoordinator:
         notification_service,
         storage: RuntimeStorage | None = None,
         observability=None,
+        retry_scheduler: Callable[[float, Callable[[], None]], object] | None = None,
     ) -> None:
         self.service = service
         self.app_state = app_state
@@ -43,6 +57,12 @@ class SessionStateCoordinator:
         self.observability = observability
         self._listeners: list[Callable[[dict[str, Any]], None]] = []
         self._startup_auto_connect_completed = self._detect_startup_phase_completed()
+        self._retry_scheduler = retry_scheduler or self._schedule_retry
+        self._recover_lock = Lock()
+        self._recover_sequence = 0
+        self._manual_disconnect_suppressed_devices: set[str] = set()
+        self._pending_recover_jobs: dict[str, _RecoverJob] = {}
+        self._recover_shutdown = False
         self._bind_service_callback()
         self._sync_from_service()
 
@@ -112,6 +132,7 @@ class SessionStateCoordinator:
             raise
 
     def connect_device(self, device_id: str) -> dict[str, Any]:
+        self._cancel_recover_job(device_id)
         try:
             self._connect_service_device(device_id, trigger="manual")
         except Exception as exc:
@@ -127,6 +148,8 @@ class SessionStateCoordinator:
         return self._publish_snapshot()
 
     def disconnect_device(self, device_id: str) -> dict[str, Any]:
+        self._suppress_manual_auto_connect(device_id)
+        self._cancel_recover_job(device_id)
         try:
             self._disconnect_service_device(device_id, trigger="manual")
         except Exception as exc:
@@ -238,9 +261,17 @@ class SessionStateCoordinator:
         self._sync_device_cache()
         self._record_connection_attempt(payload)
         self._record_service_activity(payload)
-        self._publish_notification(payload)
         self._handle_auto_connect_event(payload)
+        self._publish_notification(payload)
         return self._publish_snapshot()
+
+    def shutdown(self) -> None:
+        """释放挂起的 recovery 定时任务，避免应用退出后残留回调。"""
+        with self._recover_lock:
+            self._recover_shutdown = True
+            device_ids = list(self._pending_recover_jobs)
+        for device_id in device_ids:
+            self._cancel_recover_job(device_id)
 
     def record_client_event(self, payload: dict[str, Any]) -> dict[str, Any]:
         self._record_activity_event(
@@ -318,7 +349,10 @@ class SessionStateCoordinator:
         if trigger not in {"startup", "reappear"}:
             return
 
-        candidates = RulesEngine(self.app_state.config).get_auto_connect_candidates(
+        candidates = RulesEngine(
+            self.app_state.config,
+            suppressed_device_ids=self._manual_disconnect_suppressed_devices,
+        ).get_auto_connect_candidates(
             devices=devices,
             trigger=trigger,
         )
@@ -413,6 +447,8 @@ class SessionStateCoordinator:
         )
 
         if succeeded:
+            if trigger_name == "manual":
+                self._clear_manual_auto_connect_suppression(device_id)
             existing = [item for item in self.app_state.config.last_devices if item != device_id]
             self.app_state.config.last_devices = [device_id, *existing]
             self._persist_config()
@@ -445,6 +481,11 @@ class SessionStateCoordinator:
         known_device = getattr(self.service, "known_devices", {}).get(device_id)
         device_name = getattr(known_device, "name", device_id)
         language = getattr(self.app_state.config.ui, "language", "system")
+        trigger = payload.get("trigger")
+        trigger_name = trigger if isinstance(trigger, str) else "manual"
+        if event_name == "device_connection_failed" and trigger_name == "recover":
+            if self._has_pending_recover_job(device_id):
+                return
         if event_name == "device_connected":
             title, body = notification_copy(
                 "connect_success",
@@ -614,6 +655,34 @@ class SessionStateCoordinator:
 
     def _handle_auto_connect_event(self, payload: dict[str, Any]) -> None:
         event_name = payload.get("event")
+        device_id = payload.get("device_id")
+        trigger = payload.get("trigger")
+        trigger_name = trigger if isinstance(trigger, str) else "manual"
+
+        if event_name == "device_connected":
+            if isinstance(device_id, str):
+                self._cancel_recover_job(device_id)
+                if trigger_name == "recover":
+                    self._record_recover_result(device_id, succeeded=True)
+            return
+
+        if event_name == "device_connection_failed":
+            if isinstance(device_id, str) and trigger_name == "recover":
+                self._handle_recover_failure(device_id, state=payload.get("state"))
+            return
+
+        if event_name == "device_disconnected":
+            if not isinstance(device_id, str) or trigger_name == "manual":
+                return
+            self._start_recover_flow(device_id)
+            return
+
+        if event_name == "device_state_changed":
+            state = payload.get("state")
+            if isinstance(device_id, str) and state == "disconnected":
+                self._start_recover_flow(device_id)
+            return
+
         if event_name == "device_watcher_enumeration_completed":
             if self._startup_auto_connect_completed:
                 return
@@ -624,13 +693,14 @@ class SessionStateCoordinator:
 
         if event_name != "device_presence_changed":
             return
-        if not self._startup_auto_connect_completed:
-            return
-
-        device_id = payload.get("device_id")
         present = payload.get("present")
         previous_present = payload.get("previous_present")
         if not isinstance(device_id, str) or not isinstance(present, bool) or not isinstance(previous_present, bool):
+            return
+        if not present:
+            self._cancel_recover_job(device_id)
+            return
+        if not self._startup_auto_connect_completed:
             return
         if not present or previous_present:
             return
@@ -639,6 +709,176 @@ class SessionStateCoordinator:
         if device is None:
             return
         self._attempt_auto_connect(trigger="reappear", devices=[device])
+
+    def _schedule_retry(self, delay: float, callback: Callable[[], None]) -> object:
+        """默认用 daemon Timer 安排后续 recovery 重试。"""
+        timer = Timer(delay, callback)
+        timer.daemon = True
+        timer.start()
+        return timer
+
+    def _start_recover_flow(self, device_id: str) -> None:
+        device = getattr(self.service, "known_devices", {}).get(device_id)
+        if device is None:
+            self._cancel_recover_job(device_id)
+            return
+        if not getattr(device, "present_in_last_scan", True):
+            self._cancel_recover_job(device_id)
+            return
+        if device_id in self._manual_disconnect_suppressed_devices:
+            self._cancel_recover_job(device_id)
+            self._record_activity_event(
+                area="automation",
+                event_type="automation.recover.skipped.manual_override",
+                level="info",
+                title="已跳过异常断联自动回连",
+                detail=f"{device.name} 刚被手动断开，本次运行内不再自动恢复连接。",
+                device_id=device_id,
+            )
+            return
+        candidates = RulesEngine(
+            self.app_state.config,
+            suppressed_device_ids=self._manual_disconnect_suppressed_devices,
+        ).get_auto_connect_candidates(
+            devices=[device],
+            trigger="recover",
+        )
+        if not candidates:
+            self._cancel_recover_job(device_id)
+            return
+        token = self._create_recover_job(device_id)
+        self._record_activity_event(
+            area="automation",
+            event_type="automation.recover.scheduled",
+            level="info",
+            title="异常断联自动回连已开始",
+            detail=f"{device.name} 已进入异常断联恢复队列，将立即发起第一次回连。",
+            device_id=device_id,
+        )
+        self._run_recover_attempt(device_id, token)
+
+    def _handle_recover_failure(self, device_id: str, *, state: object) -> None:
+        with self._recover_lock:
+            job = self._pending_recover_jobs.get(device_id)
+            if job is None:
+                return
+            if job.next_retry_index >= len(_RECOVER_RETRY_DELAYS_SECONDS):
+                self._pending_recover_jobs.pop(device_id, None)
+                should_schedule = False
+                next_delay = None
+            else:
+                next_delay = _RECOVER_RETRY_DELAYS_SECONDS[job.next_retry_index]
+                job.next_retry_index += 1
+                should_schedule = True
+        if not should_schedule:
+            self._record_recover_result(device_id, succeeded=False, state=state)
+            return
+        self._record_activity_event(
+            area="automation",
+            event_type="automation.recover.retrying",
+            level="warning",
+            title="异常断联自动回连重试中",
+            detail=f"{device_id} 将在 {int(next_delay)} 秒后继续自动回连。",
+            device_id=device_id,
+            details={"nextDelaySeconds": next_delay},
+        )
+        handle = self._retry_scheduler(
+            next_delay,
+            lambda device_id=device_id, token=job.token: self._run_recover_attempt(device_id, token),
+        )
+        with self._recover_lock:
+            current_job = self._pending_recover_jobs.get(device_id)
+            if current_job is None or current_job.token != job.token:
+                cancel = getattr(handle, "cancel", None)
+                if callable(cancel):
+                    cancel()
+                return
+            current_job.handle = handle
+
+    def _run_recover_attempt(self, device_id: str, token: int) -> None:
+        if not self._is_recover_job_current(device_id, token):
+            return
+        try:
+            self._connect_service_device(device_id, trigger="recover")
+        except Exception as exc:
+            self._record_exception(
+                area="automation",
+                event_type="automation.recover.failed",
+                title="异常断联自动回连执行失败",
+                exc=exc,
+                device_id=device_id,
+                details={"trigger": "recover"},
+            )
+            self.handle_service_event(
+                {
+                    "event": "device_connection_failed",
+                    "device_id": device_id,
+                    "state": "error",
+                    "trigger": "recover",
+                }
+            )
+
+    def _record_recover_result(self, device_id: str, *, succeeded: bool, state: object | None = None) -> None:
+        device = getattr(self.service, "known_devices", {}).get(device_id)
+        device_name = getattr(device, "name", device_id)
+        if succeeded:
+            self._record_activity_event(
+                area="connection",
+                event_type="connection.recover.succeeded",
+                level="info",
+                title="异常断联自动回连成功",
+                detail=f"{device_name} 已在异常断联后自动恢复连接。",
+                device_id=device_id,
+            )
+            return
+        self._record_activity_event(
+            area="connection",
+            event_type="connection.recover.exhausted",
+            level="error",
+            title="异常断联自动回连已停止",
+            detail=f"{device_name} 在 3 次自动回连后仍未恢复连接，已停止本轮重试。",
+            device_id=device_id,
+            error_code=f"connection.{state}" if isinstance(state, str) else None,
+        )
+
+    def _create_recover_job(self, device_id: str) -> int:
+        with self._recover_lock:
+            self._recover_sequence += 1
+            token = self._recover_sequence
+            self._cancel_recover_job_locked(device_id)
+            self._pending_recover_jobs[device_id] = _RecoverJob(token=token)
+            return token
+
+    def _cancel_recover_job(self, device_id: str) -> None:
+        with self._recover_lock:
+            self._cancel_recover_job_locked(device_id)
+
+    def _cancel_recover_job_locked(self, device_id: str) -> None:
+        job = self._pending_recover_jobs.pop(device_id, None)
+        if job is None:
+            return
+        cancel = getattr(job.handle, "cancel", None)
+        if callable(cancel):
+            cancel()
+
+    def _has_pending_recover_job(self, device_id: str) -> bool:
+        with self._recover_lock:
+            return device_id in self._pending_recover_jobs
+
+    def _is_recover_job_current(self, device_id: str, token: int) -> bool:
+        with self._recover_lock:
+            if self._recover_shutdown:
+                return False
+            job = self._pending_recover_jobs.get(device_id)
+            return job is not None and job.token == token
+
+    def _suppress_manual_auto_connect(self, device_id: str) -> None:
+        with self._recover_lock:
+            self._manual_disconnect_suppressed_devices.add(device_id)
+
+    def _clear_manual_auto_connect_suppression(self, device_id: str) -> None:
+        with self._recover_lock:
+            self._manual_disconnect_suppressed_devices.discard(device_id)
 
     def _invoke_storage_method(self, method_name: str, **payload: Any) -> None:
         if self.storage is None:

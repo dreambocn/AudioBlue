@@ -136,14 +136,17 @@ def test_show_menu_tolerates_set_foreground_window_error(monkeypatch):
 
 def test_on_destroy_calls_shutdown_ui_before_service_shutdown(monkeypatch):
     service = ServiceStub()
+    session_state = SessionStateStub()
     call_order: list[str] = []
     host = TrayHost(
         service=service,
         config=AppConfig(),
         logger=logging.getLogger("tray-test"),
         shutdown_ui=lambda: call_order.append("shutdown_ui"),
+        session_state=session_state,
     )
     host._notify_id = ("notify",)
+    session_state.shutdown = lambda: call_order.append("session_shutdown")
 
     monkeypatch.setattr(
         "audio_blue.tray_host.win32gui.Shell_NotifyIcon",
@@ -160,7 +163,7 @@ def test_on_destroy_calls_shutdown_ui_before_service_shutdown(monkeypatch):
 
     host._on_destroy(0, 0, 0, 0)
 
-    assert call_order == ["notify_delete", "shutdown_ui", "save_config", "quit:0"]
+    assert call_order == ["notify_delete", "shutdown_ui", "session_shutdown", "save_config", "quit:0"]
     assert service.shutdown_called is True
 
 

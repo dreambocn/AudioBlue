@@ -23,6 +23,7 @@ class ConnectorServiceStub:
         self.active_connections: dict[str, object] = {}
         self._state_callback = None
         self.connect_calls: list[tuple[str, str]] = []
+        self.connect_outcomes: dict[str, list[str]] = {}
         self.initial_enumeration_completed = False
 
     def refresh_devices(self):
@@ -37,6 +38,27 @@ class ConnectorServiceStub:
 
     def connect(self, device_id: str, trigger: str = "manual"):
         self.connect_calls.append((device_id, trigger))
+        outcomes = self.connect_outcomes.get(device_id)
+        outcome = outcomes.pop(0) if outcomes else "connected"
+        if outcome != "connected":
+            self.active_connections.pop(device_id, None)
+            self.known_devices[device_id] = DeviceSummary(
+                device_id=self.known_devices[device_id].device_id,
+                name=self.known_devices[device_id].name,
+                connection_state="failed",
+                present_in_last_scan=self.known_devices[device_id].present_in_last_scan,
+                last_seen_at=self.known_devices[device_id].last_seen_at,
+            )
+            if callable(self._state_callback):
+                self._state_callback(
+                    {
+                        "event": "device_connection_failed",
+                        "device_id": device_id,
+                        "state": outcome,
+                        "trigger": trigger,
+                    }
+                )
+            return
         self.active_connections[device_id] = object()
         self.known_devices[device_id] = DeviceSummary(
             device_id=self.known_devices[device_id].device_id,
@@ -69,6 +91,34 @@ class ConnectorServiceStub:
                     "event": "device_disconnected",
                     "device_id": device_id,
                     "state": "disconnected",
+                    "trigger": trigger,
+                }
+            )
+
+    def emit_state_event(
+        self,
+        device_id: str,
+        *,
+        state: str,
+        trigger: str = "runtime",
+    ) -> None:
+        """模拟连接层上报状态变化，但不修改 presence。"""
+        existing = self.known_devices[device_id]
+        self.known_devices[device_id] = DeviceSummary(
+            device_id=existing.device_id,
+            name=existing.name,
+            connection_state=state,
+            present_in_last_scan=existing.present_in_last_scan,
+            last_seen_at=existing.last_seen_at,
+        )
+        if state != "connected":
+            self.active_connections.pop(device_id, None)
+        if callable(self._state_callback):
+            self._state_callback(
+                {
+                    "event": "device_state_changed",
+                    "device_id": device_id,
+                    "state": state,
                     "trigger": trigger,
                 }
             )
@@ -112,12 +162,45 @@ class StorageStub:
     def __init__(self):
         self.connection_attempts: list[dict] = []
         self.device_cache_updates: list[dict] = []
+        self.activity_events: list[dict] = []
 
     def record_connection_attempt(self, **payload):
         self.connection_attempts.append(payload)
 
     def upsert_device_cache(self, **payload):
         self.device_cache_updates.append(payload)
+
+    def record_activity_event(self, **payload):
+        self.activity_events.append(payload)
+
+
+class ScheduledCallStub:
+    """模拟可取消的延迟任务句柄。"""
+
+    def __init__(self, delay: float, callback) -> None:
+        self.delay = delay
+        self._callback = callback
+        self.cancelled = False
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+    def fire(self) -> None:
+        if self.cancelled:
+            return
+        self._callback()
+
+
+class RetrySchedulerStub:
+    """收集 recovery 重试调度，测试时手动触发。"""
+
+    def __init__(self) -> None:
+        self.calls: list[ScheduledCallStub] = []
+
+    def __call__(self, delay: float, callback):
+        handle = ScheduledCallStub(delay, callback)
+        self.calls.append(handle)
+        return handle
 
 
 @pytest.fixture(autouse=True)
@@ -352,6 +435,301 @@ def test_session_state_set_reconnect_persists_and_emits_snapshot_field():
 
     assert session_state.app_state.config.reconnect is True
     assert snapshot["settings"]["startup"]["reconnectOnNextStart"] is True
+
+
+def test_session_state_disconnect_recover_starts_immediately_when_device_stays_present():
+    service = ConnectorServiceStub()
+    service.initial_enumeration_completed = True
+    service.active_connections["device-1"] = object()
+    service.known_devices["device-1"] = DeviceSummary(
+        device_id="device-1",
+        name="Headphones",
+        connection_state="connected",
+        present_in_last_scan=True,
+    )
+    scheduler = RetrySchedulerStub()
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(
+            config=AppConfig(
+                reconnect=False,
+                device_rules={"device-1": DeviceRule(auto_connect_on_reappear=True)},
+            )
+        ),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="silent"),
+        storage=StorageStub(),
+        retry_scheduler=scheduler,
+    )
+
+    service.emit_state_event("device-1", state="disconnected")
+
+    assert service.connect_calls == [("device-1", "recover")]
+    assert scheduler.calls == []
+
+
+def test_session_state_recover_retries_until_terminal_failure_and_only_notifies_once():
+    service = ConnectorServiceStub()
+    service.initial_enumeration_completed = True
+    service.active_connections["device-1"] = object()
+    service.known_devices["device-1"] = DeviceSummary(
+        device_id="device-1",
+        name="Headphones",
+        connection_state="connected",
+        present_in_last_scan=True,
+    )
+    service.connect_outcomes["device-1"] = ["timeout", "timeout", "timeout"]
+    scheduler = RetrySchedulerStub()
+    storage = StorageStub()
+    published_notifications: list[NotificationMessage] = []
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(
+            config=AppConfig(
+                reconnect=False,
+                notification=NotificationPreferences(policy="all"),
+                device_rules={"device-1": DeviceRule(auto_connect_on_reappear=True)},
+            )
+        ),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="all", sink=published_notifications.append),
+        storage=storage,
+        retry_scheduler=scheduler,
+    )
+
+    service.emit_state_event("device-1", state="disconnected")
+
+    assert service.connect_calls == [("device-1", "recover")]
+    assert [call.delay for call in scheduler.calls] == [1.0]
+    assert published_notifications == []
+
+    scheduler.calls[0].fire()
+
+    assert service.connect_calls == [("device-1", "recover"), ("device-1", "recover")]
+    assert [call.delay for call in scheduler.calls] == [1.0, 2.0]
+    assert published_notifications == []
+
+    scheduler.calls[1].fire()
+
+    assert service.connect_calls == [
+        ("device-1", "recover"),
+        ("device-1", "recover"),
+        ("device-1", "recover"),
+    ]
+    assert [message.level for message in published_notifications] == ["error"]
+    assert sum(1 for item in storage.connection_attempts if item["trigger"] == "recover") == 3
+    assert sum(1 for item in storage.activity_events if item["event_type"] == "automation.recover.retrying") == 2
+    assert any(item["event_type"] == "connection.recover.exhausted" for item in storage.activity_events)
+
+
+def test_session_state_recover_success_on_second_attempt_stops_future_retries():
+    service = ConnectorServiceStub()
+    service.initial_enumeration_completed = True
+    service.active_connections["device-1"] = object()
+    service.known_devices["device-1"] = DeviceSummary(
+        device_id="device-1",
+        name="Headphones",
+        connection_state="connected",
+        present_in_last_scan=True,
+    )
+    service.connect_outcomes["device-1"] = ["timeout", "connected"]
+    scheduler = RetrySchedulerStub()
+    storage = StorageStub()
+    published_notifications: list[NotificationMessage] = []
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(
+            config=AppConfig(
+                notification=NotificationPreferences(policy="all"),
+                device_rules={"device-1": DeviceRule(auto_connect_on_reappear=True)},
+            )
+        ),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="all", sink=published_notifications.append),
+        storage=storage,
+        retry_scheduler=scheduler,
+    )
+
+    service.emit_state_event("device-1", state="disconnected")
+    scheduler.calls[0].fire()
+
+    assert service.connect_calls == [("device-1", "recover"), ("device-1", "recover")]
+    assert [message.level for message in published_notifications] == ["info"]
+    assert sum(1 for item in storage.activity_events if item["event_type"] == "connection.recover.succeeded") == 1
+
+
+def test_session_state_manual_disconnect_suppresses_recover_and_reappear_until_manual_connect():
+    service = ConnectorServiceStub()
+    service.initial_enumeration_completed = True
+    service.active_connections["device-1"] = object()
+    service.known_devices["device-1"] = DeviceSummary(
+        device_id="device-1",
+        name="Headphones",
+        connection_state="connected",
+        present_in_last_scan=True,
+    )
+    scheduler = RetrySchedulerStub()
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(
+            config=AppConfig(
+                device_rules={"device-1": DeviceRule(auto_connect_on_reappear=True)}
+            )
+        ),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="silent"),
+        storage=StorageStub(),
+        retry_scheduler=scheduler,
+    )
+
+    session_state.disconnect_device("device-1")
+    service.emit_presence_event(
+        DeviceSummary(
+            device_id="device-1",
+            name="Headphones",
+            connection_state="disconnected",
+            present_in_last_scan=True,
+        ),
+        previous_present=False,
+    )
+
+    assert service.connect_calls == []
+
+    session_state.connect_device("device-1")
+    service.active_connections.clear()
+    service.known_devices["device-1"] = DeviceSummary(
+        device_id="device-1",
+        name="Headphones",
+        connection_state="disconnected",
+        present_in_last_scan=True,
+    )
+    service.connect_calls.clear()
+    service.emit_presence_event(
+        DeviceSummary(
+            device_id="device-1",
+            name="Headphones",
+            connection_state="disconnected",
+            present_in_last_scan=True,
+        ),
+        previous_present=False,
+    )
+
+    assert ("device-1", "reappear") in service.connect_calls
+
+
+def test_session_state_recover_cancels_pending_retry_when_device_becomes_absent():
+    service = ConnectorServiceStub()
+    service.initial_enumeration_completed = True
+    service.active_connections["device-1"] = object()
+    service.known_devices["device-1"] = DeviceSummary(
+        device_id="device-1",
+        name="Headphones",
+        connection_state="connected",
+        present_in_last_scan=True,
+    )
+    service.connect_outcomes["device-1"] = ["timeout"]
+    scheduler = RetrySchedulerStub()
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(
+            config=AppConfig(
+                device_rules={"device-1": DeviceRule(auto_connect_on_reappear=True)}
+            )
+        ),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="silent"),
+        storage=StorageStub(),
+        retry_scheduler=scheduler,
+    )
+
+    service.emit_state_event("device-1", state="disconnected")
+    service.emit_presence_event(
+        DeviceSummary(
+            device_id="device-1",
+            name="Headphones",
+            connection_state="disconnected",
+            present_in_last_scan=False,
+        ),
+        previous_present=True,
+        change="removed",
+    )
+    scheduler.calls[0].fire()
+
+    assert scheduler.calls[0].cancelled is True
+    assert service.connect_calls == [("device-1", "recover")]
+
+
+def test_session_state_recover_replaces_old_retry_when_new_disconnect_arrives():
+    service = ConnectorServiceStub()
+    service.initial_enumeration_completed = True
+    service.active_connections["device-1"] = object()
+    service.known_devices["device-1"] = DeviceSummary(
+        device_id="device-1",
+        name="Headphones",
+        connection_state="connected",
+        present_in_last_scan=True,
+    )
+    service.connect_outcomes["device-1"] = ["timeout", "timeout", "connected"]
+    scheduler = RetrySchedulerStub()
+    published_notifications: list[NotificationMessage] = []
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(
+            config=AppConfig(
+                notification=NotificationPreferences(policy="all"),
+                device_rules={"device-1": DeviceRule(auto_connect_on_reappear=True)},
+            )
+        ),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="all", sink=published_notifications.append),
+        storage=StorageStub(),
+        retry_scheduler=scheduler,
+    )
+
+    service.emit_state_event("device-1", state="disconnected")
+    first_retry = scheduler.calls[0]
+    service.emit_state_event("device-1", state="disconnected")
+    second_retry = scheduler.calls[1]
+    first_retry.fire()
+    second_retry.fire()
+
+    assert first_retry.cancelled is True
+    assert service.connect_calls == [
+        ("device-1", "recover"),
+        ("device-1", "recover"),
+        ("device-1", "recover"),
+    ]
+    assert [message.level for message in published_notifications] == ["info"]
+
+
+def test_session_state_recover_ignores_global_startup_reconnect_toggle():
+    service = ConnectorServiceStub()
+    service.initial_enumeration_completed = True
+    service.active_connections["device-1"] = object()
+    service.known_devices["device-1"] = DeviceSummary(
+        device_id="device-1",
+        name="Headphones",
+        connection_state="connected",
+        present_in_last_scan=True,
+    )
+    scheduler = RetrySchedulerStub()
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(
+            config=AppConfig(
+                reconnect=False,
+                device_rules={"device-1": DeviceRule(auto_connect_on_reappear=True)},
+            )
+        ),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="silent"),
+        storage=StorageStub(),
+        retry_scheduler=scheduler,
+    )
+
+    service.emit_state_event("device-1", state="disconnected")
+
+    assert service.connect_calls == [("device-1", "recover")]
 
 
 def test_session_state_writes_device_cache_on_refresh():
