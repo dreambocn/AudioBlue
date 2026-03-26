@@ -18,7 +18,7 @@ Windows Bluetooth audio playback desktop utility with a Python backend and a Web
 - **Persistent automation**：使用 SQLite 保存设备规则、优先级、连接历史与诊断快照。  
   支持再次出现自动连接、启动时重连与设备优先级策略。
 - **Release-ready packaging**：内置 PyInstaller、Inno Setup 与发布校验脚本。  
-  支持本地构建安装器，也支持 GitHub Actions 基于 `v*` tag 自动发布。
+  支持本地构建双安装器，也支持 GitHub Actions 基于 `v*` tag 自动发布。
 
 ## Architecture
 
@@ -101,7 +101,7 @@ npm run build
 
 ```powershell
 Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
-.\scripts\build-release.ps1
+.\scripts\build-release.ps1 -TargetArchitecture x64
 ```
 
 默认会执行：
@@ -112,11 +112,25 @@ Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
 - PyInstaller 目录版打包
 - Inno Setup 安装器构建
 
+如需其他架构，可分别执行：
+
+```powershell
+Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
+.\scripts\build-release.ps1 -TargetArchitecture x86
+.\scripts\build-release.ps1 -TargetArchitecture arm64
+```
+
 ### GitHub Release / GitHub 自动发布
 
 - 推送 `v*` tag 会触发 `.github/workflows/release.yml`
-- 工作流会在 Windows runner 上构建安装器
-- 生成的 `AudioBlue-Setup.exe` 会上传到 GitHub Release
+- 工作流会在 `x64`、`x86`、`ARM64` 三种 Windows 架构上分别构建双安装器
+- GitHub Release 会同时提供 6 个安装包：
+  - `AudioBlue-Setup-x64.exe`
+  - `AudioBlue-Setup-With-WebView2-x64.exe`
+  - `AudioBlue-Setup-x86.exe`
+  - `AudioBlue-Setup-With-WebView2-x86.exe`
+  - `AudioBlue-Setup-arm64.exe`
+  - `AudioBlue-Setup-With-WebView2-arm64.exe`
 
 下载入口：
 
@@ -139,6 +153,12 @@ AudioBlue 当前聚焦于 **远端设备把音频播放到本机** 的场景。
 - WebView2 Runtime 是否已安装
 - 是否已经构建 `ui\dist`
 - 打包版中是否存在 `dist\AudioBlue\_internal\ui\index.html`
+
+### Which installer should I download? / 我该下载哪个安装包？
+
+- 先按你的 Windows / Python 目标架构选择 `x64`、`x86` 或 `ARM64` 版本。
+- `AudioBlue-Setup-<arch>.exe`：体积更小，不内置 WebView2；适合目标电脑已经安装 WebView2 Runtime 的场景。
+- `AudioBlue-Setup-With-WebView2-<arch>.exe`：内置对应架构的 WebView2 离线安装器；适合需要一起补齐 WebView2 依赖的场景。
 
 ## License
 

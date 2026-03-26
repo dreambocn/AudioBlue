@@ -31,7 +31,7 @@ def test_pyinstaller_spec_includes_custom_icon_and_branding_assets():
 
 
 def test_inno_setup_uses_custom_setup_icon():
-    content = read_text(REPO_ROOT / "installer" / "AudioBlue.iss")
+    content = read_text(REPO_ROOT / "installer" / "AudioBlue.InstallerCore.iss")
 
     assert r"SetupIconFile=..\assets\branding\audioblue-icon.ico" in content
 
