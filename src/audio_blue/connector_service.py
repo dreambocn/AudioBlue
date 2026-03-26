@@ -7,7 +7,6 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from queue import Queue
 from threading import Event, Lock, Thread
-from time import monotonic, sleep
 from typing import Awaitable, Callable, Protocol, TypeVar
 
 from winrt.windows.devices.enumeration import DeviceInformation, DeviceWatcherStatus
@@ -24,9 +23,6 @@ DeviceProvider = Callable[[], list[DeviceSummary]]
 ConnectionStateCallback = Callable[[str], None]
 WatcherEventCallback = Callable[[dict[str, object]], None]
 AwaitableResult = TypeVar("AwaitableResult")
-_STABLE_CONNECTION_WINDOW_SECONDS = 1.5
-
-
 def run_awaitable_blocking(awaitable: Awaitable[AwaitableResult]) -> AwaitableResult:
     """在同步调用栈中安全等待 WinRT 异步结果。"""
     async def runner() -> AwaitableResult:
@@ -170,12 +166,8 @@ class WinRTConnectorBackend:
         if connection is None:
             return None, "error"
 
-        unstable_connection = Event()
-
         def on_state_changed(sender: AudioPlaybackConnection, _args: object) -> None:
             mapped_state = map_connection_state(sender.state)
-            if mapped_state != "connected":
-                unstable_connection.set()
             state_callback(mapped_state)
 
         token = connection.add_state_changed(on_state_changed)
@@ -186,17 +178,6 @@ class WinRTConnectorBackend:
             return map_open_result_status(open_result.status)
 
         state_name = run_awaitable_blocking(start_and_open())
-        if state_name == "connected":
-            deadline = monotonic() + _STABLE_CONNECTION_WINDOW_SECONDS
-            while monotonic() < deadline:
-                if unstable_connection.is_set():
-                    state_name = "failed"
-                    break
-                if connection.state != AudioPlaybackConnectionState.OPENED:
-                    state_name = "failed"
-                    break
-                sleep(0.05)
-
         if state_name != "connected":
             connection.remove_state_changed(token)
             connection.close()
