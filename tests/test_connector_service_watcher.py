@@ -13,6 +13,7 @@ class WatcherBackendStub:
         self.devices: list[DeviceSummary] = []
         self.watcher_callback = None
         self.connect_impl = None
+        self.probe_impl = None
         self.stop_calls = 0
 
     def list_devices(self):
@@ -22,6 +23,11 @@ class WatcherBackendStub:
         if self.connect_impl is not None:
             return self.connect_impl(device_id, state_callback)
         return object(), "connected"
+
+    def probe_connection(self, handle):
+        if self.probe_impl is not None:
+            return self.probe_impl(handle)
+        return "connected"
 
     def disconnect(self, handle):
         return None
@@ -113,4 +119,25 @@ def test_service_treats_quick_disconnect_during_connect_as_failed():
         "device_id": "device-1",
         "state": "failed",
         "trigger": "startup",
+    }
+
+
+def test_service_marks_connection_stale_when_health_check_fails_without_disconnect_event():
+    published = []
+    backend = WatcherBackendStub()
+    backend.devices = [DeviceSummary(device_id="device-1", name="Phone")]
+    backend.probe_impl = lambda _handle: "stale"
+    service = ConnectorService(backend=backend, state_callback=published.append)
+    service.refresh_devices()
+    service.connect("device-1", trigger="manual")
+
+    service.poll_connection_health()
+
+    assert "device-1" not in service.active_connections
+    assert service.known_devices["device-1"].connection_state == "stale"
+    assert published[-1] == {
+        "event": "device_state_changed",
+        "device_id": "device-1",
+        "state": "stale",
+        "trigger": "health_check",
     }

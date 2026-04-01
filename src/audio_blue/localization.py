@@ -22,6 +22,7 @@ MessageKey = Literal[
     "error.timeout",
     "error.denied",
     "error.failed",
+    "error.stale",
     "error.error",
     "notification.connected_title",
     "notification.connected_body",
@@ -45,6 +46,7 @@ _MESSAGES: dict[LanguageMode, dict[MessageKey, str]] = {
         "error.timeout": "Connection timed out before audio could start.",
         "error.denied": "Windows denied the audio connection request.",
         "error.failed": "The connection opened, but Windows never exposed a stable audio session.",
+        "error.stale": "Windows still reports the device as connected, but AudioBlue has detected that the session is stale.",
         "error.error": "AudioBlue could not connect to the device.",
         "notification.connected_title": "Connected",
         "notification.connected_body": "{device_name} connected.",
@@ -66,6 +68,7 @@ _MESSAGES: dict[LanguageMode, dict[MessageKey, str]] = {
         "error.timeout": "连接超时，音频未能启动。",
         "error.denied": "Windows 拒绝了音频连接请求。",
         "error.failed": "连接已建立，但系统未检测到稳定的音频会话。",
+        "error.stale": "Windows 仍显示设备已连接，但 AudioBlue 已判定当前连接失活。",
         "error.error": "AudioBlue 无法连接到该设备。",
         "notification.connected_title": "已连接",
         "notification.connected_body": "{device_name} 已连接。",
@@ -79,6 +82,7 @@ _FAILURE_KEY_BY_STATE: dict[str, MessageKey] = {
     "timeout": "error.timeout",
     "denied": "error.denied",
     "failed": "error.failed",
+    "stale": "error.stale",
     "error": "error.error",
 }
 

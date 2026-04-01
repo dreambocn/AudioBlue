@@ -85,6 +85,8 @@ class ConnectorBackend(Protocol):
 
     def disconnect(self, handle: object) -> None: ...
 
+    def probe_connection(self, handle: object) -> str: ...
+
     def start_watcher(self, callback: WatcherEventCallback) -> object: ...
 
     def stop_watcher(self, handle: object) -> None: ...
@@ -188,6 +190,13 @@ class WinRTConnectorBackend:
     def disconnect(self, handle: WinRTConnectionHandle) -> None:
         handle.connection.remove_state_changed(handle.token)
         handle.connection.close()
+
+    def probe_connection(self, handle: WinRTConnectionHandle) -> str:
+        try:
+            mapped_state = map_connection_state(handle.connection.state)
+        except Exception:
+            return "error"
+        return "connected" if mapped_state == "connected" else "stale"
 
 
 @dataclass(slots=True)
@@ -335,6 +344,16 @@ class ConnectorService:
 
         self._emit({"event": "device_disconnected", "device_id": device_id, "trigger": trigger})
 
+    def poll_connection_health(self) -> None:
+        if self._device_provider is not None or self._backend is None:
+            return
+
+        for device_id, handle in list(self.active_connections.items()):
+            state = self._run_on_worker(lambda handle=handle: self._backend.probe_connection(handle))
+            if state == "connected":
+                continue
+            self._mark_connection_stale(device_id, handle)
+
     def shutdown(self) -> None:
         if self._backend is not None:
             for device_id in list(self.active_connections):
@@ -363,6 +382,22 @@ class ConnectorService:
                 self.active_connections.pop(device_id, None)
 
         self._emit({"event": "device_state_changed", "device_id": device_id, "state": state})
+
+    def _mark_connection_stale(self, device_id: str, handle: object) -> None:
+        with self._lock:
+            existing_handle = self.active_connections.get(device_id)
+            if existing_handle is not handle:
+                return
+
+        self._run_on_worker(lambda: self._backend.disconnect(handle))  # type: ignore[union-attr]
+
+        with self._lock:
+            self.active_connections.pop(device_id, None)
+            device = self.known_devices.get(device_id)
+            if device is not None:
+                self.known_devices[device_id] = replace(device, connection_state="stale")
+
+        self._emit({"event": "device_state_changed", "device_id": device_id, "state": "stale", "trigger": "health_check"})
 
     def wait_for_initial_enumeration(self, timeout: float = 5.0) -> bool:
         if self._device_provider is not None:

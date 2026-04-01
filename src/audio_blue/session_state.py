@@ -472,7 +472,10 @@ class SessionStateCoordinator:
 
     def _publish_notification(self, payload: dict[str, Any]) -> None:
         event_name = payload.get("event")
-        if event_name not in {"device_connected", "device_connection_failed"}:
+        state = payload.get("state")
+        if event_name not in {"device_connected", "device_connection_failed"} and not (
+            event_name == "device_state_changed" and state == "stale"
+        ):
             return
         device_id = payload.get("device_id")
         if not isinstance(device_id, str):
@@ -679,7 +682,7 @@ class SessionStateCoordinator:
 
         if event_name == "device_state_changed":
             state = payload.get("state")
-            if isinstance(device_id, str) and state == "disconnected":
+            if isinstance(device_id, str) and state in {"disconnected", "stale"}:
                 self._start_recover_flow(device_id)
             return
 

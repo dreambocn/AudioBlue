@@ -44,6 +44,14 @@ class AppStateStore:
             state = payload.get("state", "disconnected")
             if isinstance(state, str):
                 self._apply_device_state(device_id=device_id, state=state, trigger=trigger_name)
+                if state == "stale":
+                    language = getattr(self.config.ui, "language", "system")
+                    self._last_failure = {
+                        "deviceId": device_id,
+                        "state": state,
+                        "code": f"connection.{state}",
+                        "message": humanize_connection_failure(state, language=language),
+                    }
         elif event_name == "device_connection_failed":
             state = payload.get("state", "error")
             if not isinstance(state, str):
@@ -202,7 +210,7 @@ class AppStateStore:
             (
                 device
                 for device in self._devices.values()
-                if device.connection_state in {"connected", "connecting"}
+                if device.connection_state in {"connected", "connecting", "stale"}
             ),
             None,
         )
