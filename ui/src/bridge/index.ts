@@ -58,6 +58,14 @@ const asRecordMap = (value: unknown): Record<string, RawRecord> =>
 const asOptionalString = (value: unknown): string | undefined =>
   typeof value === 'string' && value.length > 0 ? value : undefined
 
+const normalizeBackendConnectionState = (value: unknown): string => {
+  const raw = String(value ?? 'disconnected')
+  if (raw === 'stale' || raw === 'endpoint_not_ready') {
+    return 'failed'
+  }
+  return raw
+}
+
 const getPriority = (rawRule: RawRecord): number =>
   typeof rawRule.priority === 'number' ? rawRule.priority : Number.MAX_SAFE_INTEGER
 
@@ -226,7 +234,7 @@ const normalizeConnection = (
   const connectedDevice =
     devices.find((device) => device.id === rawConnection.currentDeviceId && device.isConnected) ??
     devices.find((device) => device.isConnected)
-  const statusValue = String(
+  const statusValue = normalizeBackendConnectionState(
     rawConnection.status ?? (connectedDevice ? 'connected' : 'disconnected'),
   )
   const statusSet = new Set<ConnectionStatus>([
@@ -242,7 +250,7 @@ const normalizeConnection = (
     rawConnection.lastErrorMessage ?? rawConnection.lastFailure,
   )
   const currentPhase =
-    asOptionalString(rawConnection.currentPhase) ??
+    asOptionalString(normalizeBackendConnectionState(rawConnection.currentPhase)) ??
     (status === 'disconnected' && lastErrorMessage ? 'failed' : status)
 
   return {
@@ -294,6 +302,47 @@ const normalizeDiagnostics = (
           serviceShutdown: Boolean(asRecord(rawDiagnostics.watcher).serviceShutdown),
         }
       : undefined,
+  audioRouting:
+    typeof rawDiagnostics.audioRouting === 'object' && rawDiagnostics.audioRouting !== null
+      ? {
+          currentDeviceId: asOptionalString(asRecord(rawDiagnostics.audioRouting).currentDeviceId),
+          remoteContainerId: asOptionalString(
+            asRecord(rawDiagnostics.audioRouting).remoteContainerId,
+          ),
+          remoteAepConnected:
+            typeof asRecord(rawDiagnostics.audioRouting).remoteAepConnected === 'boolean'
+              ? Boolean(asRecord(rawDiagnostics.audioRouting).remoteAepConnected)
+              : undefined,
+          remoteAepPresent:
+            typeof asRecord(rawDiagnostics.audioRouting).remoteAepPresent === 'boolean'
+              ? Boolean(asRecord(rawDiagnostics.audioRouting).remoteAepPresent)
+              : undefined,
+          localRenderId: asOptionalString(asRecord(rawDiagnostics.audioRouting).localRenderId),
+          localRenderName: asOptionalString(
+            asRecord(rawDiagnostics.audioRouting).localRenderName,
+          ),
+          localRenderState: asOptionalString(
+            asRecord(rawDiagnostics.audioRouting).localRenderState,
+          ),
+          audioFlowObserved:
+            typeof asRecord(rawDiagnostics.audioRouting).audioFlowObserved === 'boolean'
+              ? Boolean(asRecord(rawDiagnostics.audioRouting).audioFlowObserved)
+              : undefined,
+          audioFlowPeakMax:
+            typeof asRecord(rawDiagnostics.audioRouting).audioFlowPeakMax === 'number'
+              ? Number(asRecord(rawDiagnostics.audioRouting).audioFlowPeakMax)
+              : undefined,
+          validationPhase: asOptionalString(
+            asRecord(rawDiagnostics.audioRouting).validationPhase,
+          ),
+          lastValidatedAt: asOptionalString(
+            asRecord(rawDiagnostics.audioRouting).lastValidatedAt,
+          ),
+          lastRecoverReason: asOptionalString(
+            asRecord(rawDiagnostics.audioRouting).lastRecoverReason,
+          ),
+        }
+      : undefined,
 })
 
 const toPythonRulePatch = (rulePatch: DeviceRulePatch) => {
@@ -339,7 +388,8 @@ const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
     const device = asRecord(rawDevice)
     const deviceId = String(device.deviceId ?? device.device_id ?? '')
     const rule = normalizeRule(ruleMap[deviceId])
-    const connectionState = String(device.connectionState ?? 'disconnected')
+    const rawConnectionState = String(device.connectionState ?? 'disconnected')
+    const connectionState = normalizeBackendConnectionState(rawConnectionState)
     const lastAttempt = asRecord(device.lastConnectionAttempt)
     const capabilities = asRecord(device.capabilities)
     const failureReason =

@@ -141,6 +141,21 @@ export interface WatcherDiagnostics {
   serviceShutdown: boolean
 }
 
+export interface AudioRoutingDiagnostics {
+  currentDeviceId?: string
+  remoteContainerId?: string
+  remoteAepConnected?: boolean
+  remoteAepPresent?: boolean
+  localRenderId?: string
+  localRenderName?: string
+  localRenderState?: string
+  audioFlowObserved?: boolean
+  audioFlowPeakMax?: number
+  validationPhase?: string
+  lastValidatedAt?: string
+  lastRecoverReason?: string
+}
+
 // DiagnosticsState 由桥接定期刷新，用于“支持与诊断”页。
 export interface DiagnosticsState {
   // 诊断状态既包含数据库统计，也包含运行时桥接和观察器摘要。
@@ -159,6 +174,7 @@ export interface DiagnosticsState {
   recentErrors: DiagnosticsErrorSummary[]
   runtimeMode?: string
   watcher?: WatcherDiagnostics
+  audioRouting?: AudioRoutingDiagnostics
 }
 
 // runtime 记录桥接运行模式，主要用于托盘的 availability 判断。

@@ -167,6 +167,20 @@ describe('resolveBridge', () => {
             activityEventCount: 4,
             connectionAttemptCount: 2,
             lastSupportBundlePath: 'C:\\Users\\DreamBo\\AppData\\Local\\AudioBlue\\support-bundles\\bundle.zip',
+            audioRouting: {
+              currentDeviceId: 'device-1',
+              remoteContainerId: 'container-1',
+              remoteAepConnected: true,
+              remoteAepPresent: true,
+              localRenderId: 'render-1',
+              localRenderName: '扬声器',
+              localRenderState: 'active',
+              audioFlowObserved: true,
+              audioFlowPeakMax: 0.42,
+              validationPhase: 'audio_flow',
+              lastValidatedAt: '2026-03-25T10:00:02+00:00',
+              lastRecoverReason: null,
+            },
             recentErrors: [
               {
                 title: '连接失败',
@@ -270,6 +284,7 @@ describe('resolveBridge', () => {
     expect(state.ui.themeMode).toBe('dark')
     expect(state.recentActivity[0].title).toBe('连接失败')
     expect(state.diagnostics.databasePath).toMatch(/audioblue\.db$/i)
+    expect(state.diagnostics.audioRouting?.remoteContainerId).toBe('container-1')
     expect(state.devices[0].id).toBe('device-1')
     expect(state.deviceHistory[0]).toEqual(
       expect.objectContaining({
@@ -346,5 +361,162 @@ describe('resolveBridge', () => {
 
     expect(state.devices.length).toBeGreaterThan(0)
     expect(state.runtime.bridgeMode).toBe('mock')
+  })
+
+  it('maps stale and endpoint-not-ready snapshots into failed UI state', async () => {
+    window.pywebview = {
+      api: {
+        get_initial_state: vi.fn(async () => ({
+          devices: [
+            {
+              deviceId: 'device-1',
+              name: 'Surface Headphones',
+              connectionState: 'stale',
+              capabilities: {
+                supports_audio_playback: true,
+              },
+              lastConnectionAttempt: {
+                trigger: 'recover',
+                succeeded: false,
+                state: 'endpoint_not_ready',
+                failureReason: '首次连接后播放端点仍未就绪。',
+                failureCode: 'connection.endpoint_not_ready',
+                happenedAt: '2026-04-22T10:00:00+00:00',
+              },
+            },
+          ],
+          deviceRules: {},
+          lastFailure: {
+            deviceId: 'device-1',
+            state: 'stale',
+            code: 'connection.stale',
+            message: 'Windows 仍显示设备已连接，但 AudioBlue 已判定当前连接失活。',
+          },
+          lastTrigger: 'recover',
+          connectionOverview: {
+            status: 'stale',
+            currentDeviceId: 'device-1',
+            currentPhase: 'stale',
+            lastAttemptAt: '2026-04-22T10:00:00+00:00',
+            lastTrigger: 'recover',
+            lastErrorCode: 'connection.stale',
+            lastErrorMessage: 'Windows 仍显示设备已连接，但 AudioBlue 已判定当前连接失活。',
+          },
+          settings: {
+            notification: { policy: 'failures' },
+            startup: {
+              autostart: false,
+              runInBackground: false,
+              launchDelaySeconds: 3,
+              reconnectOnNextStart: true,
+            },
+            ui: { theme: 'dark', highContrast: false, language: 'zh-CN' },
+          },
+          autoConnectCandidates: [],
+          diagnostics: {
+            logRetentionDays: 90,
+            activityEventCount: 0,
+            connectionAttemptCount: 1,
+            logRecordCount: 0,
+            recentErrors: [],
+          },
+          deviceHistory: [],
+          recentActivity: [],
+        })),
+      },
+    } as typeof window.pywebview
+
+    const bridge = resolveBridge()
+    const state = await bridge.getInitialState()
+
+    expect(state.connection.status).toBe('failed')
+    expect(state.connection.currentPhase).toBe('failed')
+    expect(state.connection.lastErrorCode).toBe('connection.stale')
+    expect(state.devices[0].isConnected).toBe(false)
+    expect(state.devices[0].isConnecting).toBe(false)
+    expect(state.devices[0].lastResult).toBe('首次连接后播放端点仍未就绪。')
+  })
+
+  it('preserves connection.no_audio diagnostics and error code from native snapshot', async () => {
+    window.pywebview = {
+      api: {
+        get_initial_state: vi.fn(async () => ({
+          devices: [
+            {
+              deviceId: 'device-1',
+              name: 'Phone',
+              connectionState: 'failed',
+              capabilities: {
+                supports_audio_playback: true,
+              },
+              lastConnectionAttempt: {
+                trigger: 'recover',
+                succeeded: false,
+                state: 'failed',
+                failureReason: '设备已连接，但未检测到有效音频输出，自动恢复后仍未成功。',
+                failureCode: 'connection.no_audio',
+                happenedAt: '2026-04-23T10:00:00+00:00',
+              },
+            },
+          ],
+          deviceRules: {},
+          lastFailure: {
+            deviceId: 'device-1',
+            state: 'failed',
+            code: 'connection.no_audio',
+            message: '设备已连接，但未检测到有效音频输出，自动恢复后仍未成功。',
+          },
+          connectionOverview: {
+            status: 'failed',
+            currentPhase: 'failed',
+            lastErrorCode: 'connection.no_audio',
+            lastErrorMessage: '设备已连接，但未检测到有效音频输出，自动恢复后仍未成功。',
+          },
+          diagnostics: {
+            logRetentionDays: 90,
+            activityEventCount: 1,
+            connectionAttemptCount: 1,
+            logRecordCount: 0,
+            audioRouting: {
+              currentDeviceId: 'device-1',
+              remoteContainerId: 'container-1',
+              remoteAepConnected: true,
+              remoteAepPresent: true,
+              localRenderId: 'render-1',
+              localRenderName: '扬声器',
+              localRenderState: 'active',
+              audioFlowObserved: false,
+              audioFlowPeakMax: 0,
+              validationPhase: 'failed',
+              lastValidatedAt: '2026-04-23T10:00:04+00:00',
+              lastRecoverReason: 'no_audio',
+            },
+            recentErrors: [],
+          },
+          settings: {
+            notification: { policy: 'failures' },
+            startup: {
+              autostart: false,
+              runInBackground: false,
+              launchDelaySeconds: 3,
+              reconnectOnNextStart: true,
+            },
+            ui: { theme: 'dark', highContrast: false, language: 'zh-CN' },
+          },
+          autoConnectCandidates: [],
+          deviceHistory: [],
+          recentActivity: [],
+        })),
+      },
+    } as typeof window.pywebview
+
+    const bridge = resolveBridge()
+    const state = await bridge.getInitialState()
+
+    expect(state.connection.status).toBe('failed')
+    expect(state.connection.lastErrorCode).toBe('connection.no_audio')
+    expect(state.devices[0].lastResult).toBe('设备已连接，但未检测到有效音频输出，自动恢复后仍未成功。')
+    expect(state.diagnostics.audioRouting?.audioFlowObserved).toBe(false)
+    expect(state.diagnostics.audioRouting?.lastRecoverReason).toBe('no_audio')
   })
 })

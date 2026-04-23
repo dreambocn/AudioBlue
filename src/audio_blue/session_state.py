@@ -334,6 +334,9 @@ class SessionStateCoordinator:
                 "activeConnectionCount": len(getattr(self.service, "active_connections", {})),
                 "serviceShutdown": bool(getattr(self.service, "is_shutdown", False)),
             }
+            loader = getattr(self.service, "get_audio_routing_diagnostics", None)
+            if callable(loader):
+                diagnostics["audioRouting"] = loader()
         return snapshot
 
     def _detect_startup_phase_completed(self) -> bool:
@@ -427,12 +430,30 @@ class SessionStateCoordinator:
         state = "connected" if succeeded else payload.get("state", "error")
         if not isinstance(state, str):
             state = "error"
+        failure_code = (
+            None
+            if succeeded
+            else (
+                str(payload.get("failure_code"))
+                if isinstance(payload.get("failure_code"), str)
+                else f"connection.{state}"
+            )
+        )
 
         known_device = getattr(self.service, "known_devices", {}).get(device_id)
         device_name = getattr(known_device, "name", device_id)
         language = getattr(self.app_state.config.ui, "language", "system")
-        failure_reason = None if succeeded else connection_failure_message(state, language=language)
-        failure_code = None if succeeded else f"connection.{state}"
+        failure_reason = (
+            None
+            if succeeded
+            else (
+                str(payload.get("failure_message"))
+                if isinstance(payload.get("failure_message"), str)
+                else connection_failure_message("no_audio", language=language)
+                if failure_code == "connection.no_audio"
+                else connection_failure_message(state, language=language)
+            )
+        )
 
         self._invoke_storage_method(
             "record_connection_attempt",
@@ -501,7 +522,14 @@ class SessionStateCoordinator:
         state = payload.get("state", "error")
         if not isinstance(state, str):
             state = "error"
-        reason = connection_failure_message(state, language=language)
+        failure_code = payload.get("failure_code")
+        reason = (
+            str(payload.get("failure_message"))
+            if isinstance(payload.get("failure_message"), str)
+            else connection_failure_message("no_audio", language=language)
+            if failure_code == "connection.no_audio"
+            else connection_failure_message(state, language=language)
+        )
         title, body = notification_copy(
             "connect_failed",
             language=language,
@@ -532,18 +560,26 @@ class SessionStateCoordinator:
                 details={"trigger": trigger_name},
             )
         elif event_name == "device_connection_failed":
+            failure_code = (
+                str(payload.get("failure_code"))
+                if isinstance(payload.get("failure_code"), str)
+                else f"connection.{state}" if isinstance(state, str) else None
+            )
+            failure_message = (
+                str(payload.get("failure_message"))
+                if isinstance(payload.get("failure_message"), str)
+                else connection_failure_message("no_audio", language=getattr(self.app_state.config.ui, "language", "system"))
+                if failure_code == "connection.no_audio"
+                else connection_failure_message(str(state), language=getattr(self.app_state.config.ui, "language", "system"))
+            )
             self._record_activity_event(
                 area="connection",
                 event_type="connection.failed",
                 level="error",
                 title="连接失败",
-                detail=(
-                    f"{device_name} 连接失败：{connection_failure_message(str(state), language=getattr(self.app_state.config.ui, 'language', 'system'))}"
-                    if isinstance(device_name, str)
-                    else "设备连接失败。"
-                ),
+                detail=(f"{device_name} 连接失败：{failure_message}" if isinstance(device_name, str) else "设备连接失败。"),
                 device_id=device_id if isinstance(device_id, str) else None,
-                error_code=f"connection.{state}" if isinstance(state, str) else None,
+                error_code=failure_code,
                 details={"trigger": trigger_name, "state": state},
             )
         elif event_name == "device_disconnected":
@@ -586,6 +622,47 @@ class SessionStateCoordinator:
                 title="设备缓存已刷新",
                 detail="连接服务已完成一次设备刷新。",
                 details={"deviceIds": payload.get("device_ids")},
+            )
+        elif event_name == "device_endpoint_probe":
+            details = payload.get("details")
+            normalized_details = details if isinstance(details, dict) else None
+            render_ready = bool(normalized_details.get("render_ready")) if normalized_details else False
+            self._record_activity_event(
+                area="connection",
+                event_type=(
+                    "connection.endpoint_probe.confirmed"
+                    if render_ready
+                    else "connection.endpoint_probe.unconfirmed"
+                ),
+                level="info" if render_ready else "warning",
+                title="播放端点探测已确认" if render_ready else "播放端点探测未确认",
+                detail=(
+                    f"{device_name} 已匹配到 Windows 播放端点。"
+                    if render_ready
+                    else f"{device_name} 当前仍未匹配到 Windows 播放端点，已仅记录诊断。"
+                ),
+                device_id=device_id if isinstance(device_id, str) else None,
+                details={"trigger": trigger_name, **(normalized_details or {})},
+            )
+        elif event_name == "device_connection_diagnostics":
+            details = payload.get("details")
+            normalized_details = details if isinstance(details, dict) else {}
+            phase = str(normalized_details.get("phase", "unknown"))
+            status = str(normalized_details.get("status", "unknown"))
+            event_type, title, detail, level = _map_connection_diagnostics_activity(
+                device_name=str(device_name),
+                phase=phase,
+                status=status,
+                details=normalized_details,
+            )
+            self._record_activity_event(
+                area="connection",
+                event_type=event_type,
+                level=level,
+                title=title,
+                detail=detail,
+                device_id=device_id if isinstance(device_id, str) else None,
+                details={"trigger": trigger_name, **normalized_details},
             )
 
     def _record_activity_event(
@@ -670,6 +747,9 @@ class SessionStateCoordinator:
             return
 
         if event_name == "device_connection_failed":
+            if payload.get("suppress_recover") is True and isinstance(device_id, str):
+                self._cancel_recover_job(device_id)
+                return
             if isinstance(device_id, str) and trigger_name == "recover":
                 self._handle_recover_failure(device_id, state=payload.get("state"))
             return
@@ -902,3 +982,70 @@ class SessionStateCoordinator:
             if key in method_signature.parameters
         }
         method(**allowed)
+
+
+def _map_connection_diagnostics_activity(
+    *,
+    device_name: str,
+    phase: str,
+    status: str,
+    details: dict[str, Any],
+) -> tuple[str, str, str, str]:
+    if phase == "remote_aep":
+        if status == "confirmed":
+            return (
+                "connection.remote_aep.confirmed",
+                "远端设备身份已确认",
+                f"{device_name} 的远端设备身份已确认，ContainerId={details.get('containerId') or 'unknown'}。",
+                "info",
+            )
+        return (
+            "connection.remote_aep.unconfirmed",
+            "远端设备身份未确认",
+            f"{device_name} 当前未能确认远端设备身份，已仅记录诊断。",
+            "warning",
+        )
+
+    if phase == "local_render":
+        if status == "active":
+            return (
+                "connection.local_render.active",
+                "本机播放端点已激活",
+                f"{device_name} 当前使用的本机播放端点为 {details.get('renderName') or 'unknown'}。",
+                "info",
+            )
+        return (
+            "connection.local_render.inactive",
+            "本机播放端点不可用",
+            f"{device_name} 当前默认播放端点不可用，已记录自动恢复前的诊断信息。",
+            "warning",
+        )
+
+    if phase == "audio_flow":
+        if status == "observed":
+            return (
+                "connection.audio_flow.observed",
+                "已观测到音频输出",
+                f"{device_name} 已观测到有效音频输出峰值。",
+                "info",
+            )
+        if details.get("nextAction") == "recover":
+            return (
+                "connection.audio_flow.recovering",
+                "未观测到音频输出，准备自动恢复",
+                f"{device_name} 当前未观测到有效音频输出，已转入自动恢复。",
+                "warning",
+            )
+        return (
+            "connection.audio_flow.unconfirmed",
+            "未观测到有效音频输出",
+            f"{device_name} 当前未观测到有效音频输出，已保留诊断信息。",
+            "warning",
+        )
+
+    return (
+        "connection.diagnostics.unknown",
+        "连接诊断已更新",
+        f"{device_name} 的连接诊断已更新。",
+        "info",
+    )

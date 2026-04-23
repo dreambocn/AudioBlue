@@ -84,6 +84,26 @@ def test_app_state_connection_attempt_uses_failure_code_as_stable_contract():
     assert attempt["failureCode"] == "connection.denied"
 
 
+def test_app_state_prefers_failure_code_override_for_no_audio_failures():
+    store = AppStateStore(config=AppConfig(ui=UiPreferences(language="zh-CN")))
+    store.sync_devices([DeviceSummary(device_id="device-1", name="Headphones")])
+
+    store.handle_connector_event(
+        {
+            "event": "device_connection_failed",
+            "device_id": "device-1",
+            "state": "failed",
+            "failure_code": "connection.no_audio",
+            "trigger": "recover",
+        }
+    )
+    snapshot = store.snapshot()
+
+    assert snapshot["lastFailure"]["code"] == "connection.no_audio"
+    assert snapshot["lastFailure"]["message"] == "设备已连接，但未检测到有效音频输出，自动恢复后仍未成功。"
+    assert snapshot["devices"][0]["lastConnectionAttempt"]["failureCode"] == "connection.no_audio"
+
+
 def test_app_state_snapshot_includes_scan_visibility_flag():
     store = AppStateStore(config=AppConfig())
     store.sync_devices(
@@ -230,6 +250,20 @@ def test_app_state_snapshot_uses_structured_activity_connection_overview_and_dia
                 "connectionAttemptCount": 1,
                 "lastExportPath": "C:\\Users\\DreamBo\\AppData\\Local\\AudioBlue\\diagnostics\\diagnostics-1.json",
                 "lastSupportBundlePath": "C:\\Users\\DreamBo\\AppData\\Local\\AudioBlue\\support-bundles\\support-1.zip",
+                "audioRouting": {
+                    "currentDeviceId": "device-1",
+                    "remoteContainerId": "container-1",
+                    "remoteAepConnected": True,
+                    "remoteAepPresent": True,
+                    "localRenderId": "render-1",
+                    "localRenderName": "扬声器",
+                    "localRenderState": "active",
+                    "audioFlowObserved": True,
+                    "audioFlowPeakMax": 0.42,
+                    "validationPhase": "audio_flow",
+                    "lastValidatedAt": "2026-03-25T10:00:02+00:00",
+                    "lastRecoverReason": None,
+                },
                 "recentErrors": [
                     {
                         "title": "连接失败",
@@ -271,4 +305,5 @@ def test_app_state_snapshot_uses_structured_activity_connection_overview_and_dia
     assert snapshot["connectionOverview"]["lastErrorCode"] == "connection.timeout"
     assert snapshot["connectionOverview"]["lastErrorMessage"] == "连接超时"
     assert snapshot["diagnostics"]["databasePath"].endswith("audioblue.db")
+    assert snapshot["diagnostics"]["audioRouting"]["remoteContainerId"] == "container-1"
     assert snapshot["diagnostics"]["recentErrors"][0]["title"] == "连接失败"

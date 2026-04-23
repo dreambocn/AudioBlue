@@ -43,6 +43,7 @@ export function SettingsPage({
     state.diagnostics.lastSupportBundlePath ?? state.diagnostics.lastExportPath
   const supportBundleTime =
     state.diagnostics.lastSupportBundleAt ?? state.diagnostics.lastExportAt
+  const audioRouting = state.diagnostics.audioRouting
 
   return (
     <section className="page-grid">
@@ -187,6 +188,79 @@ export function SettingsPage({
                     state.diagnostics.watcher?.serviceShutdown
                       ? t('common.on')
                       : t('common.off'),
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.audioRouting.currentDevice', {
+                  value: audioRouting?.currentDeviceId ?? t('common.notAvailable'),
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.audioRouting.remoteContainer', {
+                  value: audioRouting?.remoteContainerId ?? t('common.notAvailable'),
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.audioRouting.remoteConnected', {
+                  value:
+                    audioRouting?.remoteAepConnected === undefined
+                      ? t('common.notAvailable')
+                      : audioRouting.remoteAepConnected
+                        ? t('common.on')
+                        : t('common.off'),
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.audioRouting.remotePresent', {
+                  value:
+                    audioRouting?.remoteAepPresent === undefined
+                      ? t('common.notAvailable')
+                      : audioRouting.remoteAepPresent
+                        ? t('common.on')
+                        : t('common.off'),
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.audioRouting.localRender', {
+                  value: audioRouting?.localRenderName ?? t('common.notAvailable'),
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.audioRouting.localRenderState', {
+                  value: audioRouting?.localRenderState ?? t('common.notAvailable'),
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.audioRouting.audioFlowObserved', {
+                  value:
+                    audioRouting?.audioFlowObserved === undefined
+                      ? t('common.notAvailable')
+                      : audioRouting.audioFlowObserved
+                        ? t('common.on')
+                        : t('common.off'),
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.audioRouting.audioFlowPeak', {
+                  value:
+                    audioRouting?.audioFlowPeakMax === undefined
+                      ? t('common.notAvailable')
+                      : String(audioRouting.audioFlowPeakMax),
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.audioRouting.validationPhase', {
+                  value: audioRouting?.validationPhase ?? t('common.notAvailable'),
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.audioRouting.lastValidatedAt', {
+                  value: audioRouting?.lastValidatedAt ?? t('common.notAvailable'),
+                })}
+              </p>
+              <p>
+                {t('settings.diagnostics.audioRouting.lastRecoverReason', {
+                  value: audioRouting?.lastRecoverReason ?? t('common.notAvailable'),
                 })}
               </p>
             </div>

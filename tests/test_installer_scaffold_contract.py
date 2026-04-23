@@ -82,3 +82,13 @@ def test_inno_core_installs_local_webview2_runtime_in_bundled_variant():
     assert '#define WebView2RuntimeRelativePath "..\\dist\\webview2\\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"' in content
     assert '#define WebView2BundledInstallerName "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"' in content
     assert "'/silent /install'" in content
+
+
+def test_inno_core_closes_running_audioblue_before_installing():
+    content = read_text(INNO_CORE_SCRIPT_PATH)
+
+    assert "CloseApplications=force" in content
+    assert "RestartApplications=no" in content
+    assert "function PrepareToInstall(var NeedsRestart: Boolean): String;" in content
+    assert "taskkill /IM audioblue.exe /T" in content
+    assert "taskkill /F /IM audioblue.exe /T" in content

@@ -16,6 +16,7 @@
 - Fresh install creates Start Menu shortcuts.
 - Desktop shortcut remains disabled by default unless selected.
 - "Launch after install" starts `AudioBlue.exe`.
+- 升级安装时，安装器会先尝试自动关闭正在运行的 `audioblue.exe`，不要求用户手动结束进程。
 
 ## Runtime Behavior
 - Autostart task writes Windows Run key for current user.

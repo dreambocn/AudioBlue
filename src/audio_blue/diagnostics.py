@@ -129,7 +129,7 @@ def _serialize_device_rule(rule: DeviceRule) -> dict[str, Any]:
 
 def _serialize_device(device: DeviceSummary) -> dict[str, Any]:
     """序列化设备快照，同时保留能力信息与最近连接结果。"""
-    return {
+    payload = {
         "deviceId": device.device_id,
         "name": device.name,
         "connectionState": device.connection_state,
@@ -144,6 +144,13 @@ def _serialize_device(device: DeviceSummary) -> dict[str, Any]:
             else None
         ),
     }
+    if device.container_id is not None:
+        payload["containerId"] = device.container_id
+    if device.aep_is_connected is not None:
+        payload["aepIsConnected"] = device.aep_is_connected
+    if device.aep_is_present is not None:
+        payload["aepIsPresent"] = device.aep_is_present
+    return payload
 
 
 def _serialize_attempt(attempt: ConnectionAttempt) -> dict[str, Any]:

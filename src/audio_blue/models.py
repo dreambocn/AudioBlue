@@ -83,6 +83,9 @@ class DeviceSummary:
     connection_state: str = "disconnected"
     capabilities: DeviceCapabilities = field(default_factory=DeviceCapabilities)
     present_in_last_scan: bool = True
+    container_id: str | None = None
+    aep_is_connected: bool | None = None
+    aep_is_present: bool | None = None
     last_seen_at: datetime | None = None
     last_connection_attempt: ConnectionAttempt | None = None
 

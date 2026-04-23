@@ -42,6 +42,8 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
+CloseApplications=force
+RestartApplications=no
 
 [Tasks]
 Name: "startmenu"; Description: "Create Start Menu shortcuts"; GroupDescription: "Shortcuts:"
@@ -180,11 +182,44 @@ begin
     (not WebView2RestartRequired);
 end;
 
+procedure TryCloseRunningAudioBlue();
+var
+  ExitCode: Integer;
+begin
+  if not Exec(
+    ExpandConstant('{cmd}'),
+    '/C taskkill /IM audioblue.exe /T',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ExitCode
+  ) then
+    ExitCode := 0;
+
+  if ExitCode = 0 then
+    exit;
+
+  Exec(
+    ExpandConstant('{cmd}'),
+    '/C taskkill /F /IM audioblue.exe /T',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ExitCode
+  );
+end;
+
 procedure InitializeWizard();
 begin
   WebView2WarningShown := False;
   WebView2InstallFailed := False;
   WebView2RestartRequired := False;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  TryCloseRunningAudioBlue();
+  Result := '';
 end;
 
 procedure CurPageChanged(CurPageID: Integer);

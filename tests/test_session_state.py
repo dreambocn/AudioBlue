@@ -558,6 +558,53 @@ def test_session_state_recover_success_on_second_attempt_stops_future_retries():
     assert sum(1 for item in storage.activity_events if item["event_type"] == "connection.recover.succeeded") == 1
 
 
+def test_session_state_terminal_no_audio_failure_cancels_pending_recover_job():
+    service = ConnectorServiceStub()
+    service.initial_enumeration_completed = True
+    service.active_connections["device-1"] = object()
+    service.known_devices["device-1"] = DeviceSummary(
+        device_id="device-1",
+        name="Headphones",
+        connection_state="connected",
+        present_in_last_scan=True,
+    )
+    service.connect_outcomes["device-1"] = ["connected"]
+    scheduler = RetrySchedulerStub()
+    storage = StorageStub()
+    published_notifications: list[NotificationMessage] = []
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(
+            config=AppConfig(
+                notification=NotificationPreferences(policy="all"),
+                device_rules={"device-1": DeviceRule(auto_connect_on_reappear=True)},
+            )
+        ),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="all", sink=published_notifications.append),
+        storage=storage,
+        retry_scheduler=scheduler,
+    )
+
+    service.emit_state_event("device-1", state="disconnected")
+    service._state_callback(
+        {
+            "event": "device_connection_failed",
+            "device_id": "device-1",
+            "state": "failed",
+            "trigger": "recover",
+            "failure_code": "connection.no_audio",
+            "suppress_recover": True,
+        }
+    )
+
+    assert service.connect_calls == [("device-1", "recover")]
+    assert scheduler.calls == []
+    assert any(item["failure_code"] == "connection.no_audio" for item in storage.connection_attempts)
+    assert published_notifications
+    assert published_notifications[-1].level == "error"
+
+
 def test_session_state_manual_disconnect_suppresses_recover_and_reappear_until_manual_connect():
     service = ConnectorServiceStub()
     service.initial_enumeration_completed = True
@@ -776,3 +823,37 @@ def test_session_state_emits_single_state_channel_for_refresh_connection_rules_a
 
     assert len(observed) >= 4
     assert all("devices" in item for item in observed)
+
+
+def test_session_state_records_connection_diagnostics_activity_without_marking_failure():
+    service = ConnectorServiceStub()
+    storage = StorageStub()
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(config=AppConfig()),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="silent"),
+        storage=storage,
+    )
+
+    session_state.refresh_devices()
+    service.connect("device-1")
+    service._state_callback(
+        {
+            "event": "device_connection_diagnostics",
+            "device_id": "device-1",
+            "trigger": "manual",
+            "details": {
+                "phase": "audio_flow",
+                "status": "unconfirmed",
+                "peakMax": 0.0,
+                "sampleCount": 8,
+                "threshold": 0.01,
+            },
+        }
+    )
+    snapshot = session_state.snapshot()
+
+    assert snapshot["devices"][0]["connectionState"] == "connected"
+    assert snapshot["lastFailure"] is None
+    assert any(item["event_type"] == "connection.audio_flow.unconfirmed" for item in storage.activity_events)

@@ -2,6 +2,7 @@
 
 import time
 
+from audio_blue.audio_routing import AudioFlowObservation, LocalRenderSnapshot
 from audio_blue.connector_service import ConnectorService
 from audio_blue.models import DeviceSummary
 
@@ -14,6 +15,7 @@ class WatcherBackendStub:
         self.watcher_callback = None
         self.connect_impl = None
         self.probe_impl = None
+        self.disconnect_calls = 0
         self.stop_calls = 0
 
     def list_devices(self):
@@ -30,6 +32,7 @@ class WatcherBackendStub:
         return "connected"
 
     def disconnect(self, handle):
+        self.disconnect_calls += 1
         return None
 
     def start_watcher(self, callback):
@@ -44,14 +47,50 @@ class WatcherBackendStub:
         self.watcher_callback(payload)
 
 
+class AudioRouteProbeStub:
+    """按测试场景返回固定的本机输出与峰值结果。"""
+
+    def __init__(
+        self,
+        *,
+        render_snapshot: LocalRenderSnapshot | None = None,
+        flow_observation: AudioFlowObservation | None = None,
+    ) -> None:
+        self.render_snapshot = render_snapshot or LocalRenderSnapshot(
+            render_id="render-1",
+            render_name="扬声器",
+            render_state="active",
+            is_active=True,
+        )
+        self.flow_observation = flow_observation or AudioFlowObservation(
+            observed=True,
+            peak_max=0.25,
+            sample_count=4,
+            threshold=0.01,
+        )
+
+    def get_default_render_snapshot(self) -> LocalRenderSnapshot:
+        return self.render_snapshot
+
+    def sample_audio_flow(
+        self,
+        *,
+        render_id: str,
+        sample_count: int,
+        sample_interval_seconds: float,
+        threshold: float,
+    ) -> AudioFlowObservation:
+        return self.flow_observation
+
+
 def _wait_until(predicate, timeout: float = 1.0) -> None:
-    """等待后台线程完成观察器注册，避免测试与异步初始化抢跑。"""
+    """等待后台线程完成异步事件，避免测试与线程抢跑。"""
     deadline = time.time() + timeout
     while time.time() < deadline:
         if predicate():
             return
         time.sleep(0.01)
-    raise AssertionError("Timed out waiting for watcher callback to be ready.")
+    raise AssertionError("Timed out waiting for async state.")
 
 
 def test_service_watcher_tracks_added_and_removed_devices_without_manual_refresh():
@@ -127,9 +166,16 @@ def test_service_marks_connection_stale_when_health_check_fails_without_disconne
     backend = WatcherBackendStub()
     backend.devices = [DeviceSummary(device_id="device-1", name="Phone")]
     backend.probe_impl = lambda _handle: "stale"
-    service = ConnectorService(backend=backend, state_callback=published.append)
+    service = ConnectorService(
+        backend=backend,
+        state_callback=published.append,
+        audio_route_probe=AudioRouteProbeStub(),
+        health_check_interval_seconds=0,
+        remote_aep_delay_seconds=0,
+    )
     service.refresh_devices()
     service.connect("device-1", trigger="manual")
+    _wait_until(lambda: any(item.get("event") == "device_connection_diagnostics" for item in published))
 
     service.poll_connection_health()
 
@@ -140,4 +186,181 @@ def test_service_marks_connection_stale_when_health_check_fails_without_disconne
         "device_id": "device-1",
         "state": "stale",
         "trigger": "health_check",
+    }
+
+
+def test_service_keeps_connection_and_emits_new_diagnostics_when_audio_flow_is_observed():
+    published = []
+    backend = WatcherBackendStub()
+    backend.devices = [
+        DeviceSummary(
+            device_id="device-1",
+            name="Phone",
+            container_id="container-1",
+            aep_is_connected=True,
+            aep_is_present=True,
+        )
+    ]
+    service = ConnectorService(
+        backend=backend,
+        state_callback=published.append,
+        health_check_interval_seconds=0,
+        audio_route_probe=AudioRouteProbeStub(
+            flow_observation=AudioFlowObservation(
+                observed=True,
+                peak_max=0.42,
+                sample_count=3,
+                threshold=0.01,
+            )
+        ),
+        remote_aep_delay_seconds=0,
+    )
+    service.refresh_devices()
+
+    service.connect("device-1", trigger="manual")
+    _wait_until(
+        lambda: any(
+            item.get("event") == "device_connection_diagnostics"
+            and item.get("details", {}).get("phase") == "audio_flow"
+            for item in published
+        )
+    )
+
+    assert "device-1" in service.active_connections
+    assert service.known_devices["device-1"].connection_state == "connected"
+    assert backend.disconnect_calls == 0
+    assert any(
+        item == {
+            "event": "device_connection_diagnostics",
+            "device_id": "device-1",
+            "trigger": "manual",
+            "details": {
+                "phase": "remote_aep",
+                "status": "confirmed",
+                "containerId": "container-1",
+                "aepConnected": True,
+                "aepPresent": True,
+            },
+        }
+        for item in published
+    )
+    assert any(
+        item.get("event") == "device_connection_diagnostics"
+        and item.get("details", {}).get("phase") == "local_render"
+        and item.get("details", {}).get("status") == "active"
+        for item in published
+    )
+    assert any(
+        item.get("event") == "device_connection_diagnostics"
+        and item.get("details", {}).get("phase") == "audio_flow"
+        and item.get("details", {}).get("status") == "observed"
+        for item in published
+    )
+
+
+def test_service_first_no_audio_detection_disconnects_and_waits_for_recover():
+    published = []
+    backend = WatcherBackendStub()
+    backend.devices = [
+        DeviceSummary(
+            device_id="device-1",
+            name="Phone",
+            container_id="container-1",
+            aep_is_connected=True,
+            aep_is_present=True,
+        )
+    ]
+    service = ConnectorService(
+        backend=backend,
+        state_callback=published.append,
+        health_check_interval_seconds=0,
+        audio_route_probe=AudioRouteProbeStub(
+            flow_observation=AudioFlowObservation(
+                observed=False,
+                peak_max=0.0,
+                sample_count=8,
+                threshold=0.01,
+            )
+        ),
+        remote_aep_delay_seconds=0,
+    )
+    service.refresh_devices()
+
+    service.connect("device-1", trigger="manual")
+    _wait_until(
+        lambda: any(
+            item.get("event") == "device_disconnected"
+            and item.get("trigger") == "no_audio_validation"
+            for item in published
+        )
+    )
+
+    assert "device-1" not in service.active_connections
+    assert service.known_devices["device-1"].connection_state == "disconnected"
+    assert backend.disconnect_calls == 1
+    assert not any(item.get("event") == "device_connection_failed" for item in published)
+    assert any(
+        item.get("event") == "device_connection_diagnostics"
+        and item.get("details", {}).get("phase") == "audio_flow"
+        and item.get("details", {}).get("nextAction") == "recover"
+        for item in published
+    )
+
+
+def test_service_second_no_audio_detection_after_recover_fails_terminally():
+    published = []
+    backend = WatcherBackendStub()
+    backend.devices = [
+        DeviceSummary(
+            device_id="device-1",
+            name="Phone",
+            container_id="container-1",
+            aep_is_connected=True,
+            aep_is_present=True,
+        )
+    ]
+    service = ConnectorService(
+        backend=backend,
+        state_callback=published.append,
+        health_check_interval_seconds=0,
+        audio_route_probe=AudioRouteProbeStub(
+            flow_observation=AudioFlowObservation(
+                observed=False,
+                peak_max=0.0,
+                sample_count=8,
+                threshold=0.01,
+            )
+        ),
+        remote_aep_delay_seconds=0,
+    )
+    service.refresh_devices()
+
+    service.connect("device-1", trigger="manual")
+    _wait_until(
+        lambda: any(
+            item.get("event") == "device_disconnected"
+            and item.get("trigger") == "no_audio_validation"
+            for item in published
+        )
+    )
+
+    service.connect("device-1", trigger="recover")
+    _wait_until(
+        lambda: any(
+            item.get("event") == "device_connection_failed"
+            and item.get("failure_code") == "connection.no_audio"
+            for item in published
+        )
+    )
+
+    assert "device-1" not in service.active_connections
+    assert service.known_devices["device-1"].connection_state == "failed"
+    assert backend.disconnect_calls == 2
+    assert published[-1] == {
+        "event": "device_connection_failed",
+        "device_id": "device-1",
+        "state": "failed",
+        "trigger": "recover",
+        "failure_code": "connection.no_audio",
+        "suppress_recover": True,
     }

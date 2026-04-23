@@ -43,7 +43,18 @@ class AppStateStore:
         elif event_name in {"device_disconnected", "device_state_changed"}:
             state = payload.get("state", "disconnected")
             if isinstance(state, str):
-                self._apply_device_state(device_id=device_id, state=state, trigger=trigger_name)
+                self._apply_device_state(
+                    device_id=device_id,
+                    state=state,
+                    trigger=trigger_name,
+                    failure_code_override=_string_or_none(payload.get("failure_code")),
+                    failure_reason_override=_resolve_failure_message(
+                        state=state,
+                        failure_code=_string_or_none(payload.get("failure_code")),
+                        failure_message=_string_or_none(payload.get("failure_message")),
+                        language=getattr(self.config.ui, "language", "system"),
+                    ),
+                )
                 if state == "stale":
                     language = getattr(self.config.ui, "language", "system")
                     self._last_failure = {
@@ -56,13 +67,26 @@ class AppStateStore:
             state = payload.get("state", "error")
             if not isinstance(state, str):
                 state = "error"
-            self._apply_device_state(device_id=device_id, state=state, trigger=trigger_name)
             language = getattr(self.config.ui, "language", "system")
+            failure_code = _string_or_none(payload.get("failure_code")) or f"connection.{state}"
+            failure_message = _resolve_failure_message(
+                state=state,
+                failure_code=failure_code,
+                failure_message=_string_or_none(payload.get("failure_message")),
+                language=language,
+            )
+            self._apply_device_state(
+                device_id=device_id,
+                state=state,
+                trigger=trigger_name,
+                failure_code_override=failure_code,
+                failure_reason_override=failure_message,
+            )
             self._last_failure = {
                 "deviceId": device_id,
                 "state": state,
-                "code": f"connection.{state}",
-                "message": humanize_connection_failure(state, language=language),
+                "code": failure_code,
+                "message": failure_message,
             }
 
     def update_device_rule(self, device_id: str, rule_patch: dict[str, Any]) -> DeviceRule:
@@ -107,7 +131,15 @@ class AppStateStore:
             "autoConnectCandidates": [device.device_id for device in auto_connect_candidates],
         }
 
-    def _apply_device_state(self, device_id: str, state: str, trigger: str) -> None:
+    def _apply_device_state(
+        self,
+        device_id: str,
+        state: str,
+        trigger: str,
+        *,
+        failure_code_override: str | None = None,
+        failure_reason_override: str | None = None,
+    ) -> None:
         device = self._devices.get(device_id)
         if device is None:
             return
@@ -120,9 +152,19 @@ class AppStateStore:
             failure_reason=(
                 None
                 if state == "connected"
-                else humanize_connection_failure(state, language=getattr(self.config.ui, "language", "system"))
+                else (
+                    failure_reason_override
+                    or humanize_connection_failure(
+                        state,
+                        language=getattr(self.config.ui, "language", "system"),
+                    )
+                )
             ),
-            failure_code=None if state == "connected" else f"connection.{state}",
+            failure_code=(
+                None
+                if state == "connected"
+                else failure_code_override or f"connection.{state}"
+            ),
         )
         self._devices[device_id] = replace(
             device,
@@ -274,6 +316,20 @@ class AppStateStore:
             "lastSupportBundlePath": None,
             "lastSupportBundleAt": None,
             "recentErrors": [],
+            "audioRouting": {
+                "currentDeviceId": None,
+                "remoteContainerId": None,
+                "remoteAepConnected": None,
+                "remoteAepPresent": None,
+                "localRenderId": None,
+                "localRenderName": None,
+                "localRenderState": None,
+                "audioFlowObserved": None,
+                "audioFlowPeakMax": None,
+                "validationPhase": None,
+                "lastValidatedAt": None,
+                "lastRecoverReason": None,
+            },
         }
 
     def _load_connection_attempts(self, *, limit: int) -> list[dict[str, Any]]:
@@ -347,3 +403,17 @@ def _string_or_none(value: Any) -> str | None:
     if isinstance(value, str):
         return value
     return None
+
+
+def _resolve_failure_message(
+    *,
+    state: str,
+    failure_code: str | None,
+    failure_message: str | None,
+    language: str,
+) -> str:
+    if failure_message:
+        return failure_message
+    if failure_code == "connection.no_audio":
+        return humanize_connection_failure("no_audio", language=language)
+    return humanize_connection_failure(state, language=language)
