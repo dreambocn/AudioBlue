@@ -8,3 +8,6 @@ ui/node_modules/
 *.tmp
 
 .worktrees/
+.codex-tmp
+AGENTS.md
+docs/Linear.md

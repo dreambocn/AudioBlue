@@ -258,7 +258,7 @@ def _load_render_name(render_id: str) -> str | None:
 
 def _get_device_state(render_id: str) -> str:
     com_scope = _CoInitializeScope()
-    device = _open_default_audio_device(com_scope=com_scope)
+    device = _open_audio_device_by_id(render_id, com_scope=com_scope)
     try:
         state_value = ctypes.c_uint32()
         _invoke_method(
@@ -276,7 +276,7 @@ def _get_device_state(render_id: str) -> str:
 
 def _open_audio_meter(render_id: str) -> _MeterHandle:
     com_scope = _CoInitializeScope()
-    device = _open_default_audio_device(com_scope=com_scope)
+    device = _open_audio_device_by_id(render_id, com_scope=com_scope)
     try:
         meter_ptr = c_void_p()
         _invoke_method(
@@ -307,6 +307,43 @@ def _open_default_audio_device(
     *,
     com_scope: "_CoInitializeScope",
 ) -> POINTER(_IMMDevice):
+    enumerator = _create_device_enumerator()
+    try:
+        device_ptr = c_void_p()
+        _invoke_method(
+            enumerator,
+            4,
+            ctypes.c_int,
+            ctypes.c_int,
+            POINTER(c_void_p),
+        )(_ERENDER, _ECONSOLE, byref(device_ptr))
+        return ctypes.cast(device_ptr, POINTER(_IMMDevice))
+    finally:
+        _release_com_object(enumerator)
+
+
+def _open_audio_device_by_id(
+    render_id: str,
+    *,
+    com_scope: "_CoInitializeScope",
+) -> POINTER(_IMMDevice):
+    if not render_id:
+        return _open_default_audio_device(com_scope=com_scope)
+    enumerator = _create_device_enumerator()
+    try:
+        device_ptr = c_void_p()
+        _invoke_method(
+            enumerator,
+            5,
+            ctypes.c_wchar_p,
+            POINTER(c_void_p),
+        )(render_id, byref(device_ptr))
+        return ctypes.cast(device_ptr, POINTER(_IMMDevice))
+    finally:
+        _release_com_object(enumerator)
+
+
+def _create_device_enumerator() -> POINTER(_IMMDeviceEnumerator):
     try:
         enumerator_ptr = c_void_p()
         _check_hresult(
@@ -318,19 +355,7 @@ def _open_default_audio_device(
                 byref(enumerator_ptr),
             )
         )
-        enumerator = ctypes.cast(enumerator_ptr, POINTER(_IMMDeviceEnumerator))
-        device_ptr = c_void_p()
-        try:
-            _invoke_method(
-                enumerator,
-                4,
-                ctypes.c_int,
-                ctypes.c_int,
-                POINTER(c_void_p),
-            )(_ERENDER, _ECONSOLE, byref(device_ptr))
-            return ctypes.cast(device_ptr, POINTER(_IMMDevice))
-        finally:
-            _release_com_object(enumerator)
+        return ctypes.cast(enumerator_ptr, POINTER(_IMMDeviceEnumerator))
     except Exception:
         raise
 

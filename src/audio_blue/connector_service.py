@@ -40,6 +40,8 @@ _DEVICE_REQUESTED_PROPERTIES = (
 )
 _HEALTH_CHECK_INTERVAL_SECONDS = 2.0
 _REMOTE_AEP_DELAY_SECONDS = 2.0
+_ENDPOINT_PROBE_DELAY_SECONDS = 0.5
+_ENDPOINT_READY_RETRY_DELAYS_SECONDS = (1.0,)
 _AUDIO_FLOW_SAMPLE_COUNT = 8
 _AUDIO_FLOW_SAMPLE_INTERVAL_SECONDS = 0.5
 _AUDIO_FLOW_THRESHOLD = 0.01
@@ -293,8 +295,8 @@ class ConnectorService:
         endpoint_probe: object | None = None,
         audio_route_probe: AudioRouteProbe | None = None,
         health_check_interval_seconds: float = _HEALTH_CHECK_INTERVAL_SECONDS,
-        endpoint_ready_retry_delays_seconds: tuple[float, ...] = (),
-        endpoint_probe_delay_seconds: float = 0.0,
+        endpoint_ready_retry_delays_seconds: tuple[float, ...] = _ENDPOINT_READY_RETRY_DELAYS_SECONDS,
+        endpoint_probe_delay_seconds: float = _ENDPOINT_PROBE_DELAY_SECONDS,
         remote_aep_delay_seconds: float = _REMOTE_AEP_DELAY_SECONDS,
         audio_flow_sample_count: int = _AUDIO_FLOW_SAMPLE_COUNT,
         audio_flow_sample_interval_seconds: float = _AUDIO_FLOW_SAMPLE_INTERVAL_SECONDS,
@@ -653,131 +655,146 @@ class ConnectorService:
             sleep(self._remote_aep_delay_seconds)
         if not self._is_validation_current(device_id, handle, validation_token):
             return
+        attempt_delays = self._build_validation_attempt_delays()
 
-        remote_details = self._build_remote_aep_details(device_id)
-        remote_status = (
-            "confirmed"
-            if remote_details["aepConnected"] is True and remote_details["aepPresent"] is True
-            else "unconfirmed"
-        )
-        self._update_audio_routing_state(
-            device_id=device_id,
-            phase="remote_aep",
-            remote_details=remote_details,
-        )
-        self._emit_connection_diagnostics(
-            device_id=device_id,
-            trigger=trigger,
-            phase="remote_aep",
-            status=remote_status,
-            details=remote_details,
-        )
-        if not self._is_validation_current(device_id, handle, validation_token):
-            return
+        for attempt_index, delay_seconds in enumerate(attempt_delays):
+            if delay_seconds > 0:
+                sleep(delay_seconds)
+            if not self._is_validation_current(device_id, handle, validation_token):
+                return
 
-        try:
-            render_snapshot = self._audio_route_probe.get_default_render_snapshot()
-        except Exception as exc:
-            render_snapshot = LocalRenderSnapshot(
-                render_id=None,
-                render_name=None,
-                render_state="error",
-                is_active=False,
-                error=f"render_snapshot:{type(exc).__name__}",
+            remote_details = self._build_remote_aep_details(device_id)
+            remote_confirmed = (
+                remote_details["aepConnected"] is True and remote_details["aepPresent"] is True
             )
-        local_status = "active" if render_snapshot.is_active else (
-            "error" if render_snapshot.render_state == "error" else "inactive"
-        )
-        self._update_audio_routing_state(
-            device_id=device_id,
-            phase="local_render",
-            render_snapshot=render_snapshot,
-        )
-        self._emit_connection_diagnostics(
-            device_id=device_id,
-            trigger=trigger,
-            phase="local_render",
-            status=local_status,
-            details=render_snapshot.to_details(),
-        )
-        if not self._is_validation_current(device_id, handle, validation_token):
-            return
+            remote_status = "confirmed" if remote_confirmed else "unconfirmed"
+            self._update_audio_routing_state(
+                device_id=device_id,
+                phase="remote_aep",
+                remote_details=remote_details,
+            )
+            self._emit_connection_diagnostics(
+                device_id=device_id,
+                trigger=trigger,
+                phase="remote_aep",
+                status=remote_status,
+                details=remote_details,
+            )
+            if not self._is_validation_current(device_id, handle, validation_token):
+                return
 
-        if render_snapshot.is_active and render_snapshot.render_id:
             try:
-                flow_observation = self._audio_route_probe.sample_audio_flow(
-                    render_id=render_snapshot.render_id,
-                    sample_count=self._audio_flow_sample_count,
-                    sample_interval_seconds=self._audio_flow_sample_interval_seconds,
-                    threshold=self._audio_flow_threshold,
-                )
+                render_snapshot = self._audio_route_probe.get_default_render_snapshot()
             except Exception as exc:
+                render_snapshot = LocalRenderSnapshot(
+                    render_id=None,
+                    render_name=None,
+                    render_state="error",
+                    is_active=False,
+                    error=f"render_snapshot:{type(exc).__name__}",
+                )
+            local_status = "active" if render_snapshot.is_active else (
+                "error" if render_snapshot.render_state == "error" else "inactive"
+            )
+            self._update_audio_routing_state(
+                device_id=device_id,
+                phase="local_render",
+                render_snapshot=render_snapshot,
+            )
+            self._emit_connection_diagnostics(
+                device_id=device_id,
+                trigger=trigger,
+                phase="local_render",
+                status=local_status,
+                details=render_snapshot.to_details(),
+            )
+            if not self._is_validation_current(device_id, handle, validation_token):
+                return
+
+            if render_snapshot.is_active and render_snapshot.render_id:
+                try:
+                    flow_observation = self._audio_route_probe.sample_audio_flow(
+                        render_id=render_snapshot.render_id,
+                        sample_count=self._audio_flow_sample_count,
+                        sample_interval_seconds=self._audio_flow_sample_interval_seconds,
+                        threshold=self._audio_flow_threshold,
+                    )
+                except Exception as exc:
+                    flow_observation = AudioFlowObservation(
+                        observed=False,
+                        peak_max=0.0,
+                        sample_count=0,
+                        threshold=self._audio_flow_threshold,
+                        error=f"audio_flow:{type(exc).__name__}",
+                    )
+            else:
                 flow_observation = AudioFlowObservation(
                     observed=False,
                     peak_max=0.0,
                     sample_count=0,
                     threshold=self._audio_flow_threshold,
-                    error=f"audio_flow:{type(exc).__name__}",
+                    error="render_inactive",
                 )
-        else:
-            flow_observation = AudioFlowObservation(
-                observed=False,
-                peak_max=0.0,
-                sample_count=0,
-                threshold=self._audio_flow_threshold,
-                error="render_inactive",
-            )
 
-        flow_status = (
-            "observed"
-            if flow_observation.observed
-            else "error"
-            if flow_observation.error is not None and not render_snapshot.is_active
-            else "unconfirmed"
-            if flow_observation.error is None
-            else "error"
-        )
-        self._update_audio_routing_state(
-            device_id=device_id,
-            phase="audio_flow",
-            flow_observation=flow_observation,
-        )
-        self._emit_connection_diagnostics(
-            device_id=device_id,
-            trigger=trigger,
-            phase="audio_flow",
-            status=flow_status,
-            details=flow_observation.to_details(),
-        )
-        if not self._is_validation_current(device_id, handle, validation_token):
-            return
-
-        strong_state = self._run_on_worker(
-            lambda handle=handle: self._backend.probe_connection(handle)  # type: ignore[union-attr]
-        )
-        should_recover = (
-            strong_state == "connected"
-            and remote_details["aepConnected"] is True
-            and remote_details["aepPresent"] is True
-            and (
-                not render_snapshot.is_active
-                or not flow_observation.observed
+            strong_state = self._run_on_worker(
+                lambda handle=handle: self._backend.probe_connection(handle)  # type: ignore[union-attr]
             )
-        )
-        if should_recover:
-            self._handle_no_audio_condition(
+            has_more_attempts = attempt_index < len(attempt_delays) - 1
+            audio_ready = render_snapshot.is_active and flow_observation.observed
+            should_wait = strong_state == "connected" and not (remote_confirmed and audio_ready)
+            flow_status = (
+                "observed"
+                if flow_observation.observed
+                else "error"
+                if flow_observation.error is not None and not render_snapshot.is_active
+                else "unconfirmed"
+                if flow_observation.error is None
+                else "error"
+            )
+            flow_details = {
+                **flow_observation.to_details(),
+                "renderId": render_snapshot.render_id,
+                "renderName": render_snapshot.render_name,
+                "renderState": render_snapshot.render_state,
+            }
+            if should_wait and has_more_attempts:
+                flow_details["nextAction"] = "wait"
+
+            self._update_audio_routing_state(
                 device_id=device_id,
-                handle=handle,
-                trigger=trigger,
-                validation_token=validation_token,
-                details={
-                    **flow_observation.to_details(),
-                    "renderId": render_snapshot.render_id,
-                    "renderName": render_snapshot.render_name,
-                    "renderState": render_snapshot.render_state,
-                },
+                phase="audio_flow",
+                flow_observation=flow_observation,
             )
-            return
+            self._emit_connection_diagnostics(
+                device_id=device_id,
+                trigger=trigger,
+                phase="audio_flow",
+                status=flow_status,
+                details=flow_details,
+            )
+            if not self._is_validation_current(device_id, handle, validation_token):
+                return
+
+            if strong_state != "connected":
+                break
+            if remote_confirmed and audio_ready:
+                with self._lock:
+                    if self._audio_routing_state.current_device_id == device_id:
+                        self._audio_routing_state.validation_phase = "completed"
+                    self._clear_validation_chain_locked(device_id)
+                return
+            if has_more_attempts:
+                continue
+            if remote_confirmed and trigger == "recover":
+                self._handle_no_audio_condition(
+                    device_id=device_id,
+                    handle=handle,
+                    trigger=trigger,
+                    validation_token=validation_token,
+                    details=flow_details,
+                )
+                return
+            break
 
         with self._lock:
             if self._audio_routing_state.current_device_id == device_id:
@@ -988,6 +1005,13 @@ class ConnectorService:
                     6,
                 )
 
+    def _build_validation_attempt_delays(self) -> tuple[float, ...]:
+        """构建连接成功后的验证轮询窗口，至少执行一次本地验证。"""
+        delays = [self._endpoint_probe_delay_seconds, *self._endpoint_ready_retry_delays_seconds]
+        if not delays:
+            return (0.0,)
+        return tuple(max(0.0, float(delay)) for delay in delays)
+
     def _emit_connection_diagnostics(
         self,
         *,
@@ -1030,15 +1054,9 @@ class ConnectorService:
                 return
             self._audio_routing_state.current_device_id = device_id
             self._audio_routing_state.last_recover_reason = "no_audio"
-            should_recover = not chain.recover_used
-            if should_recover:
-                chain.recover_used = True
-                chain.pending_no_audio_recover = True
-                chain.last_recover_reason = "no_audio"
-                self._audio_routing_state.validation_phase = "recovering"
-            else:
-                self._clear_validation_chain_locked(device_id)
-                self._audio_routing_state.validation_phase = "failed"
+            chain.last_recover_reason = "no_audio"
+            self._clear_validation_chain_locked(device_id)
+            self._audio_routing_state.validation_phase = "failed"
 
         self._emit_connection_diagnostics(
             device_id=device_id,
@@ -1047,12 +1065,9 @@ class ConnectorService:
             status="error",
             details={
                 **details,
-                "nextAction": "recover" if should_recover else "fail",
+                "nextAction": "fail",
             },
         )
-        if should_recover:
-            self._disconnect_for_no_audio_recover(device_id, handle)
-            return
         self._finalize_no_audio_failure(device_id=device_id, handle=handle, trigger=trigger)
 
     def _disconnect_for_no_audio_recover(self, device_id: str, handle: object) -> None:
