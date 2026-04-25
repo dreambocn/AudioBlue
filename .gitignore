@@ -5,9 +5,13 @@ __pycache__/
 build/
 dist/
 ui/node_modules/
+node_modules/
+ui/dist-check/
 *.tmp
 
 .worktrees/
 .codex-tmp
 AGENTS.md
 docs/Linear.md
+.pytest*
+.uv*

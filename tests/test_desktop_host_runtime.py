@@ -20,9 +20,14 @@ class WebviewWindowStub:
         self.show_called = False
         self.hide_called = False
         self.destroy_called = False
+        self.minimize_called = False
+        self.maximize_called = False
+        self.restore_called = False
         self.scripts: list[str] = []
         self.events = type("Events", (), {})()
         self.events.closing = ClosingEventStub()
+        self.events.maximized = ClosingEventStub()
+        self.events.restored = ClosingEventStub()
 
     def show(self):
         self.show_called = True
@@ -32,6 +37,15 @@ class WebviewWindowStub:
 
     def destroy(self):
         self.destroy_called = True
+
+    def minimize(self):
+        self.minimize_called = True
+
+    def maximize(self):
+        self.maximize_called = True
+
+    def restore(self):
+        self.restore_called = True
 
     def evaluate_js(self, script: str):
         self.scripts.append(script)
@@ -57,6 +71,10 @@ class WebviewModuleStub:
     def __init__(self):
         self.calls: list[dict[str, object]] = []
         self.start_call: dict[str, object] | None = None
+        self.settings = {
+            "DRAG_REGION_SELECTOR": ".unexpected-drag-region",
+            "DRAG_REGION_DIRECT_TARGET_ONLY": True,
+        }
 
     def create_window(self, title: str, url: str, **kwargs):
         self.calls.append({"title": title, "url": url, "kwargs": kwargs})
@@ -149,6 +167,10 @@ def test_create_windows_only_builds_main_window(tmp_path):
 
     assert len(webview.calls) == 1
     assert webview.calls[0]["url"] == index_path.as_uri()
+    assert webview.calls[0]["kwargs"]["frameless"] is True
+    assert webview.calls[0]["kwargs"]["easy_drag"] is False
+    assert webview.settings["DRAG_REGION_SELECTOR"] == ".pywebview-drag-region"
+    assert webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] is False
 
 
 def test_create_windows_does_not_pass_gui_to_create_window(tmp_path):
@@ -165,6 +187,22 @@ def test_create_windows_does_not_pass_gui_to_create_window(tmp_path):
     host.create_windows()
 
     assert all("gui" not in call["kwargs"] for call in webview.calls)
+
+
+def test_desktop_api_window_controls_call_registered_handlers(tmp_path):
+    api = create_api(tmp_path)
+    calls: list[str] = []
+    api.register_window_controls(
+        on_minimize=lambda: calls.append("minimize"),
+        on_toggle_maximize=lambda: calls.append("toggle"),
+        on_close=lambda: calls.append("close"),
+    )
+
+    api.minimize_window()
+    api.toggle_maximize_window()
+    api.close_main_window()
+
+    assert calls == ["minimize", "toggle", "close"]
 
 
 def test_run_starts_webview_in_current_thread_with_edgechromium(tmp_path):
@@ -285,6 +323,25 @@ def test_run_subscribes_state_push_channel_and_dispatches_browser_event(tmp_path
 
     assert host.main_window.scripts
     assert "audioblue:state" in host.main_window.scripts[-1]
+
+
+def test_maximize_and_restore_push_runtime_state_snapshot(tmp_path):
+    index_path = tmp_path / "ui" / "dist" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
+    webview = WebviewModuleStub()
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=index_path,
+        webview_module=webview,
+    )
+
+    host.create_windows()
+    host.main_window.events.maximized.fire()
+    host.main_window.events.restored.fire()
+
+    assert any('"isMaximized": true' in script for script in host.main_window.scripts)
+    assert any('"isMaximized": false' in script for script in host.main_window.scripts)
 
 
 def test_desktop_host_sync_window_theme_returns_false_without_window(tmp_path):

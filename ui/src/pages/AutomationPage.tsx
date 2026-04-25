@@ -41,6 +41,7 @@ export function AutomationPage({
   return (
     <section className="page-grid">
       <article className="surface-card">
+        <p className="panel-kicker">{t('automation.kicker')}</p>
         <h2>{t('automation.rules')}</h2>
         {/* 说明卡片把自动化规则的适用范围和行为意图一起展示出来。 */}
         <div className="feature-note" data-testid="automation-note">

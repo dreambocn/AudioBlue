@@ -1,36 +1,54 @@
 :root {
-  --ab-font: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
-  --ab-radius-xl: 18px;
-  --ab-radius-lg: 14px;
-  --ab-radius-md: 10px;
-  --ab-shadow: 0 18px 38px rgba(15, 23, 42, 0.18);
-  --ab-motion: 160ms ease;
+  --ab-font:
+    'Inter Variable',
+    'Inter',
+    'Segoe UI Variable',
+    'Microsoft YaHei UI',
+    sans-serif;
+  --ab-display-font:
+    'Inter Variable',
+    'Segoe UI Variable',
+    'Microsoft YaHei UI',
+    sans-serif;
+  --ab-shadow-soft: 0 20px 44px rgba(4, 8, 18, 0.24);
+  --ab-success: #7ed7b3;
+  --ab-warning: #e6c67c;
+  --ab-danger: #f39b9b;
 }
 
 :root,
 :root[data-theme='system'],
 :root[data-theme='light'] {
-  --ab-bg: #eef3fb;
-  --ab-bg-accent: #f8fbff;
-  --ab-sidebar: rgba(255, 255, 255, 0.72);
-  --ab-card: rgba(255, 255, 255, 0.78);
-  --ab-card-border: rgba(255, 255, 255, 0.6);
-  --ab-text: #162033;
-  --ab-text-muted: #526078;
-  --ab-primary: #2a69ff;
-  --ab-primary-soft: rgba(42, 105, 255, 0.12);
-  --ab-outline: rgba(35, 60, 110, 0.16);
+  --ab-bg: #f3f6fb;
+  --ab-bg-accent: #eef2f8;
+  --ab-panel: rgba(249, 251, 255, 0.88);
+  --ab-sidebar: rgba(244, 248, 255, 0.92);
+  --ab-border: rgba(89, 111, 151, 0.14);
+  --ab-text: #152035;
+  --ab-text-muted: #5d6a81;
+  --ab-text-subtle: #72809a;
+  --ab-chrome-top: rgba(245, 248, 254, 0.96);
+  --ab-chrome-bottom: rgba(237, 242, 250, 0.94);
 }
 
 :root[data-theme='dark'] {
-  --ab-bg: #111726;
-  --ab-bg-accent: #172034;
-  --ab-sidebar: rgba(18, 26, 44, 0.78);
-  --ab-card: rgba(23, 32, 52, 0.78);
-  --ab-card-border: rgba(165, 189, 255, 0.16);
-  --ab-text: #ecf1ff;
-  --ab-text-muted: #9daac6;
-  --ab-primary: #7da5ff;
-  --ab-primary-soft: rgba(125, 165, 255, 0.18);
-  --ab-outline: rgba(125, 165, 255, 0.3);
+  --ab-bg: #090d13;
+  --ab-bg-accent: #0f1520;
+  --ab-panel: rgba(15, 20, 30, 0.9);
+  --ab-sidebar: rgba(11, 16, 25, 0.92);
+  --ab-border: rgba(255, 255, 255, 0.08);
+  --ab-text: #eef4ff;
+  --ab-text-muted: #9aa6bc;
+  --ab-text-subtle: #78849a;
+  --ab-chrome-top: rgba(12, 17, 26, 0.98);
+  --ab-chrome-bottom: rgba(9, 14, 22, 0.96);
+}
+
+html {
+  color-scheme: dark;
+  font-feature-settings: 'cv01', 'ss03';
+}
+
+body {
+  font-family: var(--ab-font);
 }

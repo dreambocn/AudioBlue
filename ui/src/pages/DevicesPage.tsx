@@ -54,6 +54,7 @@ export function DevicesPage({
   return (
     <section className="page-grid">
       <article className="surface-card compact-card">
+        <p className="panel-kicker">{t('devices.libraryKicker')}</p>
         <h3>{t('devices.title')}</h3>
         <p className="muted">{t('devices.description')}</p>
       </article>
@@ -94,9 +95,15 @@ export function DevicesPage({
           deviceHistory.map((entry) => (
             <article key={entry.id} className="surface-card history-card">
               <div className="card-head">
-                <div>
-                  <h3>{entry.name}</h3>
-                  <p className="muted">
+                <div className="card-head-copy">
+                  <h3
+                    className="text-truncate"
+                    data-testid={`device-history-title-${entry.id}`}
+                    title={entry.name}
+                  >
+                    {entry.name}
+                  </h3>
+                  <p className="muted text-wrap-anywhere">
                     {t('device.lastResult', { value: entry.lastResult })}
                   </p>
                 </div>

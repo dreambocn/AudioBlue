@@ -18,10 +18,16 @@ BRIDGE_METHODS = {
     "update_device_rule",
     "reorder_device_priority",
     "set_autostart",
+    "set_reconnect",
     "set_theme",
+    "sync_window_theme",
     "set_language",
     "set_notification_policy",
+    "minimize_window",
+    "toggle_maximize_window",
+    "close_main_window",
     "open_bluetooth_settings",
+    "export_support_bundle",
     "export_diagnostics",
 }
 

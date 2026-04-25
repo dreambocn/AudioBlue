@@ -135,7 +135,7 @@ const createInitialState = (): AppState => ({
   },
   ui: {
     themeMode: 'system',
-    language: 'system',
+    language: 'en-US',
     showAudioOnly: true,
     diagnosticsMode: false,
   },
@@ -163,6 +163,11 @@ const createInitialState = (): AppState => ({
   },
   runtime: {
     bridgeMode: 'mock',
+    chrome: 'custom',
+    isMaximized: false,
+    canMinimize: true,
+    canMaximize: true,
+    canClose: true,
   },
 })
 
@@ -403,6 +408,25 @@ export const createMockBridge = (): BackendBridge => {
         },
       }
       emitSettings()
+    },
+    async minimizeWindow() {
+      prependActivity('窗口已最小化', 'Mock bridge 已模拟最小化主窗口。')
+    },
+    async toggleMaximizeWindow() {
+      state = {
+        ...state,
+        runtime: {
+          ...state.runtime,
+          isMaximized: !state.runtime.isMaximized,
+        },
+      }
+      emit({
+        type: 'runtime_changed',
+        runtime: structuredClone(state.runtime),
+      })
+    },
+    async closeMainWindow() {
+      prependActivity('窗口已隐藏到托盘', 'Mock bridge 已模拟把主窗口隐藏到托盘。')
     },
     async openBluetoothSettings() {
       prependActivity('已打开蓝牙设置', 'Mock bridge 已模拟打开蓝牙设置。')

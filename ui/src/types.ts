@@ -11,6 +11,7 @@ export type LanguagePreference = 'system' | 'zh-CN' | 'en-US'
 export type BridgeMode = 'native' | 'mock' | 'unavailable'
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'failed'
 export type ActivityLevel = 'info' | 'warning' | 'error'
+export type WindowChromeMode = 'custom' | 'native'
 
 // 设备规则描述单个设备的自动连接策略。
 export interface DeviceRule {
@@ -177,9 +178,14 @@ export interface DiagnosticsState {
   audioRouting?: AudioRoutingDiagnostics
 }
 
-// runtime 记录桥接运行模式，主要用于托盘的 availability 判断。
+// runtime 统一描述桥接模式与窗口壳状态，供主壳和标题栏共享。
 export interface RuntimeState {
   bridgeMode: BridgeMode
+  chrome: WindowChromeMode
+  isMaximized: boolean
+  canMinimize: boolean
+  canMaximize: boolean
+  canClose: boolean
 }
 
 export type A2dpSourceAvailability = 'unavailable' | 'no-source' | 'available'
@@ -199,5 +205,10 @@ export interface AppState {
 
 // AppState 是前端和后台互通的快照契约，桥接通过 getInitialState/事件同步此结构。
 
-// 应用各页的路由枚举，供导航与 Bridge 事件派发等待。
-export type AppRoute = 'overview' | 'devices' | 'automation' | 'settings'
+// 应用路由按真实功能流划分，避免旧“总览/设置”语义继续承载多种职责。
+export type AppRoute =
+  | 'cockpit'
+  | 'devices'
+  | 'automation'
+  | 'diagnostics'
+  | 'preferences'

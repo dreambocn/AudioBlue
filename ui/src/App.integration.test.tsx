@@ -103,6 +103,11 @@ describe('AudioBlue Control Center integration', () => {
     },
     runtime: {
       bridgeMode: 'native',
+      chrome: 'custom',
+      isMaximized: false,
+      canMinimize: true,
+      canMaximize: true,
+      canClose: true,
     },
     deviceHistory: [
       {
@@ -158,6 +163,9 @@ describe('AudioBlue Control Center integration', () => {
     async syncWindowTheme() {},
     async setLanguage() {},
     async setNotificationPolicy() {},
+    async minimizeWindow() {},
+    async toggleMaximizeWindow() {},
+    async closeMainWindow() {},
     async openBluetoothSettings() {},
     async exportSupportBundle() {
       return ''
@@ -186,7 +194,7 @@ describe('AudioBlue Control Center integration', () => {
       listeners.forEach((listener) => listener(event))
     }
 
-    const bridge: BackendBridge = {
+    const bridge = {
       async getInitialState() {
         return structuredClone(state)
       },
@@ -227,6 +235,9 @@ describe('AudioBlue Control Center integration', () => {
       syncWindowTheme: vi.fn(async () => undefined),
       setLanguage: vi.fn(async () => undefined),
       setNotificationPolicy: vi.fn(async () => undefined),
+      minimizeWindow: vi.fn(async () => undefined),
+      toggleMaximizeWindow: vi.fn(async () => undefined),
+      closeMainWindow: vi.fn(async () => undefined),
       openBluetoothSettings: vi.fn(async () => undefined),
       exportSupportBundle: vi.fn(async () => ''),
       exportDiagnostics: vi.fn(async () => ''),
@@ -237,25 +248,216 @@ describe('AudioBlue Control Center integration', () => {
           listeners.delete(handler)
         }
       },
+      emitRuntime(runtime: AppState['runtime']) {
+        state = {
+          ...state,
+          runtime,
+        }
+        emit({
+          type: 'runtime_changed',
+          runtime: structuredClone(state.runtime),
+        })
+      },
+    } as BackendBridge & {
+      minimizeWindow: ReturnType<typeof vi.fn>
+      toggleMaximizeWindow: ReturnType<typeof vi.fn>
+      closeMainWindow: ReturnType<typeof vi.fn>
+      emitRuntime: (runtime: AppState['runtime']) => void
     }
     return bridge
   }
 
-  it('renders shell navigation and overview by default', async () => {
+  const createChromeState = (overrides?: Partial<AppState>) =>
+    ({
+      ...structuredClone(baseState),
+      ...overrides,
+      runtime: {
+        ...structuredClone(baseState.runtime),
+        chrome: 'custom',
+        isMaximized: false,
+        canMinimize: true,
+        canMaximize: true,
+        canClose: true,
+        ...(overrides?.runtime ?? {}),
+      },
+    }) as AppState
+
+  const createLongTextState = () => {
+    const longDeviceName =
+      'Surface Headphones Ultra Long Name For Regression Coverage Across Chrome And Device Cards'
+    const longMessage =
+      '连接失败原因说明非常长，需要覆盖标题栏摘要、托盘副标题以及历史结果文案在窄宽度下的收缩行为。'
+    const longSupportBundlePath =
+      'C:\\Users\\DreamBo\\AppData\\Local\\AudioBlue\\support-bundles\\nested\\nested\\nested\\nested\\support-bundle-2026-03-25-very-long-name.zip'
+
+    return createChromeState({
+      devices: [
+        {
+          ...structuredClone(baseState.devices[0]),
+          name: longDeviceName,
+          lastResult: longMessage,
+        },
+        structuredClone(baseState.devices[1]),
+      ],
+      prioritizedDeviceIds: ['device-1', 'device-2'],
+      connection: {
+        ...structuredClone(baseState.connection),
+        currentDeviceName: longDeviceName,
+        lastErrorMessage: longMessage,
+      },
+      diagnostics: {
+        ...structuredClone(baseState.diagnostics),
+        lastSupportBundlePath: longSupportBundlePath,
+        lastSupportBundleAt: '2026-03-25T10:30:00+00:00',
+      },
+      deviceHistory: [
+        {
+          ...structuredClone(baseState.deviceHistory[0]),
+          name: longDeviceName,
+          lastResult: longMessage,
+        },
+      ],
+    })
+  }
+
+  it('renders five workspace navigation items and opens cockpit by default', async () => {
     render(<App bridge={createMockBridge()} />)
 
-    expect(await screen.findByRole('button', { name: 'Overview' })).toBeVisible()
+    expect(await screen.findByRole('button', { name: 'Cockpit' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Devices' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Auto Connect' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Settings' })).toBeVisible()
-    expect(await screen.findByText('Connection Overview')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Automation' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Diagnostics' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Preferences' })).toBeVisible()
+    expect(
+      await within(screen.getByTestId('workspace-content')).findByRole('heading', {
+        name: 'Connection cockpit',
+      }),
+    ).toBeVisible()
     expect(await screen.findByText('设备已连接')).toBeVisible()
+  })
+
+  it('renders custom window chrome with workspace name and connection summary', async () => {
+    render(<App bridge={createStaticBridge(createChromeState())} />)
+
+    const chrome = await screen.findByTestId('window-chrome')
+    expect(within(chrome).getByText('AudioBlue')).toBeVisible()
+    expect(within(chrome).getByText('Cockpit')).toBeVisible()
+    expect(within(chrome).getByText('Surface Headphones')).toBeVisible()
+  })
+
+  it('keeps a continuous drag surface and excludes window actions from it', async () => {
+    render(<App bridge={createStaticBridge(createChromeState())} />)
+
+    const chrome = await screen.findByTestId('window-chrome')
+    const dragSurface = within(chrome).getByTestId('window-chrome-drag-surface')
+    const actions = within(chrome).getByTestId('window-chrome-actions')
+
+    expect(dragSurface).toHaveClass('pywebview-drag-region')
+    expect(dragSurface.querySelector('[data-testid="window-chrome-device-name"]')).not.toBeNull()
+    expect(actions.closest('.pywebview-drag-region')).toBeNull()
+  })
+
+  it('adds truncation and wrapping hooks for long text while keeping window controls clickable', async () => {
+    const longState = createLongTextState()
+    const user = userEvent.setup()
+
+    render(<App bridge={createMutableBridge(longState)} />)
+
+    const chrome = await screen.findByTestId('window-chrome')
+    const chromeDeviceName = within(chrome).getByTestId('window-chrome-device-name')
+    const chromeDeviceMeta = within(chrome).getByTestId('window-chrome-device-meta')
+
+    expect(chromeDeviceName).toHaveClass('text-truncate')
+    expect(chromeDeviceName).toHaveAttribute('title', longState.devices[0].name)
+    expect(chromeDeviceMeta).toHaveClass('text-truncate')
+    expect(chromeDeviceMeta).toHaveAttribute('title', longState.connection.lastErrorMessage)
+
+    const trayTitle = screen.getByTestId('tray-quick-panel-title')
+    expect(trayTitle).toHaveClass('text-truncate')
+    expect(trayTitle).toHaveAttribute('title', longState.devices[0].name)
+
+    await user.click(within(chrome).getByRole('button', { name: 'Minimize window' }))
+    await user.click(within(chrome).getByRole('button', { name: 'Maximize window' }))
+    await user.click(within(chrome).getByRole('button', { name: 'Hide window to tray' }))
+
+    await user.click(screen.getByRole('button', { name: 'Devices' }))
+    const historyTitle = await screen.findByTestId('device-history-title-device-archived')
+    expect(historyTitle).toHaveClass('text-truncate')
+    expect(historyTitle).toHaveAttribute('title', longState.deviceHistory[0].name)
+
+    await user.click(screen.getByRole('button', { name: 'Diagnostics' }))
+    const supportBundlePath = await screen.findByTestId('diagnostics-support-bundle-path')
+    expect(supportBundlePath).toHaveClass('text-wrap-anywhere')
+    expect(supportBundlePath).toHaveAttribute(
+      'title',
+      longState.diagnostics.lastSupportBundlePath,
+    )
+  })
+
+  it('calls window control bridge actions from custom chrome buttons', async () => {
+    const bridge = createMutableBridge(createChromeState())
+
+    render(<App bridge={bridge} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Minimize window' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Maximize window' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Hide window to tray' }))
+
+    expect(bridge.minimizeWindow).toHaveBeenCalledTimes(1)
+    expect(bridge.toggleMaximizeWindow).toHaveBeenCalledTimes(1)
+    expect(bridge.closeMainWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('updates shell state when runtime maximize event arrives', async () => {
+    const bridge = createMutableBridge(createChromeState())
+
+    render(<App bridge={bridge} />)
+
+    const shell = await screen.findByTestId('window-shell')
+    expect(shell).toHaveAttribute('data-window-state', 'normal')
+
+    bridge.emitRuntime({
+      bridgeMode: 'native',
+      chrome: 'custom',
+      isMaximized: true,
+      canMinimize: true,
+      canMaximize: true,
+      canClose: true,
+    })
+
+    await waitFor(() => {
+      expect(shell).toHaveAttribute('data-window-state', 'maximized')
+    })
+  })
+
+  it('keeps window controls visible but disabled for unavailable runtime', async () => {
+    render(
+      <App
+        bridge={createStaticBridge(
+          createChromeState({
+            runtime: {
+              bridgeMode: 'unavailable',
+              chrome: 'custom',
+              isMaximized: false,
+              canMinimize: false,
+              canMaximize: false,
+              canClose: false,
+            } as AppState['runtime'],
+          }),
+        )}
+      />,
+    )
+
+    const chrome = await screen.findByTestId('window-chrome')
+    expect(within(chrome).getByRole('button', { name: 'Minimize window' })).toBeDisabled()
+    expect(within(chrome).getByRole('button', { name: 'Maximize window' })).toBeDisabled()
+    expect(within(chrome).getByRole('button', { name: 'Hide window to tray' })).toBeDisabled()
   })
 
   it('binds rule toggles to state changes', async () => {
     render(<App bridge={createMockBridge()} />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Auto Connect' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Automation' }))
 
     const toggle = await screen.findByRole('checkbox', {
       name: 'Auto-connect Office Headset after reappear or abnormal disconnect',
@@ -270,7 +472,7 @@ describe('AudioBlue Control Center integration', () => {
   it('switches theme mode from settings', async () => {
     render(<App bridge={createMockBridge()} />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Settings' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Preferences' }))
     await userEvent.selectOptions(
       await screen.findByLabelText('Theme mode'),
       'dark',
@@ -284,7 +486,7 @@ describe('AudioBlue Control Center integration', () => {
   it('renders settings in a vertical stack and themed selects', async () => {
     render(<App bridge={createMockBridge()} />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Settings' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Preferences' }))
 
     const settingsStack = await screen.findByTestId('settings-stack')
     expect(settingsStack).toBeVisible()
@@ -352,13 +554,18 @@ describe('AudioBlue Control Center integration', () => {
       },
       runtime: {
         bridgeMode: 'native',
+        chrome: 'custom',
+        isMaximized: false,
+        canMinimize: true,
+        canMaximize: true,
+        canClose: true,
       },
     })
 
     render(<App bridge={bridge} />)
 
     expect(await screen.findByText('当前设备: Keyboard')).toBeVisible()
-    await userEvent.click(screen.getByRole('button', { name: '设备' }))
+    await userEvent.click(screen.getByRole('button', { name: '设备库' }))
     expect(
       within(screen.getByTestId('workspace-content')).getByRole('heading', {
         name: 'Keyboard',
@@ -373,8 +580,12 @@ describe('AudioBlue Control Center integration', () => {
     window.location.hash = '#quick-panel'
     render(<App bridge={createMockBridge()} />)
 
-    expect(await screen.findByRole('button', { name: 'Overview' })).toBeVisible()
-    expect(screen.getByText('Connection Overview')).toBeVisible()
+    expect(await screen.findByRole('button', { name: 'Cockpit' })).toBeVisible()
+    expect(
+      within(screen.getByTestId('workspace-content')).getByRole('heading', {
+        name: 'Connection cockpit',
+      }),
+    ).toBeVisible()
     expect(screen.queryByText('Loading quick panel…')).not.toBeInTheDocument()
   })
 
@@ -438,7 +649,7 @@ describe('AudioBlue Control Center integration', () => {
 
     render(<App bridge={bridge} />)
 
-    await user.click(await screen.findByRole('button', { name: 'Auto Connect' }))
+    await user.click(await screen.findByRole('button', { name: 'Automation' }))
     await user.click(
       await screen.findByRole('button', {
         name: 'Move Studio Speaker up',
@@ -451,12 +662,12 @@ describe('AudioBlue Control Center integration', () => {
     ])
   })
 
-  it('explains auto-connect semantics on auto connect page', async () => {
+  it('explains auto-connect semantics on automation workspace', async () => {
     const user = userEvent.setup()
 
     render(<App bridge={createMutableBridge(baseState)} />)
 
-    await user.click(await screen.findByRole('button', { name: 'Auto Connect' }))
+    await user.click(await screen.findByRole('button', { name: 'Automation' }))
 
     expect(
       await screen.findByText('Manual disconnect wins for the current app run'),
@@ -478,6 +689,11 @@ describe('AudioBlue Control Center integration', () => {
           prioritizedDeviceIds: [],
           runtime: {
             bridgeMode: 'unavailable',
+            chrome: 'custom',
+            isMaximized: false,
+            canMinimize: false,
+            canMaximize: false,
+            canClose: false,
           },
         })}
       />,
@@ -509,7 +725,7 @@ describe('AudioBlue Control Center integration', () => {
     expect(screen.getAllByText('Total discovered devices: 1').length).toBeGreaterThan(0)
   })
 
-  it('places quick actions above the scrollable workspace content', async () => {
+  it('places quick actions above the scrollable workspace content inside cockpit', async () => {
     render(<App bridge={createStaticBridge(baseState)} />)
 
     const workspace = await screen.findByTestId('workspace-shell')
@@ -521,7 +737,7 @@ describe('AudioBlue Control Center integration', () => {
     expect(workspace.firstElementChild).toBe(quickActions)
   })
 
-  it('shows quick actions only on overview', async () => {
+  it('shows quick actions only on cockpit', async () => {
     const user = userEvent.setup()
 
     render(<App bridge={createStaticBridge(baseState)} />)
@@ -531,14 +747,17 @@ describe('AudioBlue Control Center integration', () => {
     await user.click(screen.getByRole('button', { name: 'Devices' }))
     expect(screen.queryByTestId('workspace-quick-actions')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Auto Connect' }))
+    await user.click(screen.getByRole('button', { name: 'Automation' }))
     expect(screen.queryByTestId('workspace-quick-actions')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Settings' }))
+    await user.click(screen.getByRole('button', { name: 'Diagnostics' }))
+    expect(screen.queryByTestId('workspace-quick-actions')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Preferences' }))
     expect(screen.queryByTestId('workspace-quick-actions')).not.toBeInTheDocument()
   })
 
-  it('keeps A2DP status compact only on overview', async () => {
+  it('keeps A2DP status compact only on cockpit', async () => {
     const bridge = createStaticBridge({
       ...baseState,
       devices: [
@@ -560,19 +779,19 @@ describe('AudioBlue Control Center integration', () => {
     expect(screen.queryByText('No matched A2DP source devices')).not.toBeInTheDocument()
     expect(screen.queryByText(/Raw device ID/i)).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Auto Connect' }))
+    await user.click(screen.getByRole('button', { name: 'Automation' }))
     expect(screen.queryByText('No matched A2DP source devices')).not.toBeInTheDocument()
     expect(screen.queryByText(/Raw device ID/i)).not.toBeInTheDocument()
   })
 
-  it('shows detailed A2DP diagnostics only on settings', async () => {
+  it('shows detailed A2DP diagnostics only on diagnostics workspace', async () => {
     const user = userEvent.setup()
 
     render(<App bridge={createStaticBridge(baseState)} />)
 
     expect(screen.queryByTestId('a2dp-source-status-detailed')).not.toBeInTheDocument()
 
-    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    await user.click(await screen.findByRole('button', { name: 'Diagnostics' }))
     await user.click(screen.getByText('View detailed A2DP diagnostics'))
 
     const detailedStatus = await screen.findByTestId('a2dp-source-status-detailed')
@@ -580,7 +799,7 @@ describe('AudioBlue Control Center integration', () => {
     expect(within(detailedStatus).getAllByText(/Raw device ID/i).length).toBeGreaterThan(0)
   })
 
-  it('renders core navigation and command copy through i18n in zh-CN', async () => {
+  it('renders new workspace navigation through i18n in zh-CN', async () => {
     render(
       <App
         bridge={createStaticBridge({
@@ -593,11 +812,30 @@ describe('AudioBlue Control Center integration', () => {
       />,
     )
 
-    expect(await screen.findByRole('button', { name: '总览' })).toBeVisible()
-    expect(screen.getByRole('button', { name: '设备' })).toBeVisible()
+    expect(await screen.findByRole('button', { name: '驾驶舱' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '设备库' })).toBeVisible()
     expect(screen.getByRole('button', { name: '自动连接' })).toBeVisible()
-    expect(screen.getByRole('button', { name: '设置' })).toBeVisible()
-    expect(screen.getByRole('button', { name: '刷新设备' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '诊断支持' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '偏好设置' })).toBeVisible()
+    expect(screen.getAllByRole('button', { name: '刷新设备' }).length).toBeGreaterThan(0)
+  })
+
+  it('moves diagnostics out of preferences into a dedicated workspace', async () => {
+    const user = userEvent.setup()
+
+    render(<App bridge={createStaticBridge(baseState)} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Diagnostics' }))
+    expect(
+      await within(screen.getByTestId('workspace-content')).findByRole('heading', {
+        name: 'Support & Diagnostics',
+      }),
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Export support bundle' })).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Preferences' }))
+    expect(await screen.findByTestId('settings-stack')).toBeVisible()
+    expect(screen.queryByText('Support & Diagnostics')).not.toBeInTheDocument()
   })
 
   it('resolves system theme to dark and calls native title sync', async () => {

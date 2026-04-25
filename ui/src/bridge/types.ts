@@ -18,6 +18,7 @@ export type BridgeEvent =
   | { type: 'priorities_changed'; prioritizedDeviceIds: string[] }
   | { type: 'settings_changed'; settings: Pick<AppState, 'startup' | 'ui' | 'notifications'> }
   | { type: 'diagnostics_changed'; diagnostics: AppState['diagnostics'] }
+  | { type: 'runtime_changed'; runtime: AppState['runtime'] }
 
 export interface BackendBridge {
   // 所有宿主实现都需要符合这份接口，前端才能在原生桥接与 mock 桥接之间无缝切换。
@@ -33,6 +34,9 @@ export interface BackendBridge {
   syncWindowTheme(mode: Exclude<ThemeMode, 'system'>): Promise<void>
   setLanguage(language: LanguagePreference): Promise<void>
   setNotificationPolicy(policy: NotificationPolicy): Promise<void>
+  minimizeWindow(): Promise<void>
+  toggleMaximizeWindow(): Promise<void>
+  closeMainWindow(): Promise<void>
   openBluetoothSettings(): Promise<void>
   exportSupportBundle(): Promise<string>
   exportDiagnostics(): Promise<string>

@@ -75,6 +75,13 @@ describe('resolveBridge', () => {
         },
         ui: { theme: 'light', highContrast: false, language: 'zh-CN' },
       },
+      runtime: {
+        chrome: 'custom',
+        isMaximized: true,
+        canMinimize: true,
+        canMaximize: true,
+        canClose: true,
+      },
       autoConnectCandidates: ['device-2'],
       diagnostics: {
         databasePath: 'C:\\Users\\DreamBo\\AppData\\Local\\AudioBlue\\audioblue.db',
@@ -160,6 +167,13 @@ describe('resolveBridge', () => {
             },
             ui: { theme: 'dark', highContrast: false, language: 'en-US' },
           },
+          runtime: {
+            chrome: 'custom',
+            isMaximized: false,
+            canMinimize: true,
+            canMaximize: true,
+            canClose: true,
+          },
           autoConnectCandidates: ['device-1'],
           diagnostics: {
             databasePath: 'C:\\Users\\DreamBo\\AppData\\Local\\AudioBlue\\audioblue.db',
@@ -208,6 +222,9 @@ describe('resolveBridge', () => {
             },
           ],
         })),
+        minimize_window: vi.fn(async () => undefined),
+        toggle_maximize_window: vi.fn(async () => undefined),
+        close_main_window: vi.fn(async () => undefined),
         set_theme: vi.fn(async () => ({
           devices: [],
           deviceRules: {},
@@ -222,6 +239,13 @@ describe('resolveBridge', () => {
               reconnectOnNextStart: true,
             },
             ui: { theme: 'dark', highContrast: false, language: 'en-US' },
+          },
+          runtime: {
+            chrome: 'custom',
+            isMaximized: false,
+            canMinimize: true,
+            canMaximize: true,
+            canClose: true,
           },
           autoConnectCandidates: [],
         })),
@@ -271,6 +295,27 @@ describe('resolveBridge', () => {
       isFavorite: true,
       isIgnored: true,
     })
+    await (
+      bridge as unknown as {
+        minimizeWindow: () => Promise<void>
+        toggleMaximizeWindow: () => Promise<void>
+        closeMainWindow: () => Promise<void>
+      }
+    ).minimizeWindow()
+    await (
+      bridge as unknown as {
+        minimizeWindow: () => Promise<void>
+        toggleMaximizeWindow: () => Promise<void>
+        closeMainWindow: () => Promise<void>
+      }
+    ).toggleMaximizeWindow()
+    await (
+      bridge as unknown as {
+        minimizeWindow: () => Promise<void>
+        toggleMaximizeWindow: () => Promise<void>
+        closeMainWindow: () => Promise<void>
+      }
+    ).closeMainWindow()
     await bridge.setReconnect(true)
     await bridge.syncWindowTheme('dark')
     await bridge.setLanguage('zh-CN')
@@ -280,6 +325,8 @@ describe('resolveBridge', () => {
     const pywebviewApi = window.pywebview?.api
 
     expect(state.runtime.bridgeMode).toBe('native')
+    expect((state.runtime as unknown as Record<string, unknown>).chrome).toBe('custom')
+    expect((state.runtime as unknown as Record<string, unknown>).isMaximized).toBe(false)
     expect(state.ui.language).toBe('en-US')
     expect(state.ui.themeMode).toBe('dark')
     expect(state.recentActivity[0].title).toBe('连接失败')
@@ -303,6 +350,9 @@ describe('resolveBridge', () => {
       is_favorite: true,
       is_ignored: true,
     })
+    expect(pywebviewApi?.minimize_window).toHaveBeenCalledTimes(1)
+    expect(pywebviewApi?.toggle_maximize_window).toHaveBeenCalledTimes(1)
+    expect(pywebviewApi?.close_main_window).toHaveBeenCalledTimes(1)
     expect(pywebviewApi?.set_language).toHaveBeenCalledWith('zh-CN')
     expect(pywebviewApi?.set_reconnect).toHaveBeenCalledWith(true)
     expect(pywebviewApi?.sync_window_theme).toHaveBeenCalledWith('dark')
@@ -341,6 +391,13 @@ describe('resolveBridge', () => {
           }),
         }),
       ]),
+    })
+    expect(listeners).toContainEqual({
+      type: 'runtime_changed',
+      runtime: expect.objectContaining({
+        chrome: 'custom',
+        isMaximized: true,
+      }),
     })
   })
 

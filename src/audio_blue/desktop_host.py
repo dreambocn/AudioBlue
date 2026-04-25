@@ -67,93 +67,148 @@ class DesktopApi:
         self._open_bluetooth_settings = open_bluetooth_settings
         self._diagnostics_output_dir = diagnostics_output_dir
         self._window_theme_sync: Callable[[str], bool] | None = None
+        self._window_controls: dict[str, Callable[[], None] | None] = {
+            "minimize": None,
+            "toggle_maximize": None,
+            "close": None,
+        }
+        # 窗口 runtime 默认按自绘标题栏初始化；具体能力会在宿主建窗后刷新。
+        self._runtime_state: dict[str, Any] = {
+            "chrome": "custom",
+            "isMaximized": False,
+            "canMinimize": False,
+            "canMaximize": False,
+            "canClose": False,
+        }
         self._observability = observability
 
     def get_initial_state(self) -> dict[str, Any]:
         """返回前端启动时所需的第一份完整状态。"""
         if self.session_state is not None:
-            return self.session_state.snapshot()
+            return self.attach_runtime_state(self.session_state.snapshot())
         self._sync_from_service()
-        return self.app_state.snapshot()
+        return self.attach_runtime_state(self.app_state.snapshot())
 
     def refresh_devices(self) -> dict[str, Any]:
         """刷新设备并返回最新快照。"""
         if self.session_state is not None:
-            return self.session_state.refresh_devices()
+            return self.attach_runtime_state(self.session_state.refresh_devices())
         self.service.refresh_devices()
         self._sync_from_service()
-        return self.app_state.snapshot()
+        return self.attach_runtime_state(self.app_state.snapshot())
 
     def connect_device(self, device_id: str) -> dict[str, Any]:
         if self.session_state is not None:
-            return self.session_state.connect_device(device_id)
+            return self.attach_runtime_state(self.session_state.connect_device(device_id))
         self.service.connect(device_id)
         self.app_state.handle_connector_event({"event": "device_connected", "device_id": device_id})
         self._sync_from_service()
-        return self.app_state.snapshot()
+        return self.attach_runtime_state(self.app_state.snapshot())
 
     def disconnect_device(self, device_id: str) -> dict[str, Any]:
         if self.session_state is not None:
-            return self.session_state.disconnect_device(device_id)
+            return self.attach_runtime_state(self.session_state.disconnect_device(device_id))
         self.service.disconnect(device_id)
         self.app_state.handle_connector_event(
             {"event": "device_disconnected", "device_id": device_id, "state": "disconnected"}
         )
         self._sync_from_service()
-        return self.app_state.snapshot()
+        return self.attach_runtime_state(self.app_state.snapshot())
 
     def update_device_rule(self, device_id: str, rule_patch: dict[str, Any]) -> dict[str, Any]:
         if self.session_state is not None:
-            return self.session_state.update_device_rule(device_id, rule_patch)
+            return self.attach_runtime_state(self.session_state.update_device_rule(device_id, rule_patch))
         self.app_state.update_device_rule(device_id, rule_patch)
-        return self.app_state.snapshot()
+        return self.attach_runtime_state(self.app_state.snapshot())
 
     def reorder_device_priority(self, device_ids: list[str]) -> dict[str, Any]:
         if self.session_state is not None:
-            return self.session_state.reorder_device_priority(device_ids)
+            return self.attach_runtime_state(self.session_state.reorder_device_priority(device_ids))
         self.app_state.reorder_device_priority(device_ids)
-        return self.app_state.snapshot()
+        return self.attach_runtime_state(self.app_state.snapshot())
 
     def set_autostart(self, enabled: bool) -> dict[str, Any]:
         if self.session_state is not None:
-            return self.session_state.set_autostart(enabled)
+            return self.attach_runtime_state(self.session_state.set_autostart(enabled))
         self.autostart_manager.set_enabled(enabled)
         self.app_state.config.startup.autostart = enabled
-        return self.app_state.snapshot()
+        return self.attach_runtime_state(self.app_state.snapshot())
 
     def set_theme(self, mode: ThemeMode) -> dict[str, Any]:
         if self.session_state is not None:
-            return self.session_state.set_theme(mode)
+            return self.attach_runtime_state(self.session_state.set_theme(mode))
         self.app_state.config.ui.theme = mode
-        return self.app_state.snapshot()
+        return self.attach_runtime_state(self.app_state.snapshot())
 
     def set_language(self, language: str) -> dict[str, Any]:
         if language not in {"system", "zh-CN", "en-US"}:
             raise ValueError("Unsupported language")
         if self.session_state is not None:
-            return self.session_state.set_language(language)
+            return self.attach_runtime_state(self.session_state.set_language(language))
         setattr(self.app_state.config.ui, "language", language)
         snapshot = self.app_state.snapshot()
         snapshot.setdefault("settings", {}).setdefault("ui", {})["language"] = language
-        return snapshot
+        return self.attach_runtime_state(snapshot)
 
     def set_notification_policy(self, policy: NotificationPolicy) -> dict[str, Any]:
         if self.session_state is not None:
-            return self.session_state.set_notification_policy(policy)
+            return self.attach_runtime_state(self.session_state.set_notification_policy(policy))
         self.notification_service.update_policy(policy)
         self.app_state.config.notification.policy = policy
-        return self.app_state.snapshot()
+        return self.attach_runtime_state(self.app_state.snapshot())
 
     def set_reconnect(self, enabled: bool) -> dict[str, Any]:
         if self.session_state is not None and hasattr(self.session_state, "set_reconnect"):
             snapshot = self.session_state.set_reconnect(enabled)
-            return self._ensure_reconnect_in_snapshot(snapshot, enabled)
+            return self.attach_runtime_state(self._ensure_reconnect_in_snapshot(snapshot, enabled))
         self.app_state.config.reconnect = bool(enabled)
         snapshot = self.app_state.snapshot()
-        return self._ensure_reconnect_in_snapshot(snapshot, enabled)
+        return self.attach_runtime_state(self._ensure_reconnect_in_snapshot(snapshot, enabled))
 
     def register_window_theme_sync(self, callback: Callable[[str], bool]) -> None:
         self._window_theme_sync = callback
+
+    def register_window_controls(
+        self,
+        *,
+        on_minimize: Callable[[], None],
+        on_toggle_maximize: Callable[[], None],
+        on_close: Callable[[], None],
+    ) -> None:
+        self._window_controls = {
+            "minimize": on_minimize,
+            "toggle_maximize": on_toggle_maximize,
+            "close": on_close,
+        }
+
+    def set_runtime_state(self, **updates: Any) -> None:
+        self._runtime_state = {**self._runtime_state, **updates}
+
+    def get_runtime_state(self) -> dict[str, Any]:
+        return dict(self._runtime_state)
+
+    def attach_runtime_state(self, snapshot: dict[str, Any]) -> dict[str, Any]:
+        enriched = dict(snapshot)
+        enriched["runtime"] = self.get_runtime_state()
+        return enriched
+
+    def minimize_window(self) -> dict[str, Any]:
+        callback = self._window_controls.get("minimize")
+        if callable(callback):
+            callback()
+        return self.get_initial_state()
+
+    def toggle_maximize_window(self) -> dict[str, Any]:
+        callback = self._window_controls.get("toggle_maximize")
+        if callable(callback):
+            callback()
+        return self.get_initial_state()
+
+    def close_main_window(self) -> dict[str, Any]:
+        callback = self._window_controls.get("close")
+        if callable(callback):
+            callback()
+        return self.get_initial_state()
 
     def sync_window_theme(self, mode: str) -> dict[str, Any]:
         if mode not in {"light", "dark"}:
@@ -286,8 +341,15 @@ class DesktopHost:
         self.main_window = None
         self._state_unsubscribe = None
         self._allow_close = False
+        self._is_maximized = False
         if hasattr(self.api, "register_window_theme_sync"):
             self.api.register_window_theme_sync(self.sync_window_theme)
+        if hasattr(self.api, "register_window_controls"):
+            self.api.register_window_controls(
+                on_minimize=self.minimize_window,
+                on_toggle_maximize=self.toggle_maximize_window,
+                on_close=self.close_main_window,
+            )
 
     def create_windows(self) -> None:
         if self.main_window is not None:
@@ -298,6 +360,7 @@ class DesktopHost:
 
             self._webview = webview
 
+        self._configure_drag_region_settings()
         main_url = self.ui_entrypoint.as_uri()
         self.main_window = self._webview.create_window(
             "AudioBlue",
@@ -305,11 +368,18 @@ class DesktopHost:
             js_api=self.api,
             width=1180,
             height=780,
+            frameless=True,
+            easy_drag=False,
             hidden=True,
         )
         window_events = getattr(self.main_window, "events", None)
         if window_events is not None and hasattr(window_events, "closing"):
             window_events.closing += self._on_main_window_closing
+        if window_events is not None and hasattr(window_events, "maximized"):
+            window_events.maximized += self._on_main_window_maximized
+        if window_events is not None and hasattr(window_events, "restored"):
+            window_events.restored += self._on_main_window_restored
+        self._sync_runtime_state(push=False)
 
     def run(self, on_started: Callable[[], None] | None = None) -> None:
         self.create_windows()
@@ -332,6 +402,26 @@ class DesktopHost:
 
     def show_quick_panel(self) -> None:
         raise RuntimeError("Quick panel is not part of the runtime path.")
+
+    def minimize_window(self) -> None:
+        if self.main_window is None or not hasattr(self.main_window, "minimize"):
+            return
+        self.main_window.minimize()
+
+    def toggle_maximize_window(self) -> None:
+        if self.main_window is None:
+            return
+        if self._is_maximized:
+            if hasattr(self.main_window, "restore"):
+                self.main_window.restore()
+            self._set_maximized(False)
+            return
+        if hasattr(self.main_window, "maximize"):
+            self.main_window.maximize()
+        self._set_maximized(True)
+
+    def close_main_window(self) -> None:
+        self._on_main_window_closing()
 
     def sync_window_theme(self, mode: str) -> bool:
         if self.main_window is None:
@@ -365,7 +455,12 @@ class DesktopHost:
     def push_state(self, snapshot: dict[str, Any]) -> None:
         if self.main_window is None or not hasattr(self.main_window, "evaluate_js"):
             return
-        payload = json.dumps(snapshot, ensure_ascii=False)
+        runtime_snapshot = (
+            self.api.attach_runtime_state(snapshot)
+            if hasattr(self.api, "attach_runtime_state")
+            else snapshot
+        )
+        payload = json.dumps(runtime_snapshot, ensure_ascii=False)
         script = (
             "window.dispatchEvent("
             f"new CustomEvent('audioblue:state', {{ detail: {payload} }})"
@@ -379,6 +474,43 @@ class DesktopHost:
         if hasattr(self.main_window, "hide"):
             self.main_window.hide()
         return False
+
+    def _on_main_window_maximized(self) -> None:
+        self._set_maximized(True)
+
+    def _on_main_window_restored(self) -> None:
+        self._set_maximized(False)
+
+    def _set_maximized(self, is_maximized: bool) -> None:
+        self._is_maximized = is_maximized
+        self._sync_runtime_state(push=True)
+
+    def _sync_runtime_state(self, *, push: bool) -> None:
+        if hasattr(self.api, "set_runtime_state"):
+            self.api.set_runtime_state(
+                chrome="custom",
+                isMaximized=self._is_maximized,
+                canMinimize=bool(self.main_window is not None and hasattr(self.main_window, "minimize")),
+                canMaximize=bool(
+                    self.main_window is not None
+                    and (hasattr(self.main_window, "maximize") or hasattr(self.main_window, "restore"))
+                ),
+                canClose=bool(self.main_window is not None and hasattr(self.main_window, "hide")),
+            )
+        if push:
+            self.push_state(self.api.get_initial_state())
+
+    def _configure_drag_region_settings(self) -> None:
+        """显式锁定 pywebview 拖拽区域选择器，避免默认值漂移影响自绘标题栏。"""
+        settings = getattr(self._webview, "settings", None)
+        if settings is None:
+            return
+
+        try:
+            settings["DRAG_REGION_SELECTOR"] = ".pywebview-drag-region"
+            settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = False
+        except Exception:
+            return
 
     def _apply_native_title_bar_theme(self, window: object, mode: str) -> None:
         if mode not in {"light", "dark"}:

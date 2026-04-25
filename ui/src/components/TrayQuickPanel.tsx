@@ -35,23 +35,25 @@ export function TrayQuickPanel({
   // 优先展示当前已连接设备；若尚未连接，则退化为第一个可操作的音频源设备。
   const targetDevice = currentDevice ?? matchedSourceDevices[0]
   const hasTargetDevice = Boolean(targetDevice)
+  const panelTitle = currentDevice
+    ? currentDevice.name
+    : targetDevice
+      ? targetDevice.name
+      : t('tray.noActiveDevice')
+  const panelSubtitle = currentDevice
+    ? t('tray.connectedTo', { name: currentDevice.name })
+    : t('tray.noActiveDevice')
 
   return (
     <section className="surface-card tray-quick-panel" aria-label="Tray quick panel">
       <div className="tray-quick-panel-header">
-        <div>
+        <div className="tray-quick-panel-copy">
           <p className="panel-kicker">{t('tray.title')}</p>
-          <h3>
-            {currentDevice
-              ? currentDevice.name
-              : targetDevice
-                ? targetDevice.name
-                : t('tray.noActiveDevice')}
+          <h3 className="text-truncate" data-testid="tray-quick-panel-title" title={panelTitle}>
+            {panelTitle}
           </h3>
-          <p className="muted">
-            {currentDevice
-              ? t('tray.connectedTo', { name: currentDevice.name })
-              : t('tray.noActiveDevice')}
+          <p className="muted text-truncate" title={panelSubtitle}>
+            {panelSubtitle}
           </p>
         </div>
         <span className="status-pill subtle">

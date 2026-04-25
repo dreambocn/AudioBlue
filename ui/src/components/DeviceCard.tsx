@@ -25,7 +25,9 @@ export function DeviceCard({
   return (
     <article className="surface-card device-card">
       <header className="device-card-header">
-        <h3>{device.name}</h3>
+        <h3 className="text-truncate" title={device.name}>
+          {device.name}
+        </h3>
         <button
           type="button"
           className="chip-button"
@@ -46,7 +48,7 @@ export function DeviceCard({
         <p className="muted">{t('devices.retainedHint')}</p>
       ) : null}
       <p className="muted">{t('device.lastSeen', { value: device.lastSeen })}</p>
-      <p className="muted">{t('device.lastResult', { value: device.lastResult })}</p>
+      <p className="muted text-wrap-anywhere">{t('device.lastResult', { value: device.lastResult })}</p>
 
       <div className="device-card-actions">
         {device.isConnected ? (

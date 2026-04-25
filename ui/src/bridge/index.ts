@@ -27,6 +27,9 @@ type PyWebviewApi = {
   sync_window_theme?: (mode: string) => Promise<unknown>
   set_language?: (language: string) => Promise<unknown>
   set_notification_policy?: (policy: string) => Promise<unknown>
+  minimize_window?: () => Promise<unknown>
+  toggle_maximize_window?: () => Promise<unknown>
+  close_main_window?: () => Promise<unknown>
   open_bluetooth_settings?: () => Promise<void>
   export_support_bundle?: () => Promise<string>
   export_diagnostics?: () => Promise<string>
@@ -57,6 +60,32 @@ const asRecordMap = (value: unknown): Record<string, RawRecord> =>
 
 const asOptionalString = (value: unknown): string | undefined =>
   typeof value === 'string' && value.length > 0 ? value : undefined
+
+const resolveRuntimeState = (
+  bridgeMode: AppState['runtime']['bridgeMode'],
+  value: unknown,
+): AppState['runtime'] => {
+  const raw = asRecord(value)
+  const rawChrome = String(raw.chrome ?? 'custom')
+
+  return {
+    bridgeMode,
+    chrome: rawChrome === 'native' ? 'native' : 'custom',
+    isMaximized: Boolean(raw.isMaximized ?? raw.is_maximized),
+    canMinimize:
+      raw.canMinimize === undefined && raw.can_minimize === undefined
+        ? bridgeMode !== 'unavailable'
+        : Boolean(raw.canMinimize ?? raw.can_minimize),
+    canMaximize:
+      raw.canMaximize === undefined && raw.can_maximize === undefined
+        ? bridgeMode !== 'unavailable'
+        : Boolean(raw.canMaximize ?? raw.can_maximize),
+    canClose:
+      raw.canClose === undefined && raw.can_close === undefined
+        ? bridgeMode !== 'unavailable'
+        : Boolean(raw.canClose ?? raw.can_close),
+  }
+}
 
 const normalizeBackendConnectionState = (value: unknown): string => {
   const raw = String(value ?? 'disconnected')
@@ -473,9 +502,7 @@ const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
       policy: String(notificationSettings.policy ?? 'failures') as AppState['notifications']['policy'],
     },
     diagnostics: normalizeDiagnostics(asRecord(snapshot.diagnostics)),
-    runtime: {
-      bridgeMode: 'native',
-    },
+    runtime: resolveRuntimeState('native', snapshot.runtime),
   }
 }
 
@@ -521,6 +548,12 @@ const emitState = (
     listener({
       type: 'diagnostics_changed',
       diagnostics: structuredClone(state.diagnostics),
+    }),
+  )
+  listeners.forEach((listener) =>
+    listener({
+      type: 'runtime_changed',
+      runtime: structuredClone(state.runtime),
     }),
   )
   const lastFailure = state.connection.lastFailure
@@ -625,6 +658,15 @@ const createPyWebviewBridge = (api: PyWebviewApi): BackendBridge => {
     async setNotificationPolicy(policy) {
       applySnapshot(await api.set_notification_policy?.(policy))
     },
+    async minimizeWindow() {
+      applySnapshot(await api.minimize_window?.())
+    },
+    async toggleMaximizeWindow() {
+      applySnapshot(await api.toggle_maximize_window?.())
+    },
+    async closeMainWindow() {
+      applySnapshot(await api.close_main_window?.())
+    },
     async openBluetoothSettings() {
       await api.open_bluetooth_settings?.()
     },
@@ -683,6 +725,11 @@ const createUnavailableState = (): AppState => ({
   },
   runtime: {
     bridgeMode: 'unavailable',
+    chrome: 'custom',
+    isMaximized: false,
+    canMinimize: false,
+    canMaximize: false,
+    canClose: false,
   },
 })
 
@@ -705,6 +752,9 @@ const createUnavailableBridge = (): BackendBridge => {
     async syncWindowTheme() {},
     async setLanguage() {},
     async setNotificationPolicy() {},
+    async minimizeWindow() {},
+    async toggleMaximizeWindow() {},
+    async closeMainWindow() {},
     async openBluetoothSettings() {},
     async exportSupportBundle() {
       return ''

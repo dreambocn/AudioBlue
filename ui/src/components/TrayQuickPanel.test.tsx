@@ -54,6 +54,29 @@ describe('TrayQuickPanel', () => {
     expect(onDisconnect).toHaveBeenCalledWith('device-buds')
   })
 
+  it('uses the cockpit wording for quick control copy', () => {
+    render(
+      <LanguageProvider preference="en-US">
+        <TrayQuickPanel
+          currentDevice={connectedDevice}
+          reconnectOnNextStart
+          sourceAvailability="available"
+          bridgeMode="native"
+          totalDevices={1}
+          matchedSourceDevices={[connectedDevice]}
+          debugDevices={[connectedDevice]}
+          onDisconnect={vi.fn()}
+          onConnect={vi.fn()}
+          onToggleReconnect={vi.fn()}
+          onOpenBluetoothSettings={vi.fn()}
+          onRefreshDevices={vi.fn()}
+        />
+      </LanguageProvider>,
+    )
+
+    expect(screen.getByText('Cockpit quick controls')).toBeVisible()
+  })
+
   it('renders reconnect control as a stateful button below the action row', async () => {
     const onToggleReconnect = vi.fn()
 

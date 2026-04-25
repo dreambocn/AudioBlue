@@ -4,6 +4,11 @@ import { useResolvedBridge } from '../bridge/useResolvedBridge'
 import { TrayQuickPanel } from '../components/TrayQuickPanel'
 import { LanguageProvider } from '../i18n'
 import type { AppState } from '../types'
+import {
+  selectActiveDevice,
+  selectA2dpAvailability,
+  selectAudioDevices,
+} from '../state/selectors'
 
 interface TrayQuickPanelViewProps {
   bridge?: BackendBridge
@@ -49,6 +54,9 @@ export function TrayQuickPanelView({ bridge }: TrayQuickPanelViewProps) {
             : current,
         )
       }
+      if (event.type === 'runtime_changed') {
+        setState((current) => (current ? { ...current, runtime: event.runtime } : current))
+      }
     })
 
     return () => {
@@ -61,18 +69,10 @@ export function TrayQuickPanelView({ bridge }: TrayQuickPanelViewProps) {
     return <div className="loading-shell">Loading quick panel…</div>
   }
 
-  // 托盘视图沿用主界面的音频源判定规则，避免两边提示口径不一致。
-  const activeDevice = state.devices.find(
-    (device) => device.id === state.connection.currentDeviceId,
-  )
-  const audioDevices = state.devices.filter((device) => device.supportsAudio)
-  // 快速面板只关心三种状态：桥接不可用、暂无音频源、已有可操作设备。
-  const sourceAvailability =
-    state.runtime.bridgeMode === 'unavailable'
-      ? 'unavailable'
-      : audioDevices.length === 0
-        ? 'no-source'
-        : 'available'
+  // 托盘视图直接复用主界面的派生选择器，确保连接判定与健康状态口径一致。
+  const activeDevice = selectActiveDevice(state.devices, state.connection)
+  const audioDevices = selectAudioDevices(state)
+  const sourceAvailability = selectA2dpAvailability(state)
 
   return (
     <LanguageProvider preference={state.ui.language}>
