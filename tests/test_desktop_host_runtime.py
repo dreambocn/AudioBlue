@@ -5,7 +5,22 @@ from pathlib import Path
 
 import pytest
 
-from audio_blue.desktop_host import DesktopApi, DesktopHost, find_ui_entrypoint
+from audio_blue import desktop_host as desktop_host_module
+from audio_blue.desktop_host import (
+    GWLP_WNDPROC,
+    HTBOTTOM,
+    HTBOTTOMLEFT,
+    HTBOTTOMRIGHT,
+    HTLEFT,
+    HTRIGHT,
+    HTTOP,
+    HTTOPLEFT,
+    HTTOPRIGHT,
+    DesktopApi,
+    DesktopHost,
+    _resolve_resize_hit_test,
+    find_ui_entrypoint,
+)
 from audio_blue.app_state import AppStateStore
 from audio_blue.models import AppConfig
 from audio_blue.notification_service import NotificationService
@@ -173,6 +188,23 @@ def test_create_windows_only_builds_main_window(tmp_path):
     assert webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] is False
 
 
+def test_create_windows_installs_resize_hit_test_hook(tmp_path, monkeypatch):
+    index_path = tmp_path / "ui" / "dist" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=index_path,
+        webview_module=WebviewModuleStub(),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(host, "_install_resize_hit_test_hook", lambda: calls.append("install"))
+
+    host.create_windows()
+
+    assert calls == ["install"]
+
+
 def test_create_windows_does_not_pass_gui_to_create_window(tmp_path):
     index_path = tmp_path / "ui" / "dist" / "index.html"
     index_path.parent.mkdir(parents=True)
@@ -203,6 +235,84 @@ def test_desktop_api_window_controls_call_registered_handlers(tmp_path):
     api.close_main_window()
 
     assert calls == ["minimize", "toggle", "close"]
+
+
+def test_resolve_resize_hit_test_maps_edges_and_corners():
+    rect = (100, 100, 400, 300)
+    border = 12
+
+    assert _resolve_resize_hit_test(rect, (101, 101), border, is_maximized=False) == HTTOPLEFT
+    assert _resolve_resize_hit_test(rect, (398, 101), border, is_maximized=False) == HTTOPRIGHT
+    assert _resolve_resize_hit_test(rect, (101, 298), border, is_maximized=False) == HTBOTTOMLEFT
+    assert _resolve_resize_hit_test(rect, (398, 298), border, is_maximized=False) == HTBOTTOMRIGHT
+    assert _resolve_resize_hit_test(rect, (101, 180), border, is_maximized=False) == HTLEFT
+    assert _resolve_resize_hit_test(rect, (398, 180), border, is_maximized=False) == HTRIGHT
+    assert _resolve_resize_hit_test(rect, (250, 101), border, is_maximized=False) == HTTOP
+    assert _resolve_resize_hit_test(rect, (250, 298), border, is_maximized=False) == HTBOTTOM
+    assert _resolve_resize_hit_test(rect, (250, 180), border, is_maximized=False) is None
+
+
+def test_resolve_resize_hit_test_disables_maximized_and_clamps_border():
+    rect = (0, 0, 18, 18)
+
+    assert _resolve_resize_hit_test(rect, (1, 1), 20, is_maximized=True) is None
+    assert _resolve_resize_hit_test(rect, (9, 9), 20, is_maximized=False) is None
+    assert _resolve_resize_hit_test(rect, (1, 9), 20, is_maximized=False) == HTLEFT
+    assert _resolve_resize_hit_test(rect, (16, 9), 20, is_maximized=False) == HTRIGHT
+
+
+def test_install_resize_hit_test_hook_registers_original_proc_and_callback(tmp_path, monkeypatch):
+    index_path = tmp_path / "ui" / "dist" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=index_path,
+        webview_module=WebviewModuleStub(),
+    )
+    host.main_window = WebviewWindowStub("AudioBlue", index_path.as_uri())
+    host.main_window.hwnd = 2468
+    set_calls: list[tuple[int, int, int]] = []
+
+    monkeypatch.setattr(
+        desktop_host_module,
+        "_set_window_long_ptr",
+        lambda hwnd, index, value: set_calls.append((hwnd, index, value)) or 97531,
+    )
+
+    host._install_resize_hit_test_hook()
+
+    assert set_calls
+    assert set_calls[0][0] == 2468
+    assert set_calls[0][1] == GWLP_WNDPROC
+    assert host._resize_hook_hwnd == 2468
+    assert host._resize_hook_original_proc == 97531
+    assert host._resize_hook_callback is not None
+
+
+def test_restore_resize_hit_test_hook_restores_original_proc_and_clears_state(tmp_path, monkeypatch):
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=tmp_path / "ui" / "dist" / "index.html",
+        webview_module=WebviewModuleStub(),
+    )
+    restore_calls: list[tuple[int, int, int]] = []
+    host._resize_hook_hwnd = 2468
+    host._resize_hook_original_proc = 97531
+    host._resize_hook_callback = object()
+
+    monkeypatch.setattr(
+        desktop_host_module,
+        "_set_window_long_ptr",
+        lambda hwnd, index, value: restore_calls.append((hwnd, index, value)) or 0,
+    )
+
+    host._restore_resize_hit_test_hook()
+
+    assert restore_calls == [(2468, GWLP_WNDPROC, 97531)]
+    assert host._resize_hook_hwnd is None
+    assert host._resize_hook_original_proc is None
+    assert host._resize_hook_callback is None
 
 
 def test_run_starts_webview_in_current_thread_with_edgechromium(tmp_path):
@@ -264,6 +374,24 @@ def test_shutdown_destroys_existing_windows(tmp_path):
     host.shutdown()
 
     assert host.main_window.destroy_called is True
+
+
+def test_shutdown_restores_resize_hit_test_hook_before_destroying_window(tmp_path, monkeypatch):
+    index_path = tmp_path / "ui" / "dist" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=index_path,
+        webview_module=WebviewModuleStub(),
+    )
+    restore_calls: list[str] = []
+    monkeypatch.setattr(host, "_restore_resize_hit_test_hook", lambda: restore_calls.append("restore"))
+
+    host.create_windows()
+    host.shutdown()
+
+    assert restore_calls == ["restore"]
 
 
 def test_main_window_close_hides_window_instead_of_exiting(tmp_path):

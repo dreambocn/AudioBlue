@@ -454,6 +454,31 @@ describe('AudioBlue Control Center integration', () => {
     expect(within(chrome).getByRole('button', { name: 'Hide window to tray' })).toBeDisabled()
   })
 
+  it('localizes custom window chrome action labels in zh-CN while keeping controls outside drag surface', async () => {
+    render(
+      <App
+        bridge={createStaticBridge(
+          createChromeState({
+            ui: {
+              ...structuredClone(baseState.ui),
+              language: 'zh-CN',
+            },
+          }),
+        )}
+      />,
+    )
+
+    const chrome = await screen.findByTestId('window-chrome')
+    const dragSurface = within(chrome).getByTestId('window-chrome-drag-surface')
+    const actions = within(chrome).getByTestId('window-chrome-actions')
+
+    expect(within(chrome).getByRole('button', { name: '最小化窗口' })).toBeVisible()
+    expect(within(chrome).getByRole('button', { name: '最大化窗口' })).toBeVisible()
+    expect(within(chrome).getByRole('button', { name: '隐藏窗口到托盘' })).toBeVisible()
+    expect(dragSurface).toHaveClass('pywebview-drag-region')
+    expect(actions.closest('.pywebview-drag-region')).toBeNull()
+  })
+
   it('binds rule toggles to state changes', async () => {
     render(<App bridge={createMockBridge()} />)
 

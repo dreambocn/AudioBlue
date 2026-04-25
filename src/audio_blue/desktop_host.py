@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+from ctypes import wintypes
 from datetime import UTC, datetime
 import json
 from pathlib import Path
@@ -18,6 +19,118 @@ class DiagnosticsExporter(Protocol):
     """描述诊断导出器的最小调用约定。"""
 
     def __call__(self, snapshot: dict[str, object], path: Path) -> Path: ...
+
+
+LONG_PTR = ctypes.c_longlong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_long
+UINT_PTR = ctypes.c_ulonglong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_uint
+LRESULT = LONG_PTR
+WNDPROC = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, wintypes.UINT, UINT_PTR, LONG_PTR)
+
+GWLP_WNDPROC = -4
+WM_NCHITTEST = 0x0084
+HTLEFT = 10
+HTRIGHT = 11
+HTTOP = 12
+HTTOPLEFT = 13
+HTTOPRIGHT = 14
+HTBOTTOM = 15
+HTBOTTOMLEFT = 16
+HTBOTTOMRIGHT = 17
+SM_CXSIZEFRAME = 32
+SM_CYSIZEFRAME = 33
+SM_CXPADDEDBORDER = 92
+
+
+def _set_window_long_ptr(hwnd: int, index: int, value: int) -> int:
+    """统一封装窗口过程替换，便于测试里打桩。"""
+    user32 = ctypes.windll.user32
+    setter = getattr(user32, "SetWindowLongPtrW", None)
+    if setter is None:
+        setter = user32.SetWindowLongW
+    setter.restype = LONG_PTR
+    setter.argtypes = [wintypes.HWND, ctypes.c_int, LONG_PTR]
+    return int(setter(hwnd, index, value))
+
+
+def _call_window_proc(original_proc: int, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
+    """把未处理的消息回落给原始窗口过程。"""
+    caller = ctypes.windll.user32.CallWindowProcW
+    caller.restype = LRESULT
+    caller.argtypes = [LONG_PTR, wintypes.HWND, wintypes.UINT, UINT_PTR, LONG_PTR]
+    return int(caller(original_proc, hwnd, msg, wparam, lparam))
+
+
+def _get_window_rect(hwnd: int) -> tuple[int, int, int, int]:
+    """读取窗口外边界，用于命中测试。"""
+    rect = wintypes.RECT()
+    ctypes.windll.user32.GetWindowRect(wintypes.HWND(hwnd), ctypes.byref(rect))
+    return rect.left, rect.top, rect.right, rect.bottom
+
+
+def _get_resize_border_thickness() -> int:
+    """读取系统边框厚度，并保留一个合理的最小拖拽尺寸。"""
+    user32 = ctypes.windll.user32
+    frame_x = int(user32.GetSystemMetrics(SM_CXSIZEFRAME))
+    frame_y = int(user32.GetSystemMetrics(SM_CYSIZEFRAME))
+    padded = int(user32.GetSystemMetrics(SM_CXPADDEDBORDER))
+    return max(8, frame_x + padded, frame_y + padded)
+
+
+def _decode_lparam_point(lparam: int) -> tuple[int, int]:
+    """从 Windows 消息参数中解出屏幕坐标。"""
+    x = ctypes.c_short(lparam & 0xFFFF).value
+    y = ctypes.c_short((lparam >> 16) & 0xFFFF).value
+    return x, y
+
+
+def _resolve_resize_hit_test(
+    rect: tuple[int, int, int, int],
+    point: tuple[int, int],
+    border_thickness: int,
+    *,
+    is_maximized: bool,
+) -> int | None:
+    """根据窗口边界、指针位置和边框厚度计算 resize 命中结果。"""
+    if is_maximized:
+        return None
+
+    left, top, right, bottom = rect
+    x, y = point
+    width = right - left
+    height = bottom - top
+    if width <= 0 or height <= 0 or border_thickness <= 0:
+        return None
+    if x < left or x >= right or y < top or y >= bottom:
+        return None
+
+    # 为极小窗口收紧 resize 热区，避免左右/上下边缘完全覆盖客户区。
+    max_horizontal_border = max(1, (width // 2) - 1) if width > 2 else 1
+    max_vertical_border = max(1, (height // 2) - 1) if height > 2 else 1
+    horizontal_border = min(border_thickness, max_horizontal_border)
+    vertical_border = min(border_thickness, max_vertical_border)
+
+    on_left = x < left + horizontal_border
+    on_right = x >= right - horizontal_border
+    on_top = y < top + vertical_border
+    on_bottom = y >= bottom - vertical_border
+
+    if on_top and on_left:
+        return HTTOPLEFT
+    if on_top and on_right:
+        return HTTOPRIGHT
+    if on_bottom and on_left:
+        return HTBOTTOMLEFT
+    if on_bottom and on_right:
+        return HTBOTTOMRIGHT
+    if on_left:
+        return HTLEFT
+    if on_right:
+        return HTRIGHT
+    if on_top:
+        return HTTOP
+    if on_bottom:
+        return HTBOTTOM
+    return None
 
 
 def find_ui_entrypoint(base_dir: Path | None = None) -> Path:
@@ -342,6 +455,9 @@ class DesktopHost:
         self._state_unsubscribe = None
         self._allow_close = False
         self._is_maximized = False
+        self._resize_hook_hwnd: int | None = None
+        self._resize_hook_original_proc: int | None = None
+        self._resize_hook_callback: WNDPROC | None = None
         if hasattr(self.api, "register_window_theme_sync"):
             self.api.register_window_theme_sync(self.sync_window_theme)
         if hasattr(self.api, "register_window_controls"):
@@ -372,6 +488,7 @@ class DesktopHost:
             easy_drag=False,
             hidden=True,
         )
+        self._install_resize_hit_test_hook()
         window_events = getattr(self.main_window, "events", None)
         if window_events is not None and hasattr(window_events, "closing"):
             window_events.closing += self._on_main_window_closing
@@ -437,6 +554,7 @@ class DesktopHost:
         if callable(self._state_unsubscribe):
             self._state_unsubscribe()
             self._state_unsubscribe = None
+        self._restore_resize_hit_test_hook()
 
         for window in (self.main_window,):
             if window is None or not hasattr(window, "destroy"):
@@ -511,6 +629,69 @@ class DesktopHost:
             settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = False
         except Exception:
             return
+
+    def _install_resize_hit_test_hook(self) -> None:
+        """为 frameless 窗口补回 Windows 原生边缘 resize 命中。"""
+        if self.main_window is None or self._resize_hook_callback is not None:
+            return
+
+        try:
+            hwnd = self._resolve_window_handle(self.main_window)
+        except Exception:
+            return
+
+        border_thickness = _get_resize_border_thickness()
+
+        def window_proc(hwnd_value, msg, wparam, lparam):
+            if int(msg) == WM_NCHITTEST:
+                hit = _resolve_resize_hit_test(
+                    _get_window_rect(int(hwnd_value)),
+                    _decode_lparam_point(int(lparam)),
+                    border_thickness,
+                    is_maximized=self._is_maximized,
+                )
+                if hit is not None:
+                    return hit
+
+            if self._resize_hook_original_proc is None:
+                return 0
+
+            return _call_window_proc(
+                self._resize_hook_original_proc,
+                int(hwnd_value),
+                int(msg),
+                int(wparam),
+                int(lparam),
+            )
+
+        callback = WNDPROC(window_proc)
+        original_proc = _set_window_long_ptr(
+            hwnd,
+            GWLP_WNDPROC,
+            int(ctypes.cast(callback, ctypes.c_void_p).value or 0),
+        )
+        self._resize_hook_hwnd = hwnd
+        self._resize_hook_original_proc = original_proc
+        self._resize_hook_callback = callback
+
+    def _restore_resize_hit_test_hook(self) -> None:
+        """恢复原始窗口过程，避免销毁后保留悬空回调。"""
+        if self._resize_hook_hwnd is None or self._resize_hook_original_proc is None:
+            self._resize_hook_hwnd = None
+            self._resize_hook_original_proc = None
+            self._resize_hook_callback = None
+            return
+
+        try:
+            _set_window_long_ptr(
+                self._resize_hook_hwnd,
+                GWLP_WNDPROC,
+                self._resize_hook_original_proc,
+            )
+        finally:
+            self._resize_hook_hwnd = None
+            self._resize_hook_original_proc = None
+            self._resize_hook_callback = None
 
     def _apply_native_title_bar_theme(self, window: object, mode: str) -> None:
         if mode not in {"light", "dark"}:

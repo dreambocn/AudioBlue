@@ -85,7 +85,8 @@ def test_app_state_maps_connection_failure_to_stable_snapshot_payload():
     assert payload["lastFailure"] is not None
     assert payload["lastFailure"]["deviceId"] == "dev-1"
     assert payload["lastFailure"]["state"] == "timeout"
-    assert "timed out" in payload["lastFailure"]["message"].lower()
+    failure_message = str(payload["lastFailure"]["message"]).lower()
+    assert "timed out" in failure_message or "连接超时" in failure_message
     assert payload["lastTrigger"] == "manual"
 
     device_payload = payload["devices"][0]

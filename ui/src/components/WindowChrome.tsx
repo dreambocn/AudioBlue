@@ -30,7 +30,7 @@ export function WindowChrome({
     t('common.none')
   const connectionPhase = state.connection.currentPhase ?? state.connection.status
   const connectionLabel = t(`overview.status.${connectionPhase}`)
-  const maximizeLabel = state.runtime.isMaximized ? 'Restore window' : 'Maximize window'
+  const maximizeLabel = state.runtime.isMaximized ? t('window.restore') : t('window.maximize')
   const chromeMetaText = state.connection.lastErrorMessage
     ? state.connection.lastErrorMessage
     : state.runtime.bridgeMode === 'unavailable'
@@ -82,7 +82,7 @@ export function WindowChrome({
         <button
           type="button"
           className="chrome-button"
-          aria-label="Minimize window"
+          aria-label={t('window.minimize')}
           disabled={!state.runtime.canMinimize}
           onClick={onMinimize}
         >
@@ -100,7 +100,7 @@ export function WindowChrome({
         <button
           type="button"
           className="chrome-button chrome-button-close"
-          aria-label="Hide window to tray"
+          aria-label={t('window.hideToTray')}
           disabled={!state.runtime.canClose}
           onClick={onClose}
         >
