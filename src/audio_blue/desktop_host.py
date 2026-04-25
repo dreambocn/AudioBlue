@@ -5,10 +5,12 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes
 from datetime import UTC, datetime
+from dataclasses import dataclass
 import json
 from pathlib import Path
 from typing import Any, Callable, Protocol
 import sys
+import winreg
 
 from audio_blue.app_state import AppStateStore
 from audio_blue.diagnostics import build_diagnostics_snapshot
@@ -28,6 +30,7 @@ WNDPROC = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, wintypes.UINT, UINT_PTR, LO
 
 GWLP_WNDPROC = -4
 WM_NCHITTEST = 0x0084
+WM_NCLBUTTONDOWN = 0x00A1
 HTLEFT = 10
 HTRIGHT = 11
 HTTOP = 12
@@ -39,6 +42,20 @@ HTBOTTOMRIGHT = 17
 SM_CXSIZEFRAME = 32
 SM_CYSIZEFRAME = 33
 SM_CXPADDEDBORDER = 92
+NATIVE_WINDOW_BACKGROUND_COLORS = {
+    "light": "#f3f6fb",
+    "dark": "#090d13",
+}
+
+
+@dataclass(slots=True)
+class NativeResizeGripBinding:
+    """记录单个原生 resize grip 的控件与交互元数据。"""
+
+    control: object
+    hit_test: int
+    cursor_name: str
+    mouse_handler: Callable[..., None]
 
 
 def _set_window_long_ptr(hwnd: int, index: int, value: int) -> int:
@@ -58,6 +75,19 @@ def _call_window_proc(original_proc: int, hwnd: int, msg: int, wparam: int, lpar
     caller.restype = LRESULT
     caller.argtypes = [LONG_PTR, wintypes.HWND, wintypes.UINT, UINT_PTR, LONG_PTR]
     return int(caller(original_proc, hwnd, msg, wparam, lparam))
+
+
+def _release_capture() -> bool:
+    """释放当前鼠标捕获，让系统进入原生 resize 流程。"""
+    return bool(ctypes.windll.user32.ReleaseCapture())
+
+
+def _send_window_message(hwnd: int, msg: int, wparam: int, lparam: int) -> int:
+    """统一封装窗口消息发送，便于测试里打桩。"""
+    sender = ctypes.windll.user32.SendMessageW
+    sender.restype = LRESULT
+    sender.argtypes = [wintypes.HWND, wintypes.UINT, UINT_PTR, LONG_PTR]
+    return int(sender(hwnd, msg, wparam, lparam))
 
 
 def _get_window_rect(hwnd: int) -> tuple[int, int, int, int]:
@@ -81,6 +111,48 @@ def _decode_lparam_point(lparam: int) -> tuple[int, int]:
     x = ctypes.c_short(lparam & 0xFFFF).value
     y = ctypes.c_short((lparam >> 16) & 0xFFFF).value
     return x, y
+
+
+def _coerce_window_handle(value: object) -> int | None:
+    """尽量把不同宿主返回的句柄对象转换成稳定的 HWND 整数。"""
+    if isinstance(value, int):
+        return value if value > 0 else None
+
+    for method_name in ("ToInt64", "ToInt32"):
+        method = getattr(value, method_name, None)
+        if not callable(method):
+            continue
+        try:
+            coerced = int(method())
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if coerced > 0:
+            return coerced
+
+    try:
+        coerced = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return coerced if coerced > 0 else None
+
+
+def _resolve_known_window_handle(window: object) -> int | None:
+    """优先从窗口对象及其 native 宿主上读取已知 HWND。"""
+    for attribute in ("hwnd", "_hwnd"):
+        value = _coerce_window_handle(getattr(window, attribute, None))
+        if value is not None:
+            return value
+
+    native = getattr(window, "native", None)
+    if native is None:
+        return None
+
+    for attribute in ("hwnd", "_hwnd", "Handle", "handle"):
+        value = _coerce_window_handle(getattr(native, attribute, None))
+        if value is not None:
+            return value
+
+    return None
 
 
 def _resolve_resize_hit_test(
@@ -170,11 +242,11 @@ class DesktopApi:
         support_bundle_exporter: DiagnosticsExporter | None = None,
         observability=None,
     ) -> None:
-        self.service = service
-        self.app_state = app_state
-        self.autostart_manager = autostart_manager
-        self.notification_service = notification_service
-        self.session_state = session_state
+        self._service = service
+        self._app_state = app_state
+        self._autostart_manager = autostart_manager
+        self._notification_service = notification_service
+        self._session_state = session_state
         self._diagnostics_exporter = diagnostics_exporter
         self._support_bundle_exporter = support_bundle_exporter or diagnostics_exporter
         self._open_bluetooth_settings = open_bluetooth_settings
@@ -197,85 +269,85 @@ class DesktopApi:
 
     def get_initial_state(self) -> dict[str, Any]:
         """返回前端启动时所需的第一份完整状态。"""
-        if self.session_state is not None:
-            return self.attach_runtime_state(self.session_state.snapshot())
+        if self._session_state is not None:
+            return self.attach_runtime_state(self._session_state.snapshot())
         self._sync_from_service()
-        return self.attach_runtime_state(self.app_state.snapshot())
+        return self.attach_runtime_state(self._app_state.snapshot())
 
     def refresh_devices(self) -> dict[str, Any]:
         """刷新设备并返回最新快照。"""
-        if self.session_state is not None:
-            return self.attach_runtime_state(self.session_state.refresh_devices())
-        self.service.refresh_devices()
+        if self._session_state is not None:
+            return self.attach_runtime_state(self._session_state.refresh_devices())
+        self._service.refresh_devices()
         self._sync_from_service()
-        return self.attach_runtime_state(self.app_state.snapshot())
+        return self.attach_runtime_state(self._app_state.snapshot())
 
     def connect_device(self, device_id: str) -> dict[str, Any]:
-        if self.session_state is not None:
-            return self.attach_runtime_state(self.session_state.connect_device(device_id))
-        self.service.connect(device_id)
-        self.app_state.handle_connector_event({"event": "device_connected", "device_id": device_id})
+        if self._session_state is not None:
+            return self.attach_runtime_state(self._session_state.connect_device(device_id))
+        self._service.connect(device_id)
+        self._app_state.handle_connector_event({"event": "device_connected", "device_id": device_id})
         self._sync_from_service()
-        return self.attach_runtime_state(self.app_state.snapshot())
+        return self.attach_runtime_state(self._app_state.snapshot())
 
     def disconnect_device(self, device_id: str) -> dict[str, Any]:
-        if self.session_state is not None:
-            return self.attach_runtime_state(self.session_state.disconnect_device(device_id))
-        self.service.disconnect(device_id)
-        self.app_state.handle_connector_event(
+        if self._session_state is not None:
+            return self.attach_runtime_state(self._session_state.disconnect_device(device_id))
+        self._service.disconnect(device_id)
+        self._app_state.handle_connector_event(
             {"event": "device_disconnected", "device_id": device_id, "state": "disconnected"}
         )
         self._sync_from_service()
-        return self.attach_runtime_state(self.app_state.snapshot())
+        return self.attach_runtime_state(self._app_state.snapshot())
 
     def update_device_rule(self, device_id: str, rule_patch: dict[str, Any]) -> dict[str, Any]:
-        if self.session_state is not None:
-            return self.attach_runtime_state(self.session_state.update_device_rule(device_id, rule_patch))
-        self.app_state.update_device_rule(device_id, rule_patch)
-        return self.attach_runtime_state(self.app_state.snapshot())
+        if self._session_state is not None:
+            return self.attach_runtime_state(self._session_state.update_device_rule(device_id, rule_patch))
+        self._app_state.update_device_rule(device_id, rule_patch)
+        return self.attach_runtime_state(self._app_state.snapshot())
 
     def reorder_device_priority(self, device_ids: list[str]) -> dict[str, Any]:
-        if self.session_state is not None:
-            return self.attach_runtime_state(self.session_state.reorder_device_priority(device_ids))
-        self.app_state.reorder_device_priority(device_ids)
-        return self.attach_runtime_state(self.app_state.snapshot())
+        if self._session_state is not None:
+            return self.attach_runtime_state(self._session_state.reorder_device_priority(device_ids))
+        self._app_state.reorder_device_priority(device_ids)
+        return self.attach_runtime_state(self._app_state.snapshot())
 
     def set_autostart(self, enabled: bool) -> dict[str, Any]:
-        if self.session_state is not None:
-            return self.attach_runtime_state(self.session_state.set_autostart(enabled))
-        self.autostart_manager.set_enabled(enabled)
-        self.app_state.config.startup.autostart = enabled
-        return self.attach_runtime_state(self.app_state.snapshot())
+        if self._session_state is not None:
+            return self.attach_runtime_state(self._session_state.set_autostart(enabled))
+        self._autostart_manager.set_enabled(enabled)
+        self._app_state.config.startup.autostart = enabled
+        return self.attach_runtime_state(self._app_state.snapshot())
 
     def set_theme(self, mode: ThemeMode) -> dict[str, Any]:
-        if self.session_state is not None:
-            return self.attach_runtime_state(self.session_state.set_theme(mode))
-        self.app_state.config.ui.theme = mode
-        return self.attach_runtime_state(self.app_state.snapshot())
+        if self._session_state is not None:
+            return self.attach_runtime_state(self._session_state.set_theme(mode))
+        self._app_state.config.ui.theme = mode
+        return self.attach_runtime_state(self._app_state.snapshot())
 
     def set_language(self, language: str) -> dict[str, Any]:
         if language not in {"system", "zh-CN", "en-US"}:
             raise ValueError("Unsupported language")
-        if self.session_state is not None:
-            return self.attach_runtime_state(self.session_state.set_language(language))
-        setattr(self.app_state.config.ui, "language", language)
-        snapshot = self.app_state.snapshot()
+        if self._session_state is not None:
+            return self.attach_runtime_state(self._session_state.set_language(language))
+        setattr(self._app_state.config.ui, "language", language)
+        snapshot = self._app_state.snapshot()
         snapshot.setdefault("settings", {}).setdefault("ui", {})["language"] = language
         return self.attach_runtime_state(snapshot)
 
     def set_notification_policy(self, policy: NotificationPolicy) -> dict[str, Any]:
-        if self.session_state is not None:
-            return self.attach_runtime_state(self.session_state.set_notification_policy(policy))
-        self.notification_service.update_policy(policy)
-        self.app_state.config.notification.policy = policy
-        return self.attach_runtime_state(self.app_state.snapshot())
+        if self._session_state is not None:
+            return self.attach_runtime_state(self._session_state.set_notification_policy(policy))
+        self._notification_service.update_policy(policy)
+        self._app_state.config.notification.policy = policy
+        return self.attach_runtime_state(self._app_state.snapshot())
 
     def set_reconnect(self, enabled: bool) -> dict[str, Any]:
-        if self.session_state is not None and hasattr(self.session_state, "set_reconnect"):
-            snapshot = self.session_state.set_reconnect(enabled)
+        if self._session_state is not None and hasattr(self._session_state, "set_reconnect"):
+            snapshot = self._session_state.set_reconnect(enabled)
             return self.attach_runtime_state(self._ensure_reconnect_in_snapshot(snapshot, enabled))
-        self.app_state.config.reconnect = bool(enabled)
-        snapshot = self.app_state.snapshot()
+        self._app_state.config.reconnect = bool(enabled)
+        snapshot = self._app_state.snapshot()
         return self.attach_runtime_state(self._ensure_reconnect_in_snapshot(snapshot, enabled))
 
     def register_window_theme_sync(self, callback: Callable[[str], bool]) -> None:
@@ -360,11 +432,11 @@ class DesktopApi:
         """导出支持包，并把运行态与诊断态合并到同一份快照。"""
         runtime_snapshot = self.get_initial_state()
         snapshot = build_diagnostics_snapshot(
-            config=self.app_state.config,
-            devices=list(getattr(self.service, "known_devices", {}).values()),
+            config=self._app_state.config,
+            devices=list(getattr(self._service, "known_devices", {}).values()),
             attempts=[
                 device.last_connection_attempt
-                for device in getattr(self.service, "known_devices", {}).values()
+                for device in getattr(self._service, "known_devices", {}).values()
                 if getattr(device, "last_connection_attempt", None) is not None
             ],
             source="desktop-api",
@@ -407,8 +479,8 @@ class DesktopApi:
         return str(path)
 
     def record_client_event(self, payload: dict[str, Any]) -> dict[str, Any]:
-        if self.session_state is not None and hasattr(self.session_state, "record_client_event"):
-            return self.session_state.record_client_event(payload)
+        if self._session_state is not None and hasattr(self._session_state, "record_client_event"):
+            return self._session_state.record_client_event(payload)
         if self._observability is not None and hasattr(self._observability, "record_event"):
             self._observability.record_event(
                 area=str(payload.get("area", "ui")),
@@ -435,7 +507,7 @@ class DesktopApi:
         return self.get_initial_state()
 
     def _sync_from_service(self) -> None:
-        self.app_state.sync_devices(list(getattr(self.service, "known_devices", {}).values()))
+        self._app_state.sync_devices(list(getattr(self._service, "known_devices", {}).values()))
 
     def _ensure_reconnect_in_snapshot(self, snapshot: dict[str, Any], enabled: bool) -> dict[str, Any]:
         settings = snapshot.setdefault("settings", {})
@@ -455,9 +527,12 @@ class DesktopHost:
         self._state_unsubscribe = None
         self._allow_close = False
         self._is_maximized = False
-        self._resize_hook_hwnd: int | None = None
-        self._resize_hook_original_proc: int | None = None
-        self._resize_hook_callback: WNDPROC | None = None
+        self._native_resize_form: object | None = None
+        self._native_resize_hwnd: int | None = None
+        self._native_resize_runtime: dict[str, Any] | None = None
+        self._native_resize_grips: dict[str, NativeResizeGripBinding] = {}
+        self._native_resize_form_resize_handler: Callable[..., None] | None = None
+        self._native_theme_mode = self._resolve_native_window_theme_mode()
         if hasattr(self.api, "register_window_theme_sync"):
             self.api.register_window_theme_sync(self.sync_window_theme)
         if hasattr(self.api, "register_window_controls"):
@@ -487,9 +562,13 @@ class DesktopHost:
             frameless=True,
             easy_drag=False,
             hidden=True,
+            background_color=self._get_native_window_background_color(self._native_theme_mode),
         )
-        self._install_resize_hit_test_hook()
         window_events = getattr(self.main_window, "events", None)
+        if window_events is not None and hasattr(window_events, "before_show"):
+            window_events.before_show += self._on_main_window_before_show
+        if window_events is not None and hasattr(window_events, "shown"):
+            window_events.shown += self._on_main_window_shown
         if window_events is not None and hasattr(window_events, "closing"):
             window_events.closing += self._on_main_window_closing
         if window_events is not None and hasattr(window_events, "maximized"):
@@ -502,7 +581,7 @@ class DesktopHost:
         self.create_windows()
         if self._webview is None:
             raise RuntimeError("Webview module is not available.")
-        session_state = getattr(self.api, "session_state", None)
+        session_state = getattr(self.api, "_session_state", None)
 
         def on_started_wrapper() -> None:
             if session_state is not None and hasattr(session_state, "subscribe"):
@@ -544,6 +623,7 @@ class DesktopHost:
         if self.main_window is None:
             return False
         try:
+            self._apply_native_resize_chrome_theme(mode)
             self._apply_native_title_bar_theme(self.main_window, mode)
             return True
         except Exception:
@@ -554,7 +634,7 @@ class DesktopHost:
         if callable(self._state_unsubscribe):
             self._state_unsubscribe()
             self._state_unsubscribe = None
-        self._restore_resize_hit_test_hook()
+        self._dispose_native_resize_chrome()
 
         for window in (self.main_window,):
             if window is None or not hasattr(window, "destroy"):
@@ -593,6 +673,12 @@ class DesktopHost:
             self.main_window.hide()
         return False
 
+    def _on_main_window_before_show(self) -> None:
+        self._ensure_native_resize_chrome()
+
+    def _on_main_window_shown(self) -> None:
+        self._ensure_native_resize_chrome()
+
     def _on_main_window_maximized(self) -> None:
         self._set_maximized(True)
 
@@ -601,6 +687,7 @@ class DesktopHost:
 
     def _set_maximized(self, is_maximized: bool) -> None:
         self._is_maximized = is_maximized
+        self._update_native_resize_chrome_state()
         self._sync_runtime_state(push=True)
 
     def _sync_runtime_state(self, *, push: bool) -> None:
@@ -630,68 +717,288 @@ class DesktopHost:
         except Exception:
             return
 
-    def _install_resize_hit_test_hook(self) -> None:
-        """为 frameless 窗口补回 Windows 原生边缘 resize 命中。"""
-        if self.main_window is None or self._resize_hook_callback is not None:
+    def _load_native_resize_runtime(self) -> dict[str, Any]:
+        """按需加载 WinForms 运行时对象，避免导入阶段绑定 GUI 依赖。"""
+        import clr  # type: ignore[import-not-found]
+
+        clr.AddReference("System.Windows.Forms")
+        clr.AddReference("System.Drawing")
+
+        import System.Windows.Forms as WinForms  # type: ignore[import-not-found]
+        from System.Drawing import ColorTranslator  # type: ignore[import-not-found]
+
+        return {
+            "Panel": WinForms.Panel,
+            "Cursors": WinForms.Cursors,
+            "MouseButtons": WinForms.MouseButtons,
+            "AnchorStyles": WinForms.AnchorStyles,
+            "color_from_hex": ColorTranslator.FromHtml,
+        }
+
+    def _ensure_native_resize_chrome(self) -> None:
+        """在原生窗体就绪后安装一圈原生 grip，直接接管四边四角 resize。"""
+        if self.main_window is None:
             return
 
-        try:
-            hwnd = self._resolve_window_handle(self.main_window)
-        except Exception:
+        native_form = getattr(self.main_window, "native", None)
+        if native_form is None:
             return
 
-        border_thickness = _get_resize_border_thickness()
+        hwnd = _resolve_known_window_handle(self.main_window)
+        if hwnd is None:
+            return
 
-        def window_proc(hwnd_value, msg, wparam, lparam):
-            if int(msg) == WM_NCHITTEST:
-                hit = _resolve_resize_hit_test(
-                    _get_window_rect(int(hwnd_value)),
-                    _decode_lparam_point(int(lparam)),
-                    border_thickness,
-                    is_maximized=self._is_maximized,
-                )
-                if hit is not None:
-                    return hit
+        if self._native_resize_form is native_form and self._native_resize_grips:
+            self._layout_native_resize_grips()
+            self._update_native_resize_chrome_state()
+            return
 
-            if self._resize_hook_original_proc is None:
-                return 0
+        self._dispose_native_resize_chrome()
+        runtime = self._load_native_resize_runtime()
+        self._native_resize_runtime = runtime
+        self._native_resize_form = native_form
+        self._native_resize_hwnd = hwnd
 
-            return _call_window_proc(
-                self._resize_hook_original_proc,
-                int(hwnd_value),
-                int(msg),
-                int(wparam),
-                int(lparam),
+        resize_handler = lambda *_args, **_kwargs: self._layout_native_resize_grips()
+        form_resize_event = getattr(native_form, "Resize", None)
+        if form_resize_event is not None:
+            form_resize_event += resize_handler
+        self._native_resize_form_resize_handler = resize_handler
+
+        for name, hit_test, cursor_name in self._iter_native_resize_grip_specs():
+            control = self._build_native_resize_grip_control(name, cursor_name, runtime)
+
+            def mouse_handler(*event_args, grip_hit_test=hit_test):
+                self._handle_native_resize_grip_mouse_down(grip_hit_test, *event_args)
+
+            mouse_event = getattr(control, "MouseDown", None)
+            if mouse_event is not None:
+                mouse_event += mouse_handler
+
+            controls = getattr(native_form, "Controls", None)
+            if controls is not None and hasattr(controls, "Add"):
+                controls.Add(control)
+            if hasattr(control, "BringToFront"):
+                control.BringToFront()
+
+            self._native_resize_grips[name] = NativeResizeGripBinding(
+                control=control,
+                hit_test=hit_test,
+                cursor_name=cursor_name,
+                mouse_handler=mouse_handler,
             )
 
-        callback = WNDPROC(window_proc)
-        original_proc = _set_window_long_ptr(
-            hwnd,
-            GWLP_WNDPROC,
-            int(ctypes.cast(callback, ctypes.c_void_p).value or 0),
+        self._layout_native_resize_grips()
+        self._update_native_resize_chrome_state()
+        self._apply_native_resize_chrome_theme(self._native_theme_mode)
+
+    def _dispose_native_resize_chrome(self) -> None:
+        """卸载原生 grip 与事件绑定，避免重复安装和悬空引用。"""
+        native_form = self._native_resize_form
+        controls = getattr(native_form, "Controls", None) if native_form is not None else None
+
+        for binding in list(self._native_resize_grips.values()):
+            mouse_event = getattr(binding.control, "MouseDown", None)
+            if mouse_event is not None and hasattr(mouse_event, "__isub__"):
+                try:
+                    mouse_event -= binding.mouse_handler
+                except Exception:
+                    pass
+
+            if controls is not None and hasattr(controls, "Remove"):
+                try:
+                    controls.Remove(binding.control)
+                except Exception:
+                    pass
+
+            if hasattr(binding.control, "Dispose"):
+                try:
+                    binding.control.Dispose()
+                except Exception:
+                    pass
+
+        if native_form is not None and self._native_resize_form_resize_handler is not None:
+            form_resize_event = getattr(native_form, "Resize", None)
+            if form_resize_event is not None and hasattr(form_resize_event, "__isub__"):
+                try:
+                    form_resize_event -= self._native_resize_form_resize_handler
+                except Exception:
+                    pass
+
+        self._native_resize_grips = {}
+        self._native_resize_form = None
+        self._native_resize_hwnd = None
+        self._native_resize_runtime = None
+        self._native_resize_form_resize_handler = None
+
+    def _iter_native_resize_grip_specs(self) -> tuple[tuple[str, int, str], ...]:
+        """定义四边四角 grip 的命中类型和光标语义。"""
+        return (
+            ("top_left", HTTOPLEFT, "SizeNWSE"),
+            ("top", HTTOP, "SizeNS"),
+            ("top_right", HTTOPRIGHT, "SizeNESW"),
+            ("left", HTLEFT, "SizeWE"),
+            ("right", HTRIGHT, "SizeWE"),
+            ("bottom_left", HTBOTTOMLEFT, "SizeNESW"),
+            ("bottom", HTBOTTOM, "SizeNS"),
+            ("bottom_right", HTBOTTOMRIGHT, "SizeNWSE"),
         )
-        self._resize_hook_hwnd = hwnd
-        self._resize_hook_original_proc = original_proc
-        self._resize_hook_callback = callback
 
-    def _restore_resize_hit_test_hook(self) -> None:
-        """恢复原始窗口过程，避免销毁后保留悬空回调。"""
-        if self._resize_hook_hwnd is None or self._resize_hook_original_proc is None:
-            self._resize_hook_hwnd = None
-            self._resize_hook_original_proc = None
-            self._resize_hook_callback = None
+    def _build_native_resize_grip_control(self, name: str, cursor_name: str, runtime: dict[str, Any]) -> object:
+        """创建单个原生 grip 控件。"""
+        panel = runtime["Panel"]()
+        panel.Name = f"AudioBlueResizeGrip_{name}"
+        panel.Cursor = getattr(runtime["Cursors"], cursor_name)
+        panel.TabStop = False
+        color_factory = runtime.get("color_from_hex")
+        if callable(color_factory):
+            panel.BackColor = color_factory(self._get_native_window_background_color(self._native_theme_mode))
+        return panel
+
+    def _layout_native_resize_grips(self) -> None:
+        """根据当前 ClientSize 重排 grip 布局，角优先于边。"""
+        if self._native_resize_form is None or not self._native_resize_grips:
             return
 
-        try:
-            _set_window_long_ptr(
-                self._resize_hook_hwnd,
-                GWLP_WNDPROC,
-                self._resize_hook_original_proc,
+        client_size = getattr(self._native_resize_form, "ClientSize", None)
+        width = int(getattr(client_size, "Width", 0) or 0)
+        height = int(getattr(client_size, "Height", 0) or 0)
+        if width <= 0 or height <= 0:
+            return
+
+        thickness = max(1, _get_resize_border_thickness())
+        corner_span = min(max(thickness * 2, 16), max(thickness, min(width, height)))
+        horizontal_edge_width = max(0, width - (corner_span * 2))
+        vertical_edge_height = max(0, height - (corner_span * 2))
+
+        layout = {
+            "top_left": (0, 0, corner_span, corner_span),
+            "top": (corner_span, 0, horizontal_edge_width, thickness),
+            "top_right": (max(0, width - corner_span), 0, corner_span, corner_span),
+            "left": (0, corner_span, thickness, vertical_edge_height),
+            "right": (max(0, width - thickness), corner_span, thickness, vertical_edge_height),
+            "bottom_left": (0, max(0, height - corner_span), corner_span, corner_span),
+            "bottom": (corner_span, max(0, height - thickness), horizontal_edge_width, thickness),
+            "bottom_right": (
+                max(0, width - corner_span),
+                max(0, height - corner_span),
+                corner_span,
+                corner_span,
+            ),
+        }
+
+        for name, binding in self._native_resize_grips.items():
+            left, top, grip_width, grip_height = layout[name]
+            binding.control.Left = left
+            binding.control.Top = top
+            binding.control.Width = grip_width
+            binding.control.Height = grip_height
+
+    def _update_native_resize_chrome_state(self) -> None:
+        """根据最大化状态切换 grip 的光标和交互能力。"""
+        if self._native_resize_runtime is None or not self._native_resize_grips:
+            return
+
+        cursors = self._native_resize_runtime["Cursors"]
+        for binding in self._native_resize_grips.values():
+            binding.control.Cursor = (
+                getattr(cursors, "Default")
+                if self._is_maximized
+                else getattr(cursors, binding.cursor_name)
             )
-        finally:
-            self._resize_hook_hwnd = None
-            self._resize_hook_original_proc = None
-            self._resize_hook_callback = None
+
+    def _resolve_native_window_theme_mode(self) -> str:
+        """从当前配置或系统偏好推断宿主应使用的原生主题。"""
+        configured_theme = None
+        session_state = getattr(self.api, "_session_state", None)
+        snapshot = getattr(session_state, "snapshot", None)
+        if callable(snapshot):
+            try:
+                configured_theme = (
+                    snapshot()
+                    .get("settings", {})
+                    .get("ui", {})
+                    .get("theme")
+                )
+            except Exception:
+                configured_theme = None
+
+        if configured_theme not in {"light", "dark"}:
+            app_state = getattr(self.api, "_app_state", None)
+            config = getattr(app_state, "config", None)
+            ui_preferences = getattr(config, "ui", None)
+            configured_theme = getattr(ui_preferences, "theme", None)
+
+        if configured_theme in {"light", "dark"}:
+            return configured_theme
+
+        return self._get_system_theme_mode()
+
+    def _get_system_theme_mode(self) -> str:
+        """读取系统浅深色偏好，失败时回退浅色。"""
+        try:
+            personalize_key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+                0,
+                winreg.KEY_READ,
+            )
+            try:
+                system_theme, _ = winreg.QueryValueEx(personalize_key, "SystemUsesLightTheme")
+            finally:
+                winreg.CloseKey(personalize_key)
+            return "light" if int(system_theme) != 0 else "dark"
+        except Exception:
+            return "light"
+
+    def _get_native_window_background_color(self, mode: str) -> str:
+        """返回宿主原生边缘与 grip 使用的主题背景色。"""
+        return NATIVE_WINDOW_BACKGROUND_COLORS["dark" if mode == "dark" else "light"]
+
+    def _apply_native_resize_chrome_theme(self, mode: str) -> None:
+        """同步宿主窗体和原生 grip 的底色，避免默认白底露出。"""
+        resolved_mode = "dark" if mode == "dark" else "light"
+        self._native_theme_mode = resolved_mode
+        color_value = self._get_native_window_background_color(resolved_mode)
+
+        color_factory = None
+        if self._native_resize_runtime is not None:
+            color_factory = self._native_resize_runtime.get("color_from_hex")
+        native_color = color_factory(color_value) if callable(color_factory) else color_value
+
+        if self._native_resize_form is not None:
+            try:
+                self._native_resize_form.BackColor = native_color
+            except Exception:
+                pass
+
+        for binding in self._native_resize_grips.values():
+            try:
+                binding.control.BackColor = native_color
+            except Exception:
+                continue
+
+    def _handle_native_resize_grip_mouse_down(self, hit_test: int, *event_args: Any) -> None:
+        """把 grip 鼠标按下转换成系统原生 resize 消息。"""
+        if self._native_resize_hwnd is None or self._is_maximized:
+            return
+        if not self._is_left_resize_mouse_button(*event_args):
+            return
+
+        _release_capture()
+        _send_window_message(self._native_resize_hwnd, WM_NCLBUTTONDOWN, hit_test, 0)
+
+    def _is_left_resize_mouse_button(self, *event_args: Any) -> bool:
+        """兼容 pythonnet 事件签名，识别左键按下。"""
+        if self._native_resize_runtime is None:
+            return False
+
+        event_args_object = event_args[-1] if event_args else None
+        button = getattr(event_args_object, "Button", None)
+        left_button = getattr(self._native_resize_runtime["MouseButtons"], "Left", None)
+        if left_button is None:
+            return True
+        return button == left_button or str(button) == str(left_button)
 
     def _apply_native_title_bar_theme(self, window: object, mode: str) -> None:
         if mode not in {"light", "dark"}:
@@ -713,17 +1020,9 @@ class DesktopHost:
         raise RuntimeError("Failed to apply native title bar theme")
 
     def _resolve_window_handle(self, window: object) -> int:
-        for attribute in ("hwnd", "_hwnd"):
-            value = getattr(window, attribute, None)
-            if isinstance(value, int) and value > 0:
-                return value
-
-        native = getattr(window, "native", None)
-        if native is not None:
-            for attribute in ("hwnd", "_hwnd", "Handle", "handle"):
-                value = getattr(native, attribute, None)
-                if isinstance(value, int) and value > 0:
-                    return value
+        hwnd = _resolve_known_window_handle(window)
+        if hwnd is not None:
+            return hwnd
 
         title = getattr(window, "title", "")
         if not isinstance(title, str):
