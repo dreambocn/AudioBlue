@@ -5,6 +5,7 @@ import logging
 import pywintypes
 import win32con
 
+import audio_blue.localization as localization
 from audio_blue.models import AppConfig
 from audio_blue.models import DeviceSummary
 from audio_blue.tray_host import TrayHost, build_menu_entries
@@ -49,6 +50,26 @@ def test_build_menu_entries_localizes_labels():
     language = next(entry for entry in entries if entry.action == "set_language")
     assert [item.label for item in language.children] == ["跟随系统", "中文", "英文"]
     assert language.children[1].checked is True
+
+
+def test_build_menu_entries_uses_system_language_for_tray_labels(monkeypatch):
+    # 托盘跟随系统时，应使用 Windows 语言探测结果决定中文/英文。
+    monkeypatch.setattr(localization, "_get_windows_system_locale_name", lambda: "zh-CN")
+    monkeypatch.setattr(localization, "_get_windows_ui_language_id", lambda: None)
+    monkeypatch.setattr(localization.locale, "getlocale", lambda: ("en_US", "UTF-8"))
+
+    entries = build_menu_entries(
+        [],
+        reconnect_enabled=True,
+        language="system",
+        selected_language="system",
+    )
+    labels = [entry.label for entry in entries]
+
+    assert labels[:3] == ["刷新设备", "下次启动时自动重连", "打开控制中心"]
+    language = next(entry for entry in entries if entry.action == "set_language")
+    assert [item.label for item in language.children] == ["跟随系统", "中文", "英文"]
+    assert language.children[0].checked is True
 
 
 class ServiceStub:

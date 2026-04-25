@@ -1,5 +1,6 @@
 """验证后端本地化词典对托盘与失败文案的映射。"""
 
+import audio_blue.localization as localization
 from audio_blue.localization import (
     connection_failure_message,
     notification_copy,
@@ -17,6 +18,33 @@ def test_resolve_language_prefers_explicit_supported_language():
 def test_resolve_language_uses_system_locale_for_system_mode():
     assert resolve_language("system", system_locale="zh-HK") == "zh-CN"
     assert resolve_language("system", system_locale="en-GB") == "en-US"
+
+
+def test_resolve_language_prefers_windows_locale_name_when_system_locale_missing(monkeypatch):
+    # 未显式传入 system_locale 时，应优先读取 Windows locale name。
+    monkeypatch.setattr(localization, "_get_windows_system_locale_name", lambda: "zh-CN")
+    monkeypatch.setattr(localization, "_get_windows_ui_language_id", lambda: None)
+    monkeypatch.setattr(localization.locale, "getlocale", lambda: ("en_US", "UTF-8"))
+
+    assert resolve_language("system") == "zh-CN"
+
+
+def test_resolve_language_uses_windows_ui_language_when_locale_name_missing(monkeypatch):
+    # locale name 缺失后，应继续尝试 Windows UI 语言 ID。
+    monkeypatch.setattr(localization, "_get_windows_system_locale_name", lambda: None)
+    monkeypatch.setattr(localization, "_get_windows_ui_language_id", lambda: 2052)
+    monkeypatch.setattr(localization.locale, "getlocale", lambda: ("en_US", "UTF-8"))
+
+    assert resolve_language("system") == "zh-CN"
+
+
+def test_resolve_language_falls_back_to_python_locale_when_windows_api_unavailable(monkeypatch):
+    # Windows API 不可用时，仍要回退到 Python locale 保持稳定行为。
+    monkeypatch.setattr(localization, "_get_windows_system_locale_name", lambda: None)
+    monkeypatch.setattr(localization, "_get_windows_ui_language_id", lambda: None)
+    monkeypatch.setattr(localization.locale, "getlocale", lambda: ("zh_TW", "UTF-8"))
+
+    assert resolve_language("system") == "zh-CN"
 
 
 def test_tray_labels_are_localized_for_both_languages():

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ctypes
 import locale
+from ctypes import wintypes
 from typing import Literal
 
 from audio_blue.models import LanguageMode
@@ -95,6 +97,60 @@ _FAILURE_KEY_BY_STATE: dict[str, MessageKey] = {
 }
 
 
+def _normalize_system_language(raw_language: str | int | None) -> LanguageMode:
+    """把系统语言原始值收敛到中文或英文两种展示语言。"""
+    if isinstance(raw_language, int):
+        # LANGID 的低 10 位是主语言 ID，0x04 代表中文。
+        if raw_language & 0x3FF == 0x04:
+            return "zh-CN"
+        return "en-US"
+
+    normalized = str(raw_language or "").lower()
+    if normalized.startswith("zh"):
+        return "zh-CN"
+    return "en-US"
+
+
+def _get_windows_system_locale_name() -> str | None:
+    """优先读取 Windows 系统 locale name，失败时返回 None。"""
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        get_locale_name = kernel32.GetUserDefaultLocaleName
+        get_locale_name.argtypes = [wintypes.LPWSTR, ctypes.c_int]
+        get_locale_name.restype = ctypes.c_int
+        buffer = ctypes.create_unicode_buffer(85)
+        if get_locale_name(buffer, len(buffer)) > 0 and buffer.value:
+            return buffer.value
+    except Exception:
+        return None
+    return None
+
+
+def _get_windows_ui_language_id() -> int | None:
+    """当 locale name 不可用时，继续读取 Windows UI 语言 ID。"""
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        get_ui_language = kernel32.GetUserDefaultUILanguage
+        get_ui_language.restype = wintypes.LANGID
+        language_id = int(get_ui_language())
+        if language_id > 0:
+            return language_id
+    except Exception:
+        return None
+    return None
+
+
+def _get_python_system_locale_name() -> str | None:
+    """Windows API 不可用时，回退到 Python locale。"""
+    try:
+        resolved = locale.getlocale()
+    except Exception:
+        return None
+    if not resolved:
+        return None
+    return resolved[0]
+
+
 def resolve_language(
     language: LanguageMode | str,
     *,
@@ -104,10 +160,18 @@ def resolve_language(
     if language in {"zh-CN", "en-US"}:
         return language
 
-    normalized_locale = (system_locale or locale.getlocale()[0] or "").lower()
-    if normalized_locale.startswith("zh"):
-        return "zh-CN"
-    return "en-US"
+    if system_locale is not None:
+        return _normalize_system_language(system_locale)
+
+    windows_locale_name = _get_windows_system_locale_name()
+    if windows_locale_name is not None:
+        return _normalize_system_language(windows_locale_name)
+
+    windows_ui_language_id = _get_windows_ui_language_id()
+    if windows_ui_language_id is not None:
+        return _normalize_system_language(windows_ui_language_id)
+
+    return _normalize_system_language(_get_python_system_locale_name())
 
 
 def translate(
