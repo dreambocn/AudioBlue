@@ -385,14 +385,9 @@ const toPythonRulePatch = (rulePatch: DeviceRulePatch) => {
     nextPatch.auto_connect_on_reappear = Boolean(rulePatch.autoConnectOnAppear)
   }
 
-  if ('mode' in rulePatch) {
+  if ('mode' in rulePatch && !('auto_connect_on_reappear' in nextPatch)) {
     const mode = String(rulePatch.mode)
-    if (!('auto_connect_on_startup' in nextPatch)) {
-      nextPatch.auto_connect_on_startup = false
-    }
-    if (!('auto_connect_on_reappear' in nextPatch)) {
-      nextPatch.auto_connect_on_reappear = mode === 'appear'
-    }
+    nextPatch.auto_connect_on_reappear = mode === 'appear'
   }
 
   if ('isFavorite' in rulePatch) {
@@ -451,7 +446,11 @@ const normalizeSnapshot = (snapshot: RawSnapshot): AppState => {
       rule,
     }
   })
-  const visibleDeviceIds = new Set(devices.map((device) => device.id))
+  const visibleDeviceIds = new Set(
+    devices
+      .filter((device) => device.presentInLastScan)
+      .map((device) => device.id),
+  )
   const rawHistory = Array.isArray(snapshot.deviceHistory ?? snapshot.device_history)
     ? ((snapshot.deviceHistory ?? snapshot.device_history) as unknown[])
     : []

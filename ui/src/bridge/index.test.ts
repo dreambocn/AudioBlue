@@ -344,7 +344,6 @@ describe('resolveBridge', () => {
     expect(state.startup.reconnectOnNextStart).toBe(true)
     expect(pywebviewApi?.update_device_rule).toHaveBeenCalledWith('device-1', {
       auto_connect_on_reappear: true,
-      auto_connect_on_startup: false,
     })
     expect(pywebviewApi?.update_device_rule).toHaveBeenCalledWith('device-1', {
       is_favorite: true,
@@ -398,6 +397,40 @@ describe('resolveBridge', () => {
         chrome: 'custom',
         isMaximized: true,
       }),
+    })
+  })
+
+  it('keeps startup auto-connect untouched when toggling reappear rule', async () => {
+    const updateDeviceRule = vi.fn(async () => ({
+      devices: [],
+      deviceRules: {
+        'device-1': {
+          auto_connect_on_startup: true,
+          auto_connect_on_reappear: true,
+        },
+      },
+      settings: {
+        notification: { policy: 'failures' },
+        startup: { reconnectOnNextStart: false },
+        ui: { theme: 'system', language: 'system' },
+      },
+    }))
+    window.pywebview = {
+      api: {
+        get_initial_state: vi.fn(async () => ({})),
+        update_device_rule: updateDeviceRule,
+      },
+    } as typeof window.pywebview
+
+    const bridge = resolveBridge()
+
+    await bridge.updateDeviceRule('device-1', {
+      autoConnectOnAppear: true,
+      mode: 'appear',
+    })
+
+    expect(updateDeviceRule).toHaveBeenCalledWith('device-1', {
+      auto_connect_on_reappear: true,
     })
   })
 
@@ -492,6 +525,42 @@ describe('resolveBridge', () => {
     expect(state.devices[0].isConnected).toBe(false)
     expect(state.devices[0].isConnecting).toBe(false)
     expect(state.devices[0].lastResult).toBe('首次连接后播放端点仍未就绪。')
+  })
+
+  it('marks history entries offline when the matching device is absent from the latest scan', async () => {
+    window.pywebview = {
+      api: {
+        get_initial_state: vi.fn(async () => ({
+          devices: [
+            {
+              deviceId: 'device-absent',
+              name: 'Absent Headset',
+              connectionState: 'disconnected',
+              presentInLastScan: false,
+              capabilities: { supports_audio_playback: true },
+            },
+          ],
+          deviceRules: {},
+          deviceHistory: [
+            {
+              deviceId: 'device-absent',
+              name: 'Absent Headset',
+              supportsAudioPlayback: true,
+              lastSeenAt: '2026-04-28T10:00:00+08:00',
+            },
+          ],
+          settings: {
+            notification: { policy: 'failures' },
+            startup: { reconnectOnNextStart: false },
+            ui: { theme: 'system', language: 'system' },
+          },
+        })),
+      },
+    } as typeof window.pywebview
+
+    const state = await resolveBridge().getInitialState()
+
+    expect(state.deviceHistory[0].isCurrentlyVisible).toBe(false)
   })
 
   it('preserves connection.no_audio diagnostics and error code from native snapshot', async () => {

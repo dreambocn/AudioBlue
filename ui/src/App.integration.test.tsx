@@ -179,6 +179,70 @@ describe('AudioBlue Control Center integration', () => {
     },
   })
 
+  it('shows a diagnostic unavailable state when initial bridge loading fails', async () => {
+    const recordClientEvent = vi.fn(async () => undefined)
+    const failingBridge = {
+      ...createStaticBridge(baseState),
+      getInitialState: vi.fn(async () => {
+        throw new Error('启动快照读取失败')
+      }),
+      recordClientEvent,
+    }
+
+    render(<App bridge={failingBridge} />)
+
+    expect(await screen.findByText('Bridge unavailable')).toBeVisible()
+    expect(screen.queryByText('Loading AudioBlue control center…')).not.toBeInTheDocument()
+    expect(recordClientEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        area: 'ui',
+        eventType: 'ui.action.failed',
+        title: '加载初始状态失败',
+        errorCode: 'Error',
+      }),
+    )
+  })
+
+  it('does not resync native window theme for non-theme state events', async () => {
+    const listeners = new Set<(event: BridgeEvent) => void>()
+    const syncWindowTheme = vi.fn(async () => undefined)
+    const bridge: BackendBridge = {
+      ...createStaticBridge(baseState),
+      syncWindowTheme,
+      onEvent(handler) {
+        listeners.add(handler)
+        return () => {
+          listeners.delete(handler)
+        }
+      },
+    }
+
+    render(<App bridge={bridge} />)
+
+    await screen.findByTestId('window-shell')
+    await waitFor(() => expect(syncWindowTheme).toHaveBeenCalledTimes(1))
+
+    listeners.forEach((listener) =>
+      listener({
+        type: 'activity_changed',
+        recentActivity: [
+          {
+            id: 'evt-theme-noop',
+            area: 'runtime',
+            level: 'info',
+            eventType: 'runtime.event',
+            title: '普通状态刷新',
+            detail: '',
+            happenedAt: '',
+          },
+        ],
+      }),
+    )
+
+    await waitFor(() => expect(screen.getByText('普通状态刷新')).toBeVisible())
+    expect(syncWindowTheme).toHaveBeenCalledTimes(1)
+  })
+
   const reorderDevices = (devices: DeviceViewModel[], orderedIds: string[]) => {
     const byId = new Map(devices.map((device) => [device.id, device]))
     return orderedIds

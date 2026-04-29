@@ -178,6 +178,18 @@ class SQLiteStorage:
                 );
                 """
             )
+            connection.executescript(
+                """
+                CREATE INDEX IF NOT EXISTS idx_connection_history_device_time
+                    ON connection_history(device_id, happened_at DESC, id DESC);
+                CREATE INDEX IF NOT EXISTS idx_connection_history_time
+                    ON connection_history(happened_at DESC, id DESC);
+                CREATE INDEX IF NOT EXISTS idx_activity_events_presence
+                    ON activity_events(event_type, device_id, happened_at DESC, id DESC);
+                CREATE INDEX IF NOT EXISTS idx_device_cache_last_seen
+                    ON device_cache(last_seen_at DESC, device_id);
+                """
+            )
             self._ensure_column(connection, "device_cache", "first_seen_at", "TEXT")
             now = _utc_now().isoformat()
             connection.execute(
@@ -586,19 +598,61 @@ class SQLiteStorage:
                 FROM device_cache
                 """
             ).fetchall()
-            connection_rows = connection.execute(
+            latest_connection_rows = connection.execute(
+                """
+                WITH ranked AS (
+                    SELECT
+                        device_id,
+                        trigger,
+                        state,
+                        failure_reason,
+                        failure_code,
+                        happened_at,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY device_id
+                            ORDER BY happened_at DESC, id DESC
+                        ) AS row_number
+                    FROM connection_history
+                )
+                SELECT
+                    device_id,
+                    happened_at AS last_connection_at,
+                    state AS last_connection_state,
+                    trigger AS last_connection_trigger,
+                    failure_reason AS last_failure_reason,
+                    failure_code AS last_failure_code
+                FROM ranked
+                WHERE row_number = 1
+                """
+            ).fetchall()
+            connection_summary_rows = connection.execute(
                 """
                 SELECT
-                    id,
                     device_id,
-                    trigger,
-                    succeeded,
-                    state,
-                    failure_reason,
-                    failure_code,
-                    happened_at
+                    SUM(CASE WHEN succeeded = 1 THEN 1 ELSE 0 END) AS success_count,
+                    SUM(CASE WHEN succeeded = 0 THEN 1 ELSE 0 END) AS failure_count,
+                    MAX(CASE WHEN succeeded = 1 THEN happened_at ELSE NULL END) AS last_success_at,
+                    MAX(CASE WHEN succeeded = 0 THEN happened_at ELSE NULL END) AS last_failure_at
                 FROM connection_history
-                ORDER BY happened_at DESC, id DESC
+                GROUP BY device_id
+                """
+            ).fetchall()
+            latest_failure_rows = connection.execute(
+                """
+                WITH ranked AS (
+                    SELECT
+                        device_id,
+                        failure_code,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY device_id
+                            ORDER BY happened_at DESC, id DESC
+                        ) AS row_number
+                    FROM connection_history
+                    WHERE succeeded = 0
+                )
+                SELECT device_id, failure_code AS last_error_code
+                FROM ranked
+                WHERE row_number = 1
                 """
             ).fetchall()
             rule_rows = connection.execute(
@@ -617,10 +671,22 @@ class SQLiteStorage:
             ).fetchall()
             presence_rows = connection.execute(
                 """
-                SELECT device_id, event_type, happened_at, details_json
-                FROM activity_events
-                WHERE event_type IN ('device.present', 'device.absent')
-                ORDER BY happened_at DESC, id DESC
+                WITH parsed AS (
+                    SELECT
+                        device_id,
+                        event_type,
+                        happened_at,
+                        json_extract(details_json, '$.change') AS change_reason,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY device_id, event_type
+                            ORDER BY happened_at DESC, id DESC
+                        ) AS row_number
+                    FROM activity_events
+                    WHERE event_type IN ('device.present', 'device.absent')
+                )
+                SELECT device_id, event_type, happened_at, change_reason
+                FROM parsed
+                WHERE row_number = 1
                 """
             ).fetchall()
 
@@ -634,12 +700,29 @@ class SQLiteStorage:
             }
             for row in cache_rows
         }
-        latest_connection_by_id: dict[str, dict[str, Any]] = {}
-        connection_counts_by_id: dict[str, dict[str, Any]] = {}
-        for row in connection_rows:
-            device_id = row["device_id"]
+        latest_connection_by_id = {
+            row["device_id"]: {
+                "last_connection_at": row["last_connection_at"],
+                "last_connection_state": row["last_connection_state"],
+                "last_connection_trigger": row["last_connection_trigger"],
+                "last_failure_reason": row["last_failure_reason"],
+                "last_failure_code": row["last_failure_code"],
+            }
+            for row in latest_connection_rows
+        }
+        connection_counts_by_id = {
+            row["device_id"]: {
+                "success_count": int(row["success_count"] or 0),
+                "failure_count": int(row["failure_count"] or 0),
+                "last_success_at": row["last_success_at"],
+                "last_failure_at": row["last_failure_at"],
+                "last_error_code": None,
+            }
+            for row in connection_summary_rows
+        }
+        for row in latest_failure_rows:
             summary = connection_counts_by_id.setdefault(
-                device_id,
+                row["device_id"],
                 {
                     "success_count": 0,
                     "failure_count": 0,
@@ -648,24 +731,7 @@ class SQLiteStorage:
                     "last_error_code": None,
                 },
             )
-            if row["succeeded"]:
-                summary["success_count"] += 1
-                if summary["last_success_at"] is None:
-                    summary["last_success_at"] = row["happened_at"]
-            else:
-                summary["failure_count"] += 1
-                if summary["last_failure_at"] is None:
-                    summary["last_failure_at"] = row["happened_at"]
-                    summary["last_error_code"] = row["failure_code"]
-            if device_id in latest_connection_by_id:
-                continue
-            latest_connection_by_id[device_id] = {
-                "last_connection_at": row["happened_at"],
-                "last_connection_state": row["state"],
-                "last_connection_trigger": row["trigger"],
-                "last_failure_reason": row["failure_reason"],
-                "last_failure_code": row["failure_code"],
-            }
+            summary["last_error_code"] = row["last_error_code"]
 
         rules_by_id = {
             row["device_id"]: {
@@ -691,21 +757,12 @@ class SQLiteStorage:
                     "last_absent_reason": None,
                 },
             )
-            details: dict[str, Any] = {}
-            raw_details = row["details_json"]
-            if isinstance(raw_details, str) and raw_details:
-                try:
-                    parsed_details = json.loads(raw_details)
-                except json.JSONDecodeError:
-                    parsed_details = {}
-                if isinstance(parsed_details, dict):
-                    details = parsed_details
-            if row["event_type"] == "device.present" and entry["last_present_at"] is None:
+            if row["event_type"] == "device.present":
                 entry["last_present_at"] = row["happened_at"]
-                entry["last_present_reason"] = details.get("change")
-            if row["event_type"] == "device.absent" and entry["last_absent_at"] is None:
+                entry["last_present_reason"] = row["change_reason"]
+            elif row["event_type"] == "device.absent":
                 entry["last_absent_at"] = row["happened_at"]
-                entry["last_absent_reason"] = details.get("change")
+                entry["last_absent_reason"] = row["change_reason"]
 
         candidate_ids = {
             *cache_by_id.keys(),

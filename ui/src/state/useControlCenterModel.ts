@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { BackendBridge, BridgeEvent } from '../bridge/types'
 import type {
   A2dpSourceAvailability,
@@ -139,35 +139,90 @@ interface ControlCenterViewModel {
   refreshDevices: () => Promise<void>
 }
 
+const createInitialLoadFailureState = (message: string): AppState => ({
+  devices: [],
+  deviceHistory: [],
+  prioritizedDeviceIds: [],
+  recentActivity: [],
+  connection: {
+    status: 'disconnected',
+    currentPhase: 'failed',
+    lastFailure: message,
+    lastErrorMessage: message,
+  },
+  startup: {
+    autostart: false,
+    backgroundStart: false,
+    delaySeconds: 0,
+    reconnectOnNextStart: false,
+  },
+  ui: {
+    themeMode: 'system',
+    language: 'system',
+    showAudioOnly: true,
+    diagnosticsMode: true,
+  },
+  notifications: {
+    policy: 'failures',
+  },
+  diagnostics: {
+    lastProbe: 'Bridge unavailable',
+    probeResult: message,
+    logRetentionDays: 90,
+    activityEventCount: 0,
+    connectionAttemptCount: 0,
+    logRecordCount: 0,
+    recentErrors: [
+      {
+        title: '加载初始状态失败',
+        detail: message,
+        errorCode: 'InitialStateError',
+      },
+    ],
+  },
+  runtime: {
+    bridgeMode: 'unavailable',
+    chrome: 'custom',
+    isMaximized: false,
+    canMinimize: false,
+    canMaximize: false,
+    canClose: false,
+  },
+})
+
 export function useControlCenterModel(
   bridge: BackendBridge,
 ): ControlCenterViewModel {
   const [route, setRoute] = useState<AppRoute>('cockpit')
   const [state, setState] = useState<AppState | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const hasState = state !== null
   const resolvedTheme = useResolvedTheme(state?.ui.themeMode)
 
-  const recordBridgeFailure = async (
-    title: string,
-    error: unknown,
-    details?: Record<string, unknown>,
-  ) => {
-    const detail =
-      error instanceof Error ? `${error.name}: ${error.message}` : String(error)
-    try {
-      await bridge.recordClientEvent({
-        area: 'ui',
-        eventType: 'ui.action.failed',
-        level: 'error',
-        title,
-        detail,
-        errorCode: error instanceof Error ? error.name : 'UnknownError',
-        details,
-      })
-    } catch {
-      return
-    }
-  }
+  const recordBridgeFailure = useCallback(
+    async (
+      title: string,
+      error: unknown,
+      details?: Record<string, unknown>,
+    ) => {
+      const detail =
+        error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+      try {
+        await bridge.recordClientEvent({
+          area: 'ui',
+          eventType: 'ui.action.failed',
+          level: 'error',
+          title,
+          detail,
+          errorCode: error instanceof Error ? error.name : 'UnknownError',
+          details,
+        })
+      } catch {
+        return
+      }
+    },
+    [bridge],
+  )
 
   const runBridgeTask = async <T,>(
     title: string,
@@ -184,13 +239,32 @@ export function useControlCenterModel(
 
   useEffect(() => {
     let alive = true
-    bridge.getInitialState().then((initialState) => {
-      if (!alive) {
-        return
+
+    const loadInitialState = async () => {
+      try {
+        const initialState = await bridge.getInitialState()
+        if (!alive) {
+          return
+        }
+        setState(initialState)
+      } catch (error) {
+        const detail =
+          error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+        await recordBridgeFailure('加载初始状态失败', error, {
+          action: 'getInitialState',
+        })
+        if (!alive) {
+          return
+        }
+        setState(createInitialLoadFailureState(detail))
+      } finally {
+        if (alive) {
+          setIsLoading(false)
+        }
       }
-      setState(initialState)
-      setIsLoading(false)
-    })
+    }
+
+    void loadInitialState()
 
     const unsubscribe = bridge.onEvent((event) => {
       setState((current) => (current ? applyBridgeEvent(current, event) : current))
@@ -200,7 +274,7 @@ export function useControlCenterModel(
       alive = false
       unsubscribe()
     }
-  }, [bridge])
+  }, [bridge, recordBridgeFailure])
 
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
@@ -244,12 +318,12 @@ export function useControlCenterModel(
   }, [bridge])
 
   useEffect(() => {
-    if (!state) {
+    if (!hasState) {
       return
     }
     document.documentElement.setAttribute('data-theme', resolvedTheme)
     void bridge.syncWindowTheme(resolvedTheme)
-  }, [bridge, resolvedTheme, state])
+  }, [bridge, resolvedTheme, hasState])
 
   const activeDevice = useMemo(
     () => (state ? selectActiveDevice(state.devices, state.connection) : undefined),

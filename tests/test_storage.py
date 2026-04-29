@@ -294,6 +294,50 @@ def test_list_device_history_merges_rules_cache_attempts_and_last_devices(tmp_pa
     assert history[2]["name"] == "Cache Only"
 
 
+def test_list_device_history_limits_after_sql_aggregation(tmp_path):
+    """历史列表应在数据库侧聚合后再按业务排序截断。"""
+    storage = SQLiteStorage(db_path=tmp_path / "audioblue.db")
+    storage.initialize()
+
+    for index in range(25):
+        device_id = f"device-{index:02d}"
+        happened_at = datetime(2026, 4, 28, 10, index, tzinfo=UTC)
+        succeeded = index % 2 == 0 and index != 24
+        storage.upsert_device_cache(
+            device_id=device_id,
+            name=f"Device {index:02d}",
+            connection_state="disconnected",
+            supports_audio_playback=True,
+            supports_microphone=False,
+            last_seen_at=happened_at,
+        )
+        storage.record_connection_attempt(
+            device_id=device_id,
+            trigger="manual",
+            succeeded=succeeded,
+            state="connected" if succeeded else "failed",
+            failure_reason=None if succeeded else "连接失败",
+            failure_code=None if succeeded else "connection.failed",
+            happened_at=happened_at,
+        )
+        storage.record_activity_event(
+            area="device",
+            event_type="device.absent" if index == 24 else "device.present",
+            level="info",
+            title="设备状态变化",
+            device_id=device_id,
+            details={"change": "removed" if index == 24 else "added"},
+            happened_at=happened_at,
+        )
+
+    history = storage.list_device_history(limit=5)
+
+    assert len(history) == 5
+    assert history[0]["device_id"] == "device-24"
+    assert history[0]["last_absent_reason"] == "removed"
+    assert history[0]["failure_count"] == 1
+
+
 def test_activity_events_and_connection_summaries_are_queryable(tmp_path):
     storage = SQLiteStorage(db_path=tmp_path / "audioblue.db")
     storage.initialize()
