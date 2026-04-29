@@ -95,7 +95,7 @@ def test_desktop_api_updates_rules_settings_and_exports_diagnostics(tmp_path):
     assert snapshot["deviceRules"]["device-1"]["priority"] == 1
     assert snapshot["settings"]["ui"]["theme"] == "dark"
     assert snapshot["settings"]["notification"]["policy"] == "all"
-    assert api.autostart_manager.is_enabled() is True
+    assert api._autostart_manager.is_enabled() is True
     assert export_path.endswith(".zip")
     assert exported_paths and exported_paths[0].parent.name == "support-bundles"
 

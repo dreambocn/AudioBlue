@@ -689,7 +689,7 @@
 .secondary-button,
 .primary-button,
 .state-pill-button,
-.themed-select,
+.themed-select-shell,
 .switch-toggle {
   transition:
     transform 160ms ease,
@@ -729,14 +729,14 @@
 .secondary-button:hover,
 .primary-button:hover,
 .state-pill-button:hover,
-.themed-select:hover {
+.themed-select-shell:hover {
   transform: translateY(-1px);
 }
 
 .chip-button:hover,
 .secondary-button:hover,
 .state-pill-button:hover,
-.themed-select:hover,
+.themed-select-shell:hover,
 .switch-toggle:hover {
   border-color: rgba(126, 170, 255, 0.28);
 }
@@ -809,14 +809,80 @@
   transform: translateX(20px);
 }
 
+.themed-select-shell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 196px;
+  max-width: min(100%, 248px);
+  border: 1px solid var(--ab-input-border);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, var(--ab-input-top), var(--ab-input-bottom)),
+    var(--ab-panel);
+  box-shadow:
+    inset 0 1px 0 var(--ab-input-highlight),
+    0 12px 24px var(--ab-input-shadow);
+}
+
+.themed-select-shell:focus-within {
+  transform: translateY(-1px);
+  border-color: var(--ab-input-border-strong);
+  box-shadow:
+    0 0 0 1px var(--ab-input-focus-ring),
+    0 16px 30px var(--ab-input-shadow),
+    inset 0 1px 0 var(--ab-input-highlight);
+}
+
 .themed-select {
-  min-width: 180px;
-  min-height: 42px;
-  padding: 0 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 46px 0 16px;
+  border: 0;
+  background: transparent;
   color: var(--ab-text);
+  font-size: 0.86rem;
+  font-weight: 560;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  cursor: pointer;
+  outline: none;
+}
+
+.themed-select::-ms-expand {
+  display: none;
+}
+
+.themed-select option {
+  color: var(--ab-select-menu-text);
+  background: var(--ab-select-menu-bg);
+}
+
+.themed-select-indicator {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  display: inline-grid;
+  gap: 3px;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.themed-select-indicator-line {
+  width: 8px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--ab-input-indicator);
+}
+
+.themed-select-indicator-line:first-child {
+  transform: translate(2px, 1px) rotate(45deg);
+}
+
+.themed-select-indicator-line:last-child {
+  transform: translate(-2px, -1px) rotate(-45deg);
 }
 
 .diagnostics-workspace-grid {

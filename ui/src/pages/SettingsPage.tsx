@@ -1,4 +1,5 @@
 import { A2dpSourceStatus } from '../components/A2dpSourceStatus'
+import { ThemedSelect } from '../components/ThemedSelect'
 import { useI18n } from '../i18n'
 import type {
   A2dpSourceAvailability,
@@ -52,8 +53,7 @@ export function SettingsPage({
         <div className="settings-stack" data-testid="settings-stack">
           <label className="field-row settings-item">
             <span className="settings-label">{t('settings.theme')}</span>
-            <select
-              className="themed-select"
+            <ThemedSelect
               aria-label={t('settings.theme')}
               value={state.ui.themeMode}
               onChange={(event) => onThemeChange(event.target.value as ThemeMode)}
@@ -61,13 +61,12 @@ export function SettingsPage({
               <option value="system">{t('settings.theme.system')}</option>
               <option value="light">{t('settings.theme.light')}</option>
               <option value="dark">{t('settings.theme.dark')}</option>
-            </select>
+            </ThemedSelect>
           </label>
 
           <label className="field-row settings-item">
             <span className="settings-label">{t('settings.language')}</span>
-            <select
-              className="themed-select"
+            <ThemedSelect
               aria-label={t('settings.language')}
               value={state.ui.language}
               onChange={(event) =>
@@ -77,7 +76,7 @@ export function SettingsPage({
               <option value="system">{t('settings.language.system')}</option>
               <option value="zh-CN">{t('settings.language.zh-CN')}</option>
               <option value="en-US">{t('settings.language.en-US')}</option>
-            </select>
+            </ThemedSelect>
           </label>
 
           <label className="toggle-row settings-item">
@@ -92,8 +91,7 @@ export function SettingsPage({
 
           <label className="field-row settings-item">
             <span className="settings-label">{t('settings.notificationPolicy')}</span>
-            <select
-              className="themed-select"
+            <ThemedSelect
               value={state.notifications.policy}
               onChange={(event) =>
                 onNotificationPolicyChange(event.target.value as NotificationPolicy)
@@ -102,7 +100,7 @@ export function SettingsPage({
               <option value="silent">{t('settings.notification.silent')}</option>
               <option value="failures">{t('settings.notification.failures')}</option>
               <option value="all">{t('settings.notification.all')}</option>
-            </select>
+            </ThemedSelect>
           </label>
         </div>
       </article>

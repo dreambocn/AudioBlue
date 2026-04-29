@@ -19,6 +19,7 @@
 :root,
 :root[data-theme='system'],
 :root[data-theme='light'] {
+  color-scheme: light;
   --ab-bg: #f3f6fb;
   --ab-bg-accent: #eef2f8;
   --ab-panel: rgba(249, 251, 255, 0.88);
@@ -29,9 +30,20 @@
   --ab-text-subtle: #72809a;
   --ab-chrome-top: rgba(245, 248, 254, 0.96);
   --ab-chrome-bottom: rgba(237, 242, 250, 0.94);
+  --ab-input-top: rgba(255, 255, 255, 0.98);
+  --ab-input-bottom: rgba(237, 243, 252, 0.98);
+  --ab-input-border: rgba(89, 111, 151, 0.18);
+  --ab-input-border-strong: rgba(82, 111, 171, 0.32);
+  --ab-input-highlight: rgba(255, 255, 255, 0.85);
+  --ab-input-shadow: rgba(116, 133, 165, 0.18);
+  --ab-input-focus-ring: rgba(94, 122, 201, 0.18);
+  --ab-input-indicator: #5c6e8f;
+  --ab-select-menu-bg: #f8fbff;
+  --ab-select-menu-text: #152035;
 }
 
 :root[data-theme='dark'] {
+  color-scheme: dark;
   --ab-bg: #090d13;
   --ab-bg-accent: #0f1520;
   --ab-panel: rgba(15, 20, 30, 0.9);
@@ -42,10 +54,19 @@
   --ab-text-subtle: #78849a;
   --ab-chrome-top: rgba(12, 17, 26, 0.98);
   --ab-chrome-bottom: rgba(9, 14, 22, 0.96);
+  --ab-input-top: rgba(27, 34, 48, 0.96);
+  --ab-input-bottom: rgba(16, 21, 31, 0.96);
+  --ab-input-border: rgba(255, 255, 255, 0.1);
+  --ab-input-border-strong: rgba(134, 172, 255, 0.32);
+  --ab-input-highlight: rgba(255, 255, 255, 0.07);
+  --ab-input-shadow: rgba(2, 8, 18, 0.42);
+  --ab-input-focus-ring: rgba(109, 145, 229, 0.24);
+  --ab-input-indicator: #a7b8d8;
+  --ab-select-menu-bg: #141b27;
+  --ab-select-menu-text: #eef4ff;
 }
 
 html {
-  color-scheme: dark;
   font-feature-settings: 'cv01', 'ss03';
 }
 

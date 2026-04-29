@@ -583,7 +583,9 @@ describe('AudioBlue Control Center integration', () => {
     expect(selectElements.length).toBe(3)
     for (const selectElement of selectElements) {
       expect(selectElement).toHaveClass('themed-select')
+      expect(selectElement.parentElement).toHaveClass('themed-select-shell')
     }
+    expect(within(settingsStack).getAllByTestId('themed-select-indicator')).toHaveLength(3)
     expect(
       within(settingsStack).getByRole('checkbox', { name: 'Start with Windows' }),
     ).toHaveClass('switch-toggle')
