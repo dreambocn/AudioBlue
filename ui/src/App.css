@@ -450,6 +450,20 @@
   gap: 10px;
 }
 
+.history-title-actions,
+.history-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 8px;
+}
+
+.history-card-actions {
+  margin-top: 12px;
+}
+
 .status-pill,
 .meta-chip,
 .feature-note-tag,
@@ -622,13 +636,32 @@
 }
 
 .activity-head,
-.activity-meta,
-.priority-list-item {
+.activity-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.priority-list-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.priority-device-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.priority-actions {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 38px);
+  gap: 8px;
+  align-items: center;
+  justify-content: end;
 }
 
 .activity-detail {
@@ -746,8 +779,21 @@
   background: rgba(87, 116, 198, 0.2);
 }
 
+.chip-button.danger {
+  border-color: rgba(255, 122, 122, 0.2);
+  color: var(--ab-danger);
+}
+
+.chip-button.danger.is-confirming {
+  border-color: rgba(255, 122, 122, 0.42);
+  background: rgba(255, 122, 122, 0.12);
+}
+
 .priority-button {
-  width: 38px;
+  display: inline-grid;
+  place-items: center;
+  inline-size: 38px;
+  block-size: 40px;
   padding: 0;
 }
 

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { DeviceCard } from '../components/DeviceCard'
 import { useI18n } from '../i18n'
 import type { DeviceHistoryEntry, DeviceViewModel } from '../types'
@@ -8,6 +9,8 @@ interface DevicesPageProps {
   onConnect: (deviceId: string) => void
   onDisconnect: (deviceId: string) => void
   onToggleFavorite: (deviceId: string, nextFavorite: boolean) => void
+  onDeleteHistory: (deviceId: string) => void
+  onClearHistory: () => void
 }
 
 export function DevicesPage({
@@ -16,8 +19,12 @@ export function DevicesPage({
   onConnect,
   onDisconnect,
   onToggleFavorite,
+  onDeleteHistory,
+  onClearHistory,
 }: DevicesPageProps) {
   const { t } = useI18n()
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [isClearPending, setIsClearPending] = useState(false)
 
   // 历史标签来自持久化规则快照，用于解释离线设备为什么仍出现在历史列表中。
   const renderHistoryTags = (entry: DeviceHistoryEntry) => {
@@ -51,6 +58,26 @@ export function DevicesPage({
       ? t('devices.history.status.online')
       : t('devices.history.status.offline')
 
+  const handleDeleteHistory = (entry: DeviceHistoryEntry) => {
+    if (pendingDeleteId !== entry.id) {
+      setPendingDeleteId(entry.id)
+      setIsClearPending(false)
+      return
+    }
+    setPendingDeleteId(null)
+    onDeleteHistory(entry.id)
+  }
+
+  const handleClearHistory = () => {
+    if (!isClearPending) {
+      setIsClearPending(true)
+      setPendingDeleteId(null)
+      return
+    }
+    setIsClearPending(false)
+    onClearHistory()
+  }
+
   return (
     <section className="page-grid">
       <article className="surface-card compact-card">
@@ -80,7 +107,25 @@ export function DevicesPage({
       <article className="surface-card compact-card">
         <div className="card-head">
           <h3>{t('devices.history.title')}</h3>
-          <span className="status-pill subtle">{deviceHistory.length}</span>
+          <div className="history-title-actions">
+            <span className="status-pill subtle">{deviceHistory.length}</span>
+            {deviceHistory.length > 0 ? (
+              <button
+                type="button"
+                className={`chip-button danger ${isClearPending ? 'is-confirming' : ''}`}
+                aria-label={
+                  isClearPending
+                    ? t('devices.history.clear.confirmLabel')
+                    : t('devices.history.clear.label')
+                }
+                onClick={handleClearHistory}
+              >
+                {isClearPending
+                  ? t('devices.history.clear.confirm')
+                  : t('devices.history.clear.action')}
+              </button>
+            ) : null}
+          </div>
         </div>
         <p className="muted">{t('devices.history.description')}</p>
       </article>
@@ -110,6 +155,22 @@ export function DevicesPage({
                 <span className={`status-pill subtle ${entry.isCurrentlyVisible ? 'connected' : ''}`}>
                   {resolveHistoryStatus(entry)}
                 </span>
+              </div>
+              <div className="history-card-actions">
+                <button
+                  type="button"
+                  className={`chip-button danger ${pendingDeleteId === entry.id ? 'is-confirming' : ''}`}
+                  aria-label={
+                    pendingDeleteId === entry.id
+                      ? t('devices.history.delete.confirmLabel', { name: entry.name })
+                      : t('devices.history.delete.label', { name: entry.name })
+                  }
+                  onClick={() => handleDeleteHistory(entry)}
+                >
+                  {pendingDeleteId === entry.id
+                    ? t('devices.history.delete.confirm')
+                    : t('devices.history.delete.action')}
+                </button>
               </div>
               <div className="history-meta-row">
                 <span className="meta-chip">

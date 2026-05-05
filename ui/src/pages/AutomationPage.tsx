@@ -80,27 +80,29 @@ export function AutomationPage({
         <ol className="compact-list">
           {devices.map((device, index) => (
             <li key={device.id} className="priority-list-item">
-              <span>
+              <span className="priority-device-name">
                 {device.name} {device.isIgnored ? t('automation.ignoredSuffix') : ''}
               </span>
-              <button
-                type="button"
-                className="chip-button priority-button"
-                onClick={() => moveDevice(index, -1)}
-                disabled={index === 0}
-                aria-label={t('automation.moveUp', { name: device.name })}
-              >
-                ↑
-              </button>
-              <button
-                type="button"
-                className="chip-button priority-button"
-                onClick={() => moveDevice(index, 1)}
-                disabled={index === devices.length - 1}
-                aria-label={t('automation.moveDown', { name: device.name })}
-              >
-                ↓
-              </button>
+              <span className="priority-actions">
+                <button
+                  type="button"
+                  className="chip-button priority-button"
+                  onClick={() => moveDevice(index, -1)}
+                  disabled={index === 0}
+                  aria-label={t('automation.moveUp', { name: device.name })}
+                >
+                  <span aria-hidden="true">↑</span>
+                </button>
+                <button
+                  type="button"
+                  className="chip-button priority-button"
+                  onClick={() => moveDevice(index, 1)}
+                  disabled={index === devices.length - 1}
+                  aria-label={t('automation.moveDown', { name: device.name })}
+                >
+                  <span aria-hidden="true">↓</span>
+                </button>
+              </span>
             </li>
           ))}
         </ol>

@@ -434,6 +434,29 @@ describe('resolveBridge', () => {
     })
   })
 
+  it('maps device history deletion calls to pywebview api methods', async () => {
+    const deleteDeviceHistory = vi.fn(async () => ({ deviceHistory: [] }))
+    const clearDeviceHistory = vi.fn(async () => ({ deviceHistory: [] }))
+    window.pywebview = {
+      api: {
+        get_initial_state: vi.fn(async () => ({})),
+        delete_device_history: deleteDeviceHistory,
+        clear_device_history: clearDeviceHistory,
+      },
+    } as unknown as typeof window.pywebview
+
+    const bridge = resolveBridge() as unknown as {
+      deleteDeviceHistory(deviceId: string): Promise<void>
+      clearDeviceHistory(): Promise<void>
+    }
+
+    await bridge.deleteDeviceHistory('device-archived')
+    await bridge.clearDeviceHistory()
+
+    expect(deleteDeviceHistory).toHaveBeenCalledWith('device-archived')
+    expect(clearDeviceHistory).toHaveBeenCalledTimes(1)
+  })
+
   it('returns unavailable bridge by default when no native bridge is present', async () => {
     const bridge = resolveBridge()
     const state = await bridge.getInitialState()

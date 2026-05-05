@@ -21,6 +21,8 @@ type PyWebviewApi = {
   disconnect_device?: (deviceId: string) => Promise<unknown>
   update_device_rule?: (deviceId: string, patch: Record<string, unknown>) => Promise<unknown>
   reorder_device_priority?: (deviceIds: string[]) => Promise<unknown>
+  delete_device_history?: (deviceId: string) => Promise<unknown>
+  clear_device_history?: () => Promise<unknown>
   set_autostart?: (enabled: boolean) => Promise<unknown>
   set_reconnect?: (enabled: boolean) => Promise<unknown>
   set_theme?: (mode: string) => Promise<unknown>
@@ -608,6 +610,12 @@ const createPyWebviewBridge = (api: PyWebviewApi): BackendBridge => {
     async reorderDevicePriority(deviceIds) {
       applySnapshot(await api.reorder_device_priority?.(deviceIds))
     },
+    async deleteDeviceHistory(deviceId) {
+      applySnapshot(await api.delete_device_history?.(deviceId))
+    },
+    async clearDeviceHistory() {
+      applySnapshot(await api.clear_device_history?.())
+    },
     async setAutostart(enabled) {
       applySnapshot(await api.set_autostart?.(enabled))
     },
@@ -745,6 +753,8 @@ const createUnavailableBridge = (): BackendBridge => {
     async disconnectDevice() {},
     async updateDeviceRule() {},
     async reorderDevicePriority() {},
+    async deleteDeviceHistory() {},
+    async clearDeviceHistory() {},
     async setAutostart() {},
     async setReconnect() {},
     async setTheme() {},

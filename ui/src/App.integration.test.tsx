@@ -157,6 +157,8 @@ describe('AudioBlue Control Center integration', () => {
     async disconnectDevice() {},
     async updateDeviceRule() {},
     async reorderDevicePriority() {},
+    async deleteDeviceHistory() {},
+    async clearDeviceHistory() {},
     async setAutostart() {},
     async setReconnect() {},
     async setTheme() {},
@@ -293,6 +295,20 @@ describe('AudioBlue Control Center integration', () => {
         }
         emit({ type: 'devices_changed', devices: structuredClone(state.devices) })
       }),
+      deleteDeviceHistory: vi.fn(async (deviceId) => {
+        state = {
+          ...state,
+          deviceHistory: state.deviceHistory.filter((entry) => entry.id !== deviceId),
+        }
+        emit({ type: 'history_changed', deviceHistory: structuredClone(state.deviceHistory) })
+      }),
+      clearDeviceHistory: vi.fn(async () => {
+        state = {
+          ...state,
+          deviceHistory: [],
+        }
+        emit({ type: 'history_changed', deviceHistory: structuredClone(state.deviceHistory) })
+      }),
       setAutostart: vi.fn(async () => undefined),
       setReconnect: vi.fn(async () => undefined),
       setTheme: vi.fn(async () => undefined),
@@ -323,6 +339,8 @@ describe('AudioBlue Control Center integration', () => {
         })
       },
     } as BackendBridge & {
+      deleteDeviceHistory: ReturnType<typeof vi.fn>
+      clearDeviceHistory: ReturnType<typeof vi.fn>
       minimizeWindow: ReturnType<typeof vi.fn>
       toggleMaximizeWindow: ReturnType<typeof vi.fn>
       closeMainWindow: ReturnType<typeof vi.fn>
@@ -711,6 +729,50 @@ describe('AudioBlue Control Center integration', () => {
     expect(screen.getByText('2 failed attempts')).toBeVisible()
   })
 
+  it('requires inline confirmation before deleting a single history device', async () => {
+    const bridge = createMutableBridge(baseState)
+    const user = userEvent.setup()
+
+    render(<App bridge={bridge} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Devices' }))
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Delete Archived Receiver history',
+      }),
+    )
+
+    expect(bridge.deleteDeviceHistory).not.toHaveBeenCalled()
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Confirm delete Archived Receiver history',
+      }),
+    )
+
+    expect(bridge.deleteDeviceHistory).toHaveBeenCalledWith('device-archived')
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { name: 'Archived Receiver' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('requires inline confirmation before clearing all device history', async () => {
+    const bridge = createMutableBridge(baseState)
+    const user = userEvent.setup()
+
+    render(<App bridge={bridge} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Devices' }))
+    await user.click(await screen.findByRole('button', { name: 'Clear device history' }))
+
+    expect(bridge.clearDeviceHistory).not.toHaveBeenCalled()
+
+    await user.click(await screen.findByRole('button', { name: 'Confirm clear device history' }))
+
+    expect(bridge.clearDeviceHistory).toHaveBeenCalledTimes(1)
+    expect(await screen.findByText('No remembered devices yet.')).toBeVisible()
+  })
+
   it('calls bridge updateDeviceRule when favorite is toggled', async () => {
     const bridge = createMutableBridge(baseState)
     const user = userEvent.setup()
@@ -814,6 +876,47 @@ describe('AudioBlue Control Center integration', () => {
     expect((await screen.findAllByText('No matched A2DP source devices')).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Bridge mode: native').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Total discovered devices: 1').length).toBeGreaterThan(0)
+  })
+
+  it('does not offer connect action for an absent disconnected audio device', async () => {
+    const bridge = createMutableBridge({
+      ...baseState,
+      devices: [
+        {
+          ...baseState.devices[0],
+          id: 'absent-audio',
+          name: 'Absent Headphones',
+          isConnected: false,
+          isConnecting: false,
+          supportsAudio: true,
+          presentInLastScan: false,
+        },
+      ],
+      deviceHistory: [],
+      prioritizedDeviceIds: ['absent-audio'],
+    })
+
+    render(<App bridge={bridge} />)
+
+    expect(await screen.findByText('No matched A2DP source devices')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Connect' })).not.toBeInTheDocument()
+  })
+
+  it('swallows recordClientEvent rejection from global error handlers', async () => {
+    const bridge = {
+      ...createMutableBridge(baseState),
+      recordClientEvent: vi.fn(async () => {
+        throw new Error('记录失败')
+      }),
+    }
+
+    render(<App bridge={bridge} />)
+
+    window.dispatchEvent(new ErrorEvent('error', { message: '界面异常' }))
+
+    await waitFor(() => {
+      expect(bridge.recordClientEvent).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('places quick actions above the scrollable workspace content inside cockpit', async () => {

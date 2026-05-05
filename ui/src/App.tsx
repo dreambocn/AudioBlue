@@ -46,6 +46,8 @@ interface ControlCenterScaffoldProps {
   toggleFavorite: ReturnType<typeof useControlCenterModel>['toggleFavorite']
   toggleAppearRule: ReturnType<typeof useControlCenterModel>['toggleAppearRule']
   reorderPriority: ReturnType<typeof useControlCenterModel>['reorderPriority']
+  deleteDeviceHistory: ReturnType<typeof useControlCenterModel>['deleteDeviceHistory']
+  clearDeviceHistory: ReturnType<typeof useControlCenterModel>['clearDeviceHistory']
   setTheme: ReturnType<typeof useControlCenterModel>['setTheme']
   setAutostart: ReturnType<typeof useControlCenterModel>['setAutostart']
   setReconnect: ReturnType<typeof useControlCenterModel>['setReconnect']
@@ -73,6 +75,8 @@ function ControlCenterScaffold({
   toggleFavorite,
   toggleAppearRule,
   reorderPriority,
+  deleteDeviceHistory,
+  clearDeviceHistory,
   setTheme,
   setAutostart,
   setReconnect,
@@ -195,6 +199,8 @@ function ControlCenterScaffold({
                 onConnect={connectDevice}
                 onDisconnect={disconnectDevice}
                 onToggleFavorite={toggleFavorite}
+                onDeleteHistory={deleteDeviceHistory}
+                onClearHistory={clearDeviceHistory}
               />
             ) : null}
 
@@ -250,6 +256,8 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
     toggleFavorite,
     toggleAppearRule,
     reorderPriority,
+    deleteDeviceHistory,
+    clearDeviceHistory,
     setTheme,
     setAutostart,
     setReconnect,
@@ -283,6 +291,8 @@ function ControlCenterShell({ bridge }: { bridge: BackendBridge }) {
         toggleFavorite={toggleFavorite}
         toggleAppearRule={toggleAppearRule}
         reorderPriority={reorderPriority}
+        deleteDeviceHistory={deleteDeviceHistory}
+        clearDeviceHistory={clearDeviceHistory}
         setTheme={setTheme}
         setAutostart={setAutostart}
         setReconnect={setReconnect}

@@ -28,6 +28,8 @@ export interface BackendBridge {
   disconnectDevice(deviceId: string): Promise<void>
   updateDeviceRule(deviceId: string, rulePatch: DeviceRulePatch): Promise<void>
   reorderDevicePriority(deviceIds: string[]): Promise<void>
+  deleteDeviceHistory(deviceId: string): Promise<void>
+  clearDeviceHistory(): Promise<void>
   setAutostart(enabled: boolean): Promise<void>
   setReconnect(enabled: boolean): Promise<void>
   setTheme(mode: ThemeMode): Promise<void>

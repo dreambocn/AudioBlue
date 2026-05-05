@@ -357,6 +357,30 @@ export const createMockBridge = (): BackendBridge => {
         prioritizedDeviceIds: structuredClone(state.prioritizedDeviceIds),
       })
     },
+    async deleteDeviceHistory(deviceId: string) {
+      state = {
+        ...state,
+        deviceHistory: state.deviceHistory.filter((entry) => entry.id !== deviceId),
+        prioritizedDeviceIds: state.prioritizedDeviceIds.filter((id) => id !== deviceId),
+      }
+      emitHistory()
+      emit({
+        type: 'priorities_changed',
+        prioritizedDeviceIds: structuredClone(state.prioritizedDeviceIds),
+      })
+    },
+    async clearDeviceHistory() {
+      state = {
+        ...state,
+        deviceHistory: [],
+        prioritizedDeviceIds: [],
+      }
+      emitHistory()
+      emit({
+        type: 'priorities_changed',
+        prioritizedDeviceIds: structuredClone(state.prioritizedDeviceIds),
+      })
+    },
     async setAutostart(enabled: boolean) {
       state = {
         ...state,

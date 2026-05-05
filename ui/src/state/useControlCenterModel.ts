@@ -126,6 +126,8 @@ interface ControlCenterViewModel {
   toggleFavorite: (deviceId: string, nextFavorite: boolean) => Promise<void>
   toggleAppearRule: (deviceId: string, enabled: boolean) => Promise<void>
   reorderPriority: (deviceIds: string[]) => Promise<void>
+  deleteDeviceHistory: (deviceId: string) => Promise<void>
+  clearDeviceHistory: () => Promise<void>
   setTheme: (theme: ThemeMode) => Promise<void>
   setAutostart: (enabled: boolean) => Promise<void>
   setReconnect: (enabled: boolean) => Promise<void>
@@ -277,8 +279,13 @@ export function useControlCenterModel(
   }, [bridge, recordBridgeFailure])
 
   useEffect(() => {
+    const recordGlobalEvent = (payload: Record<string, unknown>) => {
+      void bridge.recordClientEvent(payload).catch(() => {
+        // 全局错误上报失败时静默降级，避免递归触发 unhandledrejection。
+      })
+    }
     const handleError = (event: ErrorEvent) => {
-      void bridge.recordClientEvent({
+      recordGlobalEvent({
         area: 'ui',
         eventType: 'ui.window.error',
         level: 'error',
@@ -297,7 +304,7 @@ export function useControlCenterModel(
         event.reason instanceof Error
           ? `${event.reason.name}: ${event.reason.message}`
           : String(event.reason)
-      void bridge.recordClientEvent({
+      recordGlobalEvent({
         area: 'ui',
         eventType: 'ui.promise_rejection',
         level: 'error',
@@ -394,6 +401,19 @@ export function useControlCenterModel(
         deviceIds,
       },
     )
+  }
+
+  const deleteDeviceHistory = async (deviceId: string) => {
+    await runBridgeTask('删除历史设备失败', () => bridge.deleteDeviceHistory(deviceId), {
+      action: 'deleteDeviceHistory',
+      deviceId,
+    })
+  }
+
+  const clearDeviceHistory = async () => {
+    await runBridgeTask('清空设备历史失败', () => bridge.clearDeviceHistory(), {
+      action: 'clearDeviceHistory',
+    })
   }
 
   const setTheme = async (theme: ThemeMode) => {
@@ -504,6 +524,8 @@ export function useControlCenterModel(
     toggleFavorite,
     toggleAppearRule,
     reorderPriority,
+    deleteDeviceHistory,
+    clearDeviceHistory,
     setTheme,
     setAutostart,
     setReconnect,

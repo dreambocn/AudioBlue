@@ -30,12 +30,17 @@ export const selectActiveDevice = (
 export const selectOrderedDevices = (state: AppState) =>
   reorderDevicesByPriority(state.devices, state.prioritizedDeviceIds)
 
+// 只有仍在实时扫描中、已连接或连接中的音频设备，才可以作为当前会话的连接目标。
+const isRealtimeAudioCandidate = (device: DeviceViewModel) =>
+  device.supportsAudio &&
+  (device.presentInLastScan || device.isConnected || device.isConnecting)
+
 export const selectAudioDevices = (state: AppState) =>
-  selectOrderedDevices(state).filter((device) => device.supportsAudio)
+  selectOrderedDevices(state).filter(isRealtimeAudioCandidate)
 
 export const selectVisibleDevices = (state: AppState) =>
   selectOrderedDevices(state).filter(
-    (device) => device.isConnected || device.supportsAudio,
+    (device) => device.isConnected || device.isConnecting || isRealtimeAudioCandidate(device),
   )
 
 export const selectA2dpAvailability = (state: AppState): A2dpSourceAvailability => {
