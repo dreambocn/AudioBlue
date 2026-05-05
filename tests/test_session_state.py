@@ -163,6 +163,8 @@ class StorageStub:
         self.connection_attempts: list[dict] = []
         self.device_cache_updates: list[dict] = []
         self.activity_events: list[dict] = []
+        self.deleted_device_ids: list[str] = []
+        self.clear_device_history_calls = 0
 
     def record_connection_attempt(self, **payload):
         self.connection_attempts.append(payload)
@@ -172,6 +174,12 @@ class StorageStub:
 
     def record_activity_event(self, **payload):
         self.activity_events.append(payload)
+
+    def delete_device_history(self, device_id: str):
+        self.deleted_device_ids.append(device_id)
+
+    def clear_device_history(self):
+        self.clear_device_history_calls += 1
 
 
 class ScheduledCallStub:
@@ -226,6 +234,62 @@ def test_session_state_registers_service_callback_and_tracks_external_events():
 
     target = next(device for device in snapshot["devices"] if device["deviceId"] == "device-1")
     assert target["connectionState"] == "connected"
+
+
+def test_session_state_deletes_device_history_rules_and_recent_devices():
+    storage = StorageStub()
+    session_state = SessionStateCoordinator(
+        service=ConnectorServiceStub(),
+        app_state=AppStateStore(
+            config=AppConfig(
+                reconnect=True,
+                last_devices=["device-1", "device-2"],
+                device_rules={
+                    "device-1": DeviceRule(is_favorite=True, auto_connect_on_reappear=True),
+                    "device-2": DeviceRule(priority=2),
+                },
+            )
+        ),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(),
+        storage=storage,
+    )
+
+    snapshot = session_state.delete_device_history("device-1")
+
+    assert storage.deleted_device_ids == ["device-1"]
+    assert session_state.app_state.config.last_devices == ["device-2"]
+    assert set(session_state.app_state.config.device_rules) == {"device-2"}
+    assert "device-1" not in snapshot["deviceRules"]
+    assert "device-1" not in snapshot["autoConnectCandidates"]
+
+
+def test_session_state_clears_all_device_history_rules_and_recent_devices():
+    storage = StorageStub()
+    session_state = SessionStateCoordinator(
+        service=ConnectorServiceStub(),
+        app_state=AppStateStore(
+            config=AppConfig(
+                reconnect=True,
+                last_devices=["device-1", "device-2"],
+                device_rules={
+                    "device-1": DeviceRule(is_favorite=True),
+                    "device-2": DeviceRule(auto_connect_on_reappear=True),
+                },
+            )
+        ),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(),
+        storage=storage,
+    )
+
+    snapshot = session_state.clear_device_history()
+
+    assert storage.clear_device_history_calls == 1
+    assert session_state.app_state.config.last_devices == []
+    assert session_state.app_state.config.device_rules == {}
+    assert snapshot["deviceRules"] == {}
+    assert snapshot["autoConnectCandidates"] == []
 
 
 def test_session_state_connect_disconnect_and_settings_share_single_snapshot_source():
@@ -857,3 +921,60 @@ def test_session_state_records_connection_diagnostics_activity_without_marking_f
     assert snapshot["devices"][0]["connectionState"] == "connected"
     assert snapshot["lastFailure"] is None
     assert any(item["event_type"] == "connection.audio_flow.unconfirmed" for item in storage.activity_events)
+
+
+def test_session_state_records_worker_timeout_activity():
+    """worker 有界超时应沉淀为运行时诊断，而不是只留在异常栈里。"""
+    service = ConnectorServiceStub()
+    storage = StorageStub()
+    SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(config=AppConfig()),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="silent"),
+        storage=storage,
+    )
+
+    service._state_callback(
+        {
+            "event": "worker_call_timeout",
+            "action": "list_devices",
+            "timeout_seconds": 0.01,
+            "error_code": "ConnectorWorkerTimeoutError",
+        }
+    )
+
+    assert any(
+        item["event_type"] == "runtime.worker.timeout"
+        and item["details"]["action"] == "list_devices"
+        and item["error_code"] == "ConnectorWorkerTimeoutError"
+        for item in storage.activity_events
+    )
+
+
+def test_publish_snapshot_continues_when_listener_fails():
+    """单个监听器失败时，后续监听器仍应收到快照。"""
+    service = ConnectorServiceStub()
+    session_state = SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(config=AppConfig()),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(),
+        storage=StorageStub(),
+    )
+    received: list[dict] = []
+
+    def broken_listener(_snapshot: dict) -> None:
+        raise RuntimeError("webview is gone")
+
+    def healthy_listener(snapshot: dict) -> None:
+        received.append(snapshot)
+
+    session_state.subscribe(broken_listener)
+    session_state.subscribe(healthy_listener)
+
+    snapshot = session_state.set_reconnect(True)
+
+    assert received
+    assert received[-1]["settings"]["startup"]["reconnectOnNextStart"] is True
+    assert snapshot["settings"]["startup"]["reconnectOnNextStart"] is True

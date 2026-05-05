@@ -1,6 +1,7 @@
 """验证诊断快照与支持包导出的结构完整性。"""
 
 import json
+import logging
 import sqlite3
 import zipfile
 from datetime import UTC, datetime
@@ -19,6 +20,14 @@ from audio_blue.models import (
     DeviceSummary,
 )
 from audio_blue.storage import SQLiteStorage
+from audio_blue.observability import ObservabilityService
+
+
+class FailingActivityStorage:
+    """模拟活动事件存储写入失败。"""
+
+    def record_activity_event(self, **_payload):
+        raise RuntimeError("database locked")
 
 
 def test_snapshot_serializes_config_devices_and_attempts():
@@ -58,6 +67,24 @@ def test_snapshot_serializes_config_devices_and_attempts():
     assert snapshot["devices"][0]["name"] == "Headphones"
     assert snapshot["devices"][0]["lastConnectionAttempt"]["state"] == "timeout"
     assert snapshot["attempts"][0]["happenedAt"] == happened_at.isoformat()
+
+
+def test_observability_record_event_fail_open_when_storage_fails(caplog):
+    """观测写库失败不应反向打断业务调用方。"""
+    logger = logging.getLogger("audioblue-observability-test")
+    service = ObservabilityService(storage=FailingActivityStorage(), logger=logger)
+
+    with caplog.at_level(logging.ERROR, logger=logger.name):
+        service.record_event(
+            area="runtime",
+            event_type="runtime.snapshot.listener_failed",
+            level="error",
+            title="状态监听器推送失败",
+            detail="RuntimeError: webview destroyed",
+        )
+
+    assert "状态监听器推送失败" in caplog.text
+    assert "database locked" in caplog.text
 
 
 def test_export_snapshot_writes_json_file(tmp_path):

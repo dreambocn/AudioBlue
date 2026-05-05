@@ -338,6 +338,134 @@ def test_list_device_history_limits_after_sql_aggregation(tmp_path):
     assert history[0]["failure_count"] == 1
 
 
+def test_delete_device_history_removes_only_target_device_records(tmp_path):
+    """删除单个历史设备时，应同步清理轨迹、规则和启动重连引用。"""
+    storage = SQLiteStorage(db_path=tmp_path / "audioblue.db")
+    storage.initialize()
+    storage.save_config(
+        AppConfig(
+            last_devices=["device-1", "device-2"],
+            device_rules={
+                "device-1": DeviceRule(is_favorite=True, auto_connect_on_reappear=True),
+                "device-2": DeviceRule(priority=2),
+            },
+        )
+    )
+    happened_at = datetime(2026, 4, 30, 9, 0, tzinfo=UTC)
+    for device_id in ["device-1", "device-2"]:
+        storage.upsert_device_cache(
+            device_id=device_id,
+            name=f"Device {device_id[-1]}",
+            connection_state="disconnected",
+            supports_audio_playback=True,
+            supports_microphone=False,
+            last_seen_at=happened_at,
+        )
+        storage.record_connection_attempt(
+            device_id=device_id,
+            trigger="manual",
+            succeeded=device_id == "device-2",
+            state="connected" if device_id == "device-2" else "failed",
+            happened_at=happened_at,
+        )
+        storage.record_activity_event(
+            area="device",
+            event_type="device.present",
+            level="info",
+            title="设备出现",
+            device_id=device_id,
+            happened_at=happened_at,
+        )
+    storage.record_log(level="INFO", message="保留日志", logger_name="audio_blue")
+
+    storage.delete_device_history("device-1")
+
+    history = storage.list_device_history(limit=10)
+    loaded = storage.load_config()
+    with sqlite3.connect(storage.db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        remaining_activity = connection.execute(
+            "SELECT device_id FROM activity_events ORDER BY device_id"
+        ).fetchall()
+        log_count = connection.execute("SELECT COUNT(*) FROM log_records").fetchone()[0]
+
+    assert [item["device_id"] for item in history] == ["device-2"]
+    assert loaded.last_devices == ["device-2"]
+    assert set(loaded.device_rules) == {"device-2"}
+    assert [row["device_id"] for row in remaining_activity] == ["device-2"]
+    assert log_count == 1
+
+
+def test_clear_device_history_keeps_diagnostics_exports_and_logs(tmp_path):
+    """清空设备历史不应破坏诊断包、导出记录和日志证据。"""
+    storage = SQLiteStorage(db_path=tmp_path / "audioblue.db")
+    storage.initialize()
+    storage.save_config(
+        AppConfig(
+            last_devices=["device-1"],
+            device_rules={"device-1": DeviceRule(is_favorite=True)},
+        )
+    )
+    happened_at = datetime(2026, 4, 30, 9, 0, tzinfo=UTC)
+    storage.upsert_device_cache(
+        device_id="device-1",
+        name="Headphones",
+        connection_state="disconnected",
+        supports_audio_playback=True,
+        supports_microphone=False,
+        last_seen_at=happened_at,
+    )
+    storage.record_connection_attempt(
+        device_id="device-1",
+        trigger="manual",
+        succeeded=False,
+        state="failed",
+        happened_at=happened_at,
+    )
+    storage.record_activity_event(
+        area="device",
+        event_type="device.absent",
+        level="info",
+        title="设备离线",
+        device_id="device-1",
+        happened_at=happened_at,
+    )
+    snapshot_id = storage.save_diagnostics_snapshot({"source": "manual", "generatedAt": happened_at.isoformat()})
+    storage.record_diagnostics_export(export_path=tmp_path / "support.zip", snapshot_id=snapshot_id)
+    storage.record_log(level="INFO", message="保留日志", logger_name="audio_blue")
+
+    storage.clear_device_history()
+
+    loaded = storage.load_config()
+    with sqlite3.connect(storage.db_path) as connection:
+        counts = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in [
+                "device_cache",
+                "connection_history",
+                "activity_events",
+                "device_rules",
+                "last_devices",
+                "diagnostics_snapshots",
+                "diagnostics_exports",
+                "log_records",
+            ]
+        }
+
+    assert loaded.last_devices == []
+    assert loaded.device_rules == {}
+    assert counts == {
+        "device_cache": 0,
+        "connection_history": 0,
+        "activity_events": 0,
+        "device_rules": 0,
+        "last_devices": 0,
+        "diagnostics_snapshots": 1,
+        "diagnostics_exports": 1,
+        "log_records": 1,
+    }
+
+
 def test_activity_events_and_connection_summaries_are_queryable(tmp_path):
     storage = SQLiteStorage(db_path=tmp_path / "audioblue.db")
     storage.initialize()

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from threading import Event
 from types import SimpleNamespace
 
 import audio_blue.connector_service as connector_service
+import pytest
 
 
 class _FakeOpenResult:
@@ -54,6 +56,34 @@ class _FakeAudioPlaybackConnection:
         return _FakeConnection()
 
 
+class _BackendStub:
+    """提供 ConnectorService worker 测试所需的最小后端。"""
+
+    def __init__(self, *, list_devices, stop_watcher=None):
+        self._list_devices = list_devices
+        self._stop_watcher = stop_watcher
+
+    def list_devices(self):
+        return self._list_devices()
+
+    def connect(self, _device_id, _state_callback):
+        return None, "connected"
+
+    def disconnect(self, _handle) -> None:
+        return None
+
+    def probe_connection(self, _handle) -> str:
+        return "connected"
+
+    def start_watcher(self, _callback):
+        return object()
+
+    def stop_watcher(self, _handle) -> None:
+        if self._stop_watcher is not None:
+            self._stop_watcher(_handle)
+        return None
+
+
 def test_winrt_backend_keeps_successful_open_despite_transient_state_flap(monkeypatch):
     """当 OpenAsync 最终成功时，短暂抖动不应被误判为失败。"""
 
@@ -85,3 +115,66 @@ def test_winrt_backend_keeps_successful_open_despite_transient_state_flap(monkey
     assert state == "connected"
     assert handle is not None
     assert handle.connection.closed is False
+
+
+def test_worker_call_times_out_when_backend_hangs():
+    """WinRT worker 卡住时，调用方应收到有界失败而不是无限等待。"""
+    hang_event = Event()
+    events: list[dict[str, object]] = []
+    service = connector_service.ConnectorService(
+        backend=_BackendStub(list_devices=lambda: hang_event.wait()),
+        state_callback=events.append,
+        worker_timeout_seconds=0.01,
+        health_check_interval_seconds=0,
+    )
+
+    with pytest.raises(connector_service.ConnectorWorkerTimeoutError, match="list_devices"):
+        service.refresh_devices()
+
+    assert events[-1] == {
+        "event": "worker_call_timeout",
+        "action": "list_devices",
+        "timeout_seconds": 0.01,
+        "error_code": "ConnectorWorkerTimeoutError",
+    }
+
+    hang_event.set()
+    service.shutdown()
+
+
+def test_worker_rejects_new_jobs_after_shutdown():
+    """关闭开始后不再接受新的 worker job。"""
+    service = connector_service.ConnectorService(
+        backend=_BackendStub(list_devices=lambda: []),
+        health_check_interval_seconds=0,
+    )
+    service.shutdown()
+
+    with pytest.raises(connector_service.ConnectorWorkerShutdownError):
+        service.refresh_devices()
+
+
+def test_shutdown_completes_when_stop_watcher_times_out():
+    """关闭清理遇到 WinRT watcher 卡住时，也必须最终进入关闭态。"""
+    blocker = Event()
+    events: list[dict[str, object]] = []
+    service = connector_service.ConnectorService(
+        backend=_BackendStub(
+            list_devices=lambda: [],
+            stop_watcher=lambda _handle: blocker.wait(),
+        ),
+        state_callback=events.append,
+        worker_timeout_seconds=0.01,
+        health_check_interval_seconds=0,
+    )
+
+    service.shutdown()
+    blocker.set()
+
+    assert service.is_shutdown is True
+    assert events[-1] == {"event": "service_shutdown"}
+    assert any(
+        item.get("event") == "worker_call_timeout"
+        and item.get("action") == "stop_watcher"
+        for item in events
+    )

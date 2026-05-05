@@ -120,6 +120,42 @@ def test_desktop_api_set_language_updates_config_and_returns_snapshot(tmp_path):
     assert snapshot["settings"]["ui"].get("language") == "zh-CN"
 
 
+def test_desktop_api_delegates_device_history_deletion_to_session_state(tmp_path):
+    observed_calls: list[tuple[str, str | None]] = []
+    service = ServiceStub()
+    app_state = AppStateStore(config=AppConfig())
+    session_state = type(
+        "SessionStateStub",
+        (),
+        {
+            "snapshot": lambda _self: {"devices": []},
+            "delete_device_history": lambda _self, device_id: observed_calls.append(
+                ("delete", device_id)
+            )
+            or {"deviceHistory": []},
+            "clear_device_history": lambda _self: observed_calls.append(("clear", None))
+            or {"deviceHistory": []},
+        },
+    )()
+    api = DesktopApi(
+        service=service,
+        app_state=app_state,
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(),
+        diagnostics_exporter=lambda snapshot, path: path,
+        open_bluetooth_settings=lambda: None,
+        diagnostics_output_dir=tmp_path,
+        session_state=session_state,
+    )
+
+    delete_snapshot = api.delete_device_history("device-1")
+    clear_snapshot = api.clear_device_history()
+
+    assert observed_calls == [("delete", "device-1"), ("clear", None)]
+    assert delete_snapshot["deviceHistory"] == []
+    assert clear_snapshot["deviceHistory"] == []
+
+
 def test_desktop_api_exports_support_bundle_and_records_client_events(tmp_path):
     exported_paths: list[Path] = []
     observed_events: list[dict] = []

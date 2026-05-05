@@ -278,10 +278,21 @@ class WinRTConnectorBackend:
 
 @dataclass(slots=True)
 class _WorkerJob:
+    """封装提交到 WinRT worker 的同步任务。"""
+
     action: Callable[[], object]
     completed: Event
+    action_name: str
     result: object | None = None
     error: BaseException | None = None
+
+
+class ConnectorWorkerTimeoutError(RuntimeError):
+    """后台 WinRT worker 调用超时。"""
+
+
+class ConnectorWorkerShutdownError(RuntimeError):
+    """服务关闭后拒绝新的 worker 调用。"""
 
 
 class ConnectorService:
@@ -301,6 +312,7 @@ class ConnectorService:
         audio_flow_sample_count: int = _AUDIO_FLOW_SAMPLE_COUNT,
         audio_flow_sample_interval_seconds: float = _AUDIO_FLOW_SAMPLE_INTERVAL_SECONDS,
         audio_flow_threshold: float = _AUDIO_FLOW_THRESHOLD,
+        worker_timeout_seconds: float = 15.0,
     ) -> None:
         self._device_provider = device_provider
         self._state_callback = state_callback
@@ -318,6 +330,7 @@ class ConnectorService:
             float(audio_flow_sample_interval_seconds),
         )
         self._audio_flow_threshold = max(0.0, float(audio_flow_threshold))
+        self._worker_timeout_seconds = max(0.0, float(worker_timeout_seconds))
         self._lock = Lock()
         self.known_devices: dict[str, DeviceSummary] = {}
         self.active_connections: dict[str, object] = {}
@@ -346,7 +359,10 @@ class ConnectorService:
         if self._device_provider is not None:
             devices = self._device_provider()
         else:
-            devices = self._run_on_worker(self._backend.list_devices)  # type: ignore[union-attr]
+            devices = self._run_on_worker(  # type: ignore[union-attr]
+                self._backend.list_devices,
+                action_name="list_devices",
+            )
         seen_at = datetime.now(UTC)
 
         with self._lock:
@@ -422,14 +438,18 @@ class ConnectorService:
             lambda: self._backend.connect(  # type: ignore[union-attr]
                 device_id,
                 lambda mapped: self._handle_connection_state(device_id, mapped),
-            )
+            ),
+            action_name="connect",
         )
         transient_state = self._transient_connection_states.pop(device_id, None)
         final_state = state
         if state == "connected" and transient_state not in {None, "connected", "connecting"}:
             final_state = "failed"
             if handle is not None:
-                self._run_on_worker(lambda: self._backend.disconnect(handle))  # type: ignore[union-attr]
+                self._run_on_worker(  # type: ignore[union-attr]
+                    lambda: self._backend.disconnect(handle),
+                    action_name="disconnect",
+                )
 
         with self._lock:
             device = self.known_devices[device_id]
@@ -475,7 +495,10 @@ class ConnectorService:
 
         handle = self.active_connections.pop(device_id, None)
         if handle is not None:
-            self._run_on_worker(lambda: self._backend.disconnect(handle))  # type: ignore[union-attr]
+            self._run_on_worker(  # type: ignore[union-attr]
+                lambda: self._backend.disconnect(handle),
+                action_name="disconnect",
+            )
 
         with self._lock:
             self._clear_validation_chain_locked(device_id)
@@ -498,29 +521,45 @@ class ConnectorService:
             return
 
         for device_id, handle in list(self.active_connections.items()):
-            state = self._run_on_worker(lambda handle=handle: self._backend.probe_connection(handle))
+            state = self._run_on_worker(
+                lambda handle=handle: self._backend.probe_connection(handle),
+                action_name="probe_connection",
+            )
             if state == "connected":
                 continue
             self._mark_connection_stale(device_id, handle)
 
     def shutdown(self) -> None:
-        if self._backend is not None:
-            self._health_check_shutdown.set()
-            if self._health_check_thread is not None:
-                self._health_check_thread.join(timeout=5)
-            for device_id in list(self.active_connections):
-                self.disconnect(device_id)
+        try:
+            if self._backend is not None:
+                self._health_check_shutdown.set()
+                if self._health_check_thread is not None:
+                    self._health_check_thread.join(timeout=5)
 
-            if self._watcher_handle is not None:
-                self._run_on_worker(self._stop_device_watcher)
+                for device_id in list(self.active_connections):
+                    try:
+                        self.disconnect(device_id)
+                    except Exception as exc:
+                        self._emit_shutdown_cleanup_failure(
+                            "disconnect",
+                            exc,
+                            device_id=device_id,
+                        )
+
+                if self._watcher_handle is not None:
+                    try:
+                        self._run_on_worker(self._stop_device_watcher, action_name="stop_watcher")
+                    except Exception as exc:
+                        self._emit_shutdown_cleanup_failure("stop_watcher", exc)
+        finally:
             if self._jobs is not None:
                 self._jobs.put(None)
             if self._worker is not None:
                 self._worker.join(timeout=5)
 
-        self.active_connections.clear()
-        self.is_shutdown = True
-        self._emit({"event": "service_shutdown"})
+            self.active_connections.clear()
+            self.is_shutdown = True
+            self._emit({"event": "service_shutdown"})
 
     def _handle_connection_state(self, device_id: str, state: str) -> None:
         with self._lock:
@@ -554,7 +593,10 @@ class ConnectorService:
             if existing_handle is not handle:
                 return
 
-        self._run_on_worker(lambda: self._backend.disconnect(handle))  # type: ignore[union-attr]
+        self._run_on_worker(  # type: ignore[union-attr]
+            lambda: self._backend.disconnect(handle),
+            action_name="disconnect",
+        )
 
         with self._lock:
             self.active_connections.pop(device_id, None)
@@ -595,7 +637,8 @@ class ConnectorService:
             self._initial_enumeration_completed.set()
             return
         self._watcher_handle = self._run_on_worker(
-            lambda: start_watcher(self._handle_device_watcher_event)
+            lambda: start_watcher(self._handle_device_watcher_event),
+            action_name="start_watcher",
         )
 
     def _start_health_check_loop(self) -> None:
@@ -737,7 +780,8 @@ class ConnectorService:
                 )
 
             strong_state = self._run_on_worker(
-                lambda handle=handle: self._backend.probe_connection(handle)  # type: ignore[union-attr]
+                lambda handle=handle: self._backend.probe_connection(handle),  # type: ignore[union-attr]
+                action_name="probe_connection",
             )
             has_more_attempts = attempt_index < len(attempt_delays) - 1
             audio_ready = render_snapshot.is_active and flow_observation.observed
@@ -1075,7 +1119,10 @@ class ConnectorService:
             current_handle = self.active_connections.get(device_id)
             if current_handle is not handle:
                 return
-        self._run_on_worker(lambda: self._backend.disconnect(handle))  # type: ignore[union-attr]
+        self._run_on_worker(  # type: ignore[union-attr]
+            lambda: self._backend.disconnect(handle),
+            action_name="disconnect",
+        )
         with self._lock:
             self.active_connections.pop(device_id, None)
             device = self.known_devices.get(device_id)
@@ -1098,7 +1145,10 @@ class ConnectorService:
             current_handle = self.active_connections.get(device_id)
             if current_handle is not handle:
                 return
-        self._run_on_worker(lambda: self._backend.disconnect(handle))  # type: ignore[union-attr]
+        self._run_on_worker(  # type: ignore[union-attr]
+            lambda: self._backend.disconnect(handle),
+            action_name="disconnect",
+        )
         with self._lock:
             self.active_connections.pop(device_id, None)
             device = self.known_devices.get(device_id)
@@ -1121,13 +1171,20 @@ class ConnectorService:
             }
         )
 
-    def _run_on_worker(self, action: Callable[[], object]) -> object:
+    def _run_on_worker(self, action: Callable[[], object], *, action_name: str = "worker_job") -> object:
         if self._jobs is None:
             return action()
+        if self.is_shutdown or self._worker is None or not self._worker.is_alive():
+            raise ConnectorWorkerShutdownError("连接服务已关闭，无法执行后台任务。")
 
-        job = _WorkerJob(action=action, completed=Event())
+        job = _WorkerJob(action=action, completed=Event(), action_name=action_name)
         self._jobs.put(job)
-        job.completed.wait()
+        completed = job.completed.wait(self._worker_timeout_seconds)
+        if not completed:
+            self._emit_worker_timeout(action_name)
+            raise ConnectorWorkerTimeoutError(
+                f"{action_name} 超过 {self._worker_timeout_seconds:.1f} 秒未完成。"
+            )
 
         if job.error is not None:
             raise job.error
@@ -1148,6 +1205,41 @@ class ConnectorService:
                 job.error = exc
             finally:
                 job.completed.set()
+
+    def _emit_worker_timeout(self, action_name: str) -> None:
+        try:
+            self._emit(
+                {
+                    "event": "worker_call_timeout",
+                    "action": action_name,
+                    "timeout_seconds": self._worker_timeout_seconds,
+                    "error_code": "ConnectorWorkerTimeoutError",
+                }
+            )
+        except Exception:
+            # 诊断事件不能掩盖原始 worker 超时异常。
+            return
+
+    def _emit_shutdown_cleanup_failure(
+        self,
+        action_name: str,
+        exc: Exception,
+        *,
+        device_id: str | None = None,
+    ) -> None:
+        try:
+            payload: dict[str, object] = {
+                "event": "shutdown_cleanup_failed",
+                "action": action_name,
+                "error_code": exc.__class__.__name__,
+                "message": str(exc),
+            }
+            if device_id is not None:
+                payload["device_id"] = device_id
+            self._emit(payload)
+        except Exception:
+            # 退出清理必须最终完成，诊断失败不能阻断 shutdown。
+            return
 
     def _emit(self, payload: dict[str, object]) -> None:
         if self._state_callback is not None:

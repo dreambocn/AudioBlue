@@ -402,6 +402,26 @@ def test_create_windows_only_builds_main_window(tmp_path):
     assert webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] is False
 
 
+def test_push_state_ignores_evaluate_js_failure(tmp_path):
+    """WebView 推送失败不应反向打断后端事件链。"""
+    index_path = tmp_path / "ui" / "dist" / "index.html"
+    index_path.parent.mkdir(parents=True)
+    index_path.write_text("<html></html>", encoding="utf-8")
+
+    class FailingWindowStub:
+        def evaluate_js(self, _script: str) -> None:
+            raise RuntimeError("webview destroyed")
+
+    host = DesktopHost(
+        api=create_api(tmp_path),
+        ui_entrypoint=index_path,
+        webview_module=WebviewModuleStub(),
+    )
+    host.main_window = FailingWindowStub()
+
+    host.push_state({"devices": []})
+
+
 def test_create_windows_uses_resolved_theme_background_color(tmp_path, monkeypatch):
     index_path = tmp_path / "ui" / "dist" / "index.html"
     index_path.parent.mkdir(parents=True)

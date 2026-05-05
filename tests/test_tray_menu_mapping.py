@@ -128,6 +128,13 @@ class SessionStateStub:
         self.calls.append(f"language:{language}")
 
 
+class MenuHandleStub:
+    """模拟 Win32 菜单句柄，便于断言释放路径。"""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
 def test_show_menu_tolerates_set_foreground_window_error(monkeypatch):
     host = TrayHost(
         service=ServiceStub(),
@@ -153,6 +160,37 @@ def test_show_menu_tolerates_set_foreground_window_error(monkeypatch):
     host._show_menu()
 
     assert calls == ["tracked"]
+
+
+def test_show_menu_destroys_popup_menu_after_tracking(monkeypatch):
+    """弹出菜单显示结束后应释放 HMENU。"""
+    host = TrayHost(
+        service=ServiceStub(),
+        config=AppConfig(),
+        logger=logging.getLogger("tray-test"),
+    )
+    host._hwnd = 123
+    created_menus: list[MenuHandleStub] = []
+    destroyed_menus: list[MenuHandleStub] = []
+
+    def create_menu():
+        menu = MenuHandleStub(f"menu-{len(created_menus)}")
+        created_menus.append(menu)
+        return menu
+
+    monkeypatch.setattr("audio_blue.tray_host.win32gui.CreatePopupMenu", create_menu)
+    monkeypatch.setattr("audio_blue.tray_host.win32gui.AppendMenu", lambda *args: None)
+    monkeypatch.setattr("audio_blue.tray_host.win32gui.GetCursorPos", lambda: (10, 20))
+    monkeypatch.setattr("audio_blue.tray_host.win32gui.SetForegroundWindow", lambda _hwnd: None)
+    monkeypatch.setattr("audio_blue.tray_host.win32gui.TrackPopupMenu", lambda *args: None)
+    monkeypatch.setattr(
+        "audio_blue.tray_host.win32gui.DestroyMenu",
+        lambda menu: destroyed_menus.append(menu),
+    )
+
+    host._show_menu()
+
+    assert destroyed_menus == [created_menus[0]]
 
 
 def test_on_destroy_calls_shutdown_ui_before_service_shutdown(monkeypatch):
@@ -185,6 +223,39 @@ def test_on_destroy_calls_shutdown_ui_before_service_shutdown(monkeypatch):
     host._on_destroy(0, 0, 0, 0)
 
     assert call_order == ["notify_delete", "shutdown_ui", "session_shutdown", "save_config", "quit:0"]
+    assert service.shutdown_called is True
+
+
+def test_on_destroy_still_shuts_down_service_when_save_config_fails(monkeypatch):
+    """保存配置失败时仍必须关闭服务并退出消息循环。"""
+    service = ServiceStub()
+    call_order: list[str] = []
+    host = TrayHost(
+        service=service,
+        config=AppConfig(),
+        logger=logging.getLogger("tray-test"),
+        shutdown_ui=lambda: call_order.append("shutdown_ui"),
+    )
+    host._notify_id = ("notify",)
+
+    monkeypatch.setattr(
+        "audio_blue.tray_host.win32gui.Shell_NotifyIcon",
+        lambda *args: call_order.append("notify_delete"),
+    )
+
+    def fail_save_config(_config) -> None:
+        call_order.append("save_config")
+        raise RuntimeError("config path denied")
+
+    monkeypatch.setattr("audio_blue.tray_host.save_config", fail_save_config)
+    monkeypatch.setattr(
+        "audio_blue.tray_host.win32gui.PostQuitMessage",
+        lambda code: call_order.append(f"quit:{code}"),
+    )
+
+    host._on_destroy(0, 0, 0, 0)
+
+    assert call_order == ["notify_delete", "shutdown_ui", "save_config", "quit:0"]
     assert service.shutdown_called is True
 
 

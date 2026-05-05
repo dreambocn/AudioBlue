@@ -437,6 +437,49 @@ class SQLiteStorage:
                 (cutoff_iso,),
             )
 
+    def delete_device_history(self, device_id: str) -> None:
+        """删除单个设备的历史轨迹、缓存和已保存规则。"""
+        normalized_device_id = device_id.strip()
+        if not normalized_device_id:
+            return
+
+        with self._connect() as connection:
+            connection.execute(
+                "DELETE FROM connection_history WHERE device_id = ?",
+                (normalized_device_id,),
+            )
+            connection.execute(
+                "DELETE FROM activity_events WHERE device_id = ?",
+                (normalized_device_id,),
+            )
+            connection.execute(
+                "DELETE FROM device_cache WHERE device_id = ?",
+                (normalized_device_id,),
+            )
+            connection.execute(
+                "DELETE FROM device_rules WHERE device_id = ?",
+                (normalized_device_id,),
+            )
+            connection.execute(
+                "DELETE FROM last_devices WHERE device_id = ?",
+                (normalized_device_id,),
+            )
+
+    def clear_device_history(self) -> None:
+        """清空设备相关历史，保留日志、诊断快照和导出记录。"""
+        with self._connect() as connection:
+            connection.execute("DELETE FROM connection_history")
+            connection.execute(
+                """
+                DELETE FROM activity_events
+                WHERE device_id IS NOT NULL
+                   OR event_type LIKE 'device.%'
+                """
+            )
+            connection.execute("DELETE FROM device_cache")
+            connection.execute("DELETE FROM device_rules")
+            connection.execute("DELETE FROM last_devices")
+
     def list_activity_events(self, *, limit: int = 20) -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(

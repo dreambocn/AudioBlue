@@ -31,16 +31,24 @@ class ObservabilityService:
         """记录结构化事件，并在有日志器时附带输出到日志。"""
         storage_method = getattr(self._storage, "record_activity_event", None)
         if callable(storage_method):
-            storage_method(
-                area=area,
-                event_type=event_type,
-                level=level,
-                title=title,
-                detail=detail,
-                device_id=device_id,
-                error_code=error_code,
-                details=details,
-            )
+            try:
+                storage_method(
+                    area=area,
+                    event_type=event_type,
+                    level=level,
+                    title=title,
+                    detail=detail,
+                    device_id=device_id,
+                    error_code=error_code,
+                    details=details,
+                )
+            except Exception as exc:
+                if self._logger is not None:
+                    self._logger.error(
+                        "运行时事件写入存储失败，已跳过本次持久化。 | %s: %s",
+                        type(exc).__name__,
+                        exc,
+                    )
 
         if self._logger is None:
             return

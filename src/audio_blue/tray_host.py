@@ -267,7 +267,13 @@ class TrayHost:
             win32gui.SetForegroundWindow(self._hwnd)
         except Exception:
             self._logger.debug("Failed to foreground tray host before opening menu.", exc_info=True)
-        win32gui.TrackPopupMenu(menu, win32con.TPM_LEFTALIGN, cursor_x, cursor_y, 0, self._hwnd, None)
+        try:
+            win32gui.TrackPopupMenu(menu, win32con.TPM_LEFTALIGN, cursor_x, cursor_y, 0, self._hwnd, None)
+        finally:
+            try:
+                win32gui.DestroyMenu(menu)
+            except Exception:
+                self._logger.debug("Failed to destroy tray popup menu.", exc_info=True)
 
     def _on_notify(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
         if lparam == win32con.WM_LBUTTONUP:
@@ -383,20 +389,27 @@ class TrayHost:
         return reconnect_enabled, language
 
     def _on_destroy(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
-        if self._notify_id is not None:
-            win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, self._notify_id)
-        self._record_event(
-            area="tray",
-            event_type="tray.shutdown",
-            level="info",
-            title="托盘宿主已退出",
-        )
-        self._shutdown_ui()
-        if self._session_state is not None and hasattr(self._session_state, "shutdown"):
-            self._session_state.shutdown()
-        save_config(build_exit_config(self._config, self._service))
-        self._service.shutdown()
-        win32gui.PostQuitMessage(0)
+        try:
+            if self._notify_id is not None:
+                win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, self._notify_id)
+            self._record_event(
+                area="tray",
+                event_type="tray.shutdown",
+                level="info",
+                title="托盘宿主已退出",
+            )
+            self._shutdown_ui()
+            if self._session_state is not None and hasattr(self._session_state, "shutdown"):
+                self._session_state.shutdown()
+            try:
+                save_config(build_exit_config(self._config, self._service))
+            except Exception:
+                self._logger.exception("保存退出配置失败，继续关闭托盘服务。")
+        finally:
+            try:
+                self._service.shutdown()
+            finally:
+                win32gui.PostQuitMessage(0)
         return 0
 
     def _record_event(

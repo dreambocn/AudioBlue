@@ -312,6 +312,34 @@ class DesktopApi:
         self._app_state.reorder_device_priority(device_ids)
         return self.attach_runtime_state(self._app_state.snapshot())
 
+    def delete_device_history(self, device_id: str) -> dict[str, Any]:
+        """删除单个历史设备，并返回最新快照。"""
+        if self._session_state is not None:
+            return self.attach_runtime_state(self._session_state.delete_device_history(device_id))
+        normalized_device_id = device_id.strip()
+        if normalized_device_id:
+            self._app_state.config.device_rules.pop(normalized_device_id, None)
+            self._app_state.config.last_devices = [
+                item for item in self._app_state.config.last_devices if item != normalized_device_id
+            ]
+            provider = getattr(self._app_state, "_history_provider", None)
+            delete_history = getattr(provider, "delete_device_history", None)
+            if callable(delete_history):
+                delete_history(normalized_device_id)
+        return self.attach_runtime_state(self._app_state.snapshot())
+
+    def clear_device_history(self) -> dict[str, Any]:
+        """清空设备相关历史，并返回最新快照。"""
+        if self._session_state is not None:
+            return self.attach_runtime_state(self._session_state.clear_device_history())
+        self._app_state.config.device_rules.clear()
+        self._app_state.config.last_devices = []
+        provider = getattr(self._app_state, "_history_provider", None)
+        clear_history = getattr(provider, "clear_device_history", None)
+        if callable(clear_history):
+            clear_history()
+        return self.attach_runtime_state(self._app_state.snapshot())
+
     def set_autostart(self, enabled: bool) -> dict[str, Any]:
         if self._session_state is not None:
             return self.attach_runtime_state(self._session_state.set_autostart(enabled))
@@ -664,7 +692,11 @@ class DesktopHost:
             f"new CustomEvent('audioblue:state', {{ detail: {payload} }})"
             ");"
         )
-        self.main_window.evaluate_js(script)
+        try:
+            self.main_window.evaluate_js(script)
+        except Exception:
+            # WebView 可能已销毁，状态推送失败不应打断后端运行链。
+            return
 
     def _on_main_window_closing(self) -> bool:
         if self._allow_close or self.main_window is None:

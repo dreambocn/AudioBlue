@@ -34,6 +34,10 @@ class RuntimeStorage(Protocol):
 
     def record_activity_event(self, **payload: Any) -> None: ...
 
+    def delete_device_history(self, device_id: str) -> None: ...
+
+    def clear_device_history(self) -> None: ...
+
 
 class SessionStateCoordinator:
     """统一处理设备刷新、自动连接、事件发布和诊断记录。"""
@@ -193,6 +197,33 @@ class SessionStateCoordinator:
         )
         return self._publish_snapshot()
 
+    def delete_device_history(self, device_id: str) -> dict[str, Any]:
+        """删除单个历史设备，并清除会影响自动连接的持久规则。"""
+        normalized_device_id = device_id.strip()
+        if not normalized_device_id:
+            return self._publish_snapshot()
+
+        self.app_state.config.device_rules.pop(normalized_device_id, None)
+        self.app_state.config.last_devices = [
+            item for item in self.app_state.config.last_devices if item != normalized_device_id
+        ]
+        self._clear_manual_auto_connect_suppression(normalized_device_id)
+        self._cancel_recover_job(normalized_device_id)
+        self._invoke_storage_method("delete_device_history", device_id=normalized_device_id)
+        self._persist_config()
+        return self._publish_snapshot()
+
+    def clear_device_history(self) -> dict[str, Any]:
+        """清空设备历史，并同步清除规则与最近连接设备。"""
+        for device_id in list(self.app_state.config.device_rules):
+            self._clear_manual_auto_connect_suppression(device_id)
+            self._cancel_recover_job(device_id)
+        self.app_state.config.device_rules.clear()
+        self.app_state.config.last_devices = []
+        self._invoke_storage_method("clear_device_history")
+        self._persist_config()
+        return self._publish_snapshot()
+
     def set_autostart(self, enabled: bool) -> dict[str, Any]:
         self.autostart_manager.set_enabled(enabled)
         self.app_state.config.startup.autostart = enabled
@@ -304,7 +335,16 @@ class SessionStateCoordinator:
     def _publish_snapshot(self) -> dict[str, Any]:
         snapshot = self._normalize_snapshot(self.app_state.snapshot())
         for callback in list(self._listeners):
-            callback(snapshot)
+            try:
+                callback(snapshot)
+            except Exception as exc:
+                self._record_exception(
+                    area="runtime",
+                    event_type="runtime.snapshot.listener_failed",
+                    title="状态监听器推送失败",
+                    exc=exc,
+                    details={"listener": repr(callback)},
+                )
         return snapshot
 
     def _bind_service_callback(self) -> None:
@@ -622,6 +662,21 @@ class SessionStateCoordinator:
                 title="设备缓存已刷新",
                 detail="连接服务已完成一次设备刷新。",
                 details={"deviceIds": payload.get("device_ids")},
+            )
+        elif event_name == "worker_call_timeout":
+            action = str(payload.get("action", "worker_job"))
+            timeout_seconds = payload.get("timeout_seconds")
+            self._record_activity_event(
+                area="runtime",
+                event_type="runtime.worker.timeout",
+                level="error",
+                title="后台连接任务超时",
+                detail=f"{action} 超过 {timeout_seconds} 秒未完成，已终止本次等待。",
+                error_code=str(payload.get("error_code", "ConnectorWorkerTimeoutError")),
+                details={
+                    "action": action,
+                    "timeoutSeconds": timeout_seconds,
+                },
             )
         elif event_name == "device_endpoint_probe":
             details = payload.get("details")
