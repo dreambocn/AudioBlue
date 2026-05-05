@@ -27,10 +27,14 @@
   #define WebView2BundledInstallerName "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
 #endif
 
+#ifndef AppVersion
+  #define AppVersion "0.0.0"
+#endif
+
 [Setup]
 AppId={{7EFAE4E9-D6EF-4A57-BE35-8C2D205EF001}
 AppName=AudioBlue
-AppVersion=0.1.2
+AppVersion={#AppVersion}
 AppPublisher=AudioBlue Team
 DefaultDirName={autopf}\AudioBlue
 DefaultGroupName=AudioBlue

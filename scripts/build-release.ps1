@@ -306,6 +306,7 @@ foreach ($installer in $installerOutputs) {
         BundledReleaseFileName = $installer.BundledReleaseFileName
         WebView2RuntimeRelativePath = $webView2RuntimeRelativePath
         WebView2BundledInstallerName = $webView2InstallerFileName
+        AppVersion = $projectVersion
     }
 
     Invoke-InnoCompiler `

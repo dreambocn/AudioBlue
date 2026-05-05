@@ -87,7 +87,7 @@ uv run pyinstaller AudioBlue.spec --noconfirm
 
 ```powershell
 Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
-uv run python scripts\verify_packaging_assets.py --dist-root dist --installer-script installer\AudioBlue.iss --format text
+uv run python scripts\verify_packaging_assets.py --dist-root dist --installer-script installer\AudioBlue.iss --installer-script installer\AudioBlue.WithWebView2.iss --installer-core-script installer\AudioBlue.InstallerCore.iss --format text
 ```
 
 ### Installer build / 安装器构建
@@ -117,4 +117,4 @@ Set-Location 'E:\Development\Project\PythonProjects\AudioBlue'
 
 - 确认 Inno Setup 已安装
 - 确认 `ISCC.exe` 在 `PATH` 中，或者位于常见安装路径
-- 先运行 `uv run python scripts\verify_packaging_assets.py --dist-root dist --installer-script installer\AudioBlue.iss --format text`
+- 先运行 `uv run python scripts\verify_packaging_assets.py --dist-root dist --installer-script installer\AudioBlue.iss --installer-script installer\AudioBlue.WithWebView2.iss --installer-core-script installer\AudioBlue.InstallerCore.iss --webview2-runtime-installer dist\webview2\MicrosoftEdgeWebView2RuntimeInstallerX64.exe --format text`

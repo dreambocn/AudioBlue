@@ -6,6 +6,12 @@ from pathlib import Path
 from typing import Sequence
 
 
+_WEBVIEW2_RUNTIME_VARIABLE_REFERENCES = (
+    "{#WebView2RuntimeRelativePath}",
+    "{#WebView2BundledInstallerName}",
+)
+
+
 def collect_packaging_report(
     dist_root: Path,
     installer_scripts: Sequence[Path],
@@ -47,13 +53,19 @@ def collect_packaging_report(
                 "Installer core scaffold is missing WebView2 runtime detection."
             )
         if webview2_runtime_installer is not None:
+            expected_runtime_name = webview2_runtime_installer.name
             if not webview2_runtime_installer.exists():
                 issues.append(
                     f"Missing bundled WebView2 runtime installer: {webview2_runtime_installer}"
                 )
-            if "MicrosoftEdgeWebView2RuntimeInstallerX64.exe" not in content:
+            has_runtime_reference = expected_runtime_name in content or any(
+                variable_reference in content
+                for variable_reference in _WEBVIEW2_RUNTIME_VARIABLE_REFERENCES
+            )
+            if not has_runtime_reference:
                 issues.append(
-                    "Installer core scaffold is missing the bundled WebView2 runtime installer reference."
+                    "Installer core scaffold is missing the bundled WebView2 runtime "
+                    f"installer reference: {expected_runtime_name}"
                 )
 
     return {

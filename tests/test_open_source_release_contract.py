@@ -12,6 +12,9 @@ PLANS_DIR_PATH = REPO_ROOT / "docs" / "plans"
 RELEASE_SCRIPT_PATH = REPO_ROOT / "scripts" / "build-release.ps1"
 RELEASE_NOTES_SCRIPT_PATH = REPO_ROOT / "scripts" / "generate-release-notes.ps1"
 RELEASE_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "release.yml"
+DAILY_CI_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+INSTALLER_CORE_PATH = REPO_ROOT / "installer" / "AudioBlue.InstallerCore.iss"
+SUPERPOWERS_PLANS_DIR_PATH = REPO_ROOT / "docs" / "superpowers" / "plans"
 
 
 def read_text(path: Path) -> str:
@@ -19,11 +22,20 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_open_source_files_exist_and_internal_plans_are_removed():
+def collect_release_clean_internal_plan_paths() -> list[Path]:
+    """收集 release-clean 分支发布前需要移除的内部计划路径。"""
+    return [PLANS_DIR_PATH, SUPERPOWERS_PLANS_DIR_PATH]
+
+
+def test_open_source_files_exist_and_release_clean_contract_lists_internal_plans():
+    """当前修复分支可保留内部计划，但开源发布清理必须能识别它们。"""
     assert LICENSE_PATH.exists()
     assert DEVELOPMENT_DOC_PATH.exists()
     assert RELEASING_DOC_PATH.exists()
-    assert not PLANS_DIR_PATH.exists()
+
+    internal_plan_paths = collect_release_clean_internal_plan_paths()
+    assert PLANS_DIR_PATH in internal_plan_paths
+    assert SUPERPOWERS_PLANS_DIR_PATH in internal_plan_paths
 
 
 def test_license_uses_mit_text():
@@ -80,6 +92,27 @@ def test_release_script_contains_expected_release_steps():
         assert expected in content
 
     assert "SHA256SUMS.txt" not in content
+
+
+def test_inno_app_version_is_injected_from_release_script():
+    """安装器版本必须由发布脚本注入，避免与 pyproject 版本漂移。"""
+    core = read_text(INSTALLER_CORE_PATH)
+    release_script = read_text(RELEASE_SCRIPT_PATH)
+
+    assert "AppVersion={#AppVersion}" in core
+    assert "AppVersion = $projectVersion" in release_script
+
+
+def test_daily_ci_workflow_runs_on_pull_request_and_push():
+    """日常 CI 应在 PR 和主分支 push 阶段运行测试、lint 与前端构建。"""
+    content = read_text(DAILY_CI_WORKFLOW_PATH)
+
+    assert "pull_request:" in content
+    assert "push:" in content
+    assert "uv run pytest -q" in content
+    assert "npm test" in content
+    assert "npm run lint" in content
+    assert "npm run build" in content
 
 
 def test_release_notes_script_exists_and_builds_commit_summary():
