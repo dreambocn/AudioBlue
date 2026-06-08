@@ -1,6 +1,6 @@
 [project]
 name = "audio-blue"
-version = "0.1.2"
+version = "0.1.3"
 description = "Windows Bluetooth audio playback connector MVP in Python"
 readme = "README.md"
 authors = [
