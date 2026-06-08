@@ -74,3 +74,38 @@ def test_open_audio_meter_prefers_requested_render_device_before_default_fallbac
 
     assert requested_ids == ["render-target"]
     handle.com_scope.close()
+
+
+def test_audio_endpoint_snapshot_matches_registry_endpoint_when_core_audio_misses_container(monkeypatch):
+    monkeypatch.setattr(audio_routing, "_enumerate_audio_endpoints", lambda: [
+        audio_routing._AudioEndpointInfo(
+            endpoint_id="default-render",
+            name="耳机 (Senary Audio)",
+            state="active",
+            container_id="default-container",
+            flow="render",
+        ),
+        audio_routing._AudioEndpointInfo(
+            endpoint_id="{0.0.1.00000000}.{phone-endpoint}",
+            name="麦克风 (Phone A2DP SNK)",
+            state="active",
+            container_id="{PHONE-CONTAINER}",
+            flow="capture",
+        ),
+    ])
+
+    snapshot = audio_routing.Win32AudioRouteProbe().get_audio_endpoint_snapshot(
+        container_id="phone-container"
+    )
+
+    assert snapshot.render_id == "{0.0.1.00000000}.{phone-endpoint}"
+    assert snapshot.render_name == "麦克风 (Phone A2DP SNK)"
+    assert snapshot.render_state == "active"
+    assert snapshot.endpoint_flow == "capture"
+    assert snapshot.container_id == "{PHONE-CONTAINER}"
+
+
+def test_coerce_mmdevice_endpoint_id_strips_winrt_interface_suffix():
+    assert audio_routing._coerce_mmdevice_endpoint_id(
+        r"\\?\SWD#MMDEVAPI#{0.0.1.00000000}.{ABCDEFAB-1111-2222-3333-ABCDEFABCDEF}#{2eef81be-33fa-4800-9670-1cd474972c3f}"
+    ) == "{0.0.1.00000000}.{ABCDEFAB-1111-2222-3333-ABCDEFABCDEF}"

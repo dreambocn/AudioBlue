@@ -532,6 +532,42 @@ def test_session_state_disconnect_recover_starts_immediately_when_device_stays_p
     assert scheduler.calls == []
 
 
+def test_session_state_ignores_no_audio_validation_disconnect_recover_is_connector_owned():
+    service = ConnectorServiceStub()
+    service.initial_enumeration_completed = True
+    service.active_connections["device-1"] = object()
+    service.known_devices["device-1"] = DeviceSummary(
+        device_id="device-1",
+        name="Headphones",
+        connection_state="connected",
+        present_in_last_scan=True,
+    )
+    scheduler = RetrySchedulerStub()
+    storage = StorageStub()
+    SessionStateCoordinator(
+        service=service,
+        app_state=AppStateStore(
+            config=AppConfig(
+                reconnect=False,
+                device_rules={"device-1": DeviceRule(auto_connect_on_reappear=True)},
+            )
+        ),
+        autostart_manager=AutostartManagerStub(),
+        notification_service=NotificationService(policy="silent"),
+        storage=storage,
+        retry_scheduler=scheduler,
+    )
+
+    service.disconnect("device-1", trigger="no_audio_validation")
+
+    assert service.connect_calls == []
+    assert scheduler.calls == []
+    assert not any(
+        item["event_type"] == "automation.recover.scheduled"
+        for item in storage.activity_events
+    )
+
+
 def test_session_state_recover_retries_until_terminal_failure_and_only_notifies_once():
     service = ConnectorServiceStub()
     service.initial_enumeration_completed = True

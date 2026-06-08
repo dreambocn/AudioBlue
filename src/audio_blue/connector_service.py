@@ -59,6 +59,8 @@ class AudioRoutingDiagnosticsState:
     local_render_id: str | None = None
     local_render_name: str | None = None
     local_render_state: str | None = None
+    local_render_container_id: str | None = None
+    local_render_flow: str | None = None
     audio_flow_observed: bool | None = None
     audio_flow_peak_max: float | None = None
     validation_phase: str | None = None
@@ -74,6 +76,8 @@ class AudioRoutingDiagnosticsState:
             "localRenderId": self.local_render_id,
             "localRenderName": self.local_render_name,
             "localRenderState": self.local_render_state,
+            "localRenderContainerId": self.local_render_container_id,
+            "localRenderFlow": self.local_render_flow,
             "audioFlowObserved": self.audio_flow_observed,
             "audioFlowPeakMax": self.audio_flow_peak_max,
             "validationPhase": self.validation_phase,
@@ -727,14 +731,18 @@ class ConnectorService:
                 return
 
             try:
-                render_snapshot = self._audio_route_probe.get_default_render_snapshot()
+                render_snapshot = self._audio_route_probe.get_audio_endpoint_snapshot(
+                    container_id=_string_or_none(remote_details.get("containerId"))
+                )
             except Exception as exc:
                 render_snapshot = LocalRenderSnapshot(
                     render_id=None,
                     render_name=None,
                     render_state="error",
                     is_active=False,
-                    error=f"render_snapshot:{type(exc).__name__}",
+                    error=f"endpoint_snapshot:{type(exc).__name__}",
+                    container_id=_string_or_none(remote_details.get("containerId")),
+                    endpoint_flow=None,
                 )
             local_status = "active" if render_snapshot.is_active else (
                 "error" if render_snapshot.render_state == "error" else "inactive"
@@ -784,8 +792,9 @@ class ConnectorService:
                 action_name="probe_connection",
             )
             has_more_attempts = attempt_index < len(attempt_delays) - 1
-            audio_ready = render_snapshot.is_active and flow_observation.observed
-            should_wait = strong_state == "connected" and not (remote_confirmed and audio_ready)
+            endpoint_ready = render_snapshot.is_active and bool(render_snapshot.render_id)
+            audio_ready = endpoint_ready
+            should_wait = strong_state == "connected" and not (remote_confirmed and endpoint_ready)
             flow_status = (
                 "observed"
                 if flow_observation.observed
@@ -829,7 +838,15 @@ class ConnectorService:
                 return
             if has_more_attempts:
                 continue
-            if remote_confirmed and trigger == "recover":
+            if remote_confirmed:
+                if self._try_start_no_audio_recover(
+                    device_id=device_id,
+                    handle=handle,
+                    trigger=trigger,
+                    validation_token=validation_token,
+                    details=flow_details,
+                ):
+                    return
                 self._handle_no_audio_condition(
                     device_id=device_id,
                     handle=handle,
@@ -970,6 +987,7 @@ class ConnectorService:
         if trigger == "recover" and existing is not None and existing.pending_no_audio_recover:
             existing.pending_no_audio_recover = False
             existing.validation_token = validation_token
+            existing.outer_trigger = trigger
             return validation_token
         self._validation_chains[device_id] = _ValidationChain(
             validation_token=validation_token,
@@ -1042,6 +1060,8 @@ class ConnectorService:
                 self._audio_routing_state.local_render_id = render_snapshot.render_id
                 self._audio_routing_state.local_render_name = render_snapshot.render_name
                 self._audio_routing_state.local_render_state = render_snapshot.render_state
+                self._audio_routing_state.local_render_container_id = render_snapshot.container_id
+                self._audio_routing_state.local_render_flow = render_snapshot.endpoint_flow
             if flow_observation is not None:
                 self._audio_routing_state.audio_flow_observed = flow_observation.observed
                 self._audio_routing_state.audio_flow_peak_max = round(
@@ -1077,6 +1097,48 @@ class ConnectorService:
                 },
             }
         )
+
+    def _try_start_no_audio_recover(
+        self,
+        *,
+        device_id: str,
+        handle: object,
+        trigger: str,
+        validation_token: int,
+        details: dict[str, object],
+    ) -> bool:
+        """首次连接无音频时自动断开并重连一次，避免界面停留在假成功状态。"""
+        with self._lock:
+            chain = self._validation_chains.get(device_id)
+            current_handle = self.active_connections.get(device_id)
+            if (
+                chain is None
+                or current_handle is not handle
+                or chain.validation_token != validation_token
+            ):
+                return False
+            if trigger == "recover" or chain.recover_used:
+                return False
+            chain.recover_used = True
+            chain.pending_no_audio_recover = True
+            chain.last_recover_reason = "no_audio"
+            self._audio_routing_state.current_device_id = device_id
+            self._audio_routing_state.last_recover_reason = "no_audio"
+            self._audio_routing_state.validation_phase = "recovering"
+
+        self._emit_connection_diagnostics(
+            device_id=device_id,
+            trigger=trigger,
+            phase="audio_flow",
+            status="unconfirmed",
+            details={
+                **details,
+                "nextAction": "recover",
+            },
+        )
+        self._disconnect_for_no_audio_recover(device_id, handle)
+        self.connect(device_id, trigger="recover")
+        return True
 
     def _handle_no_audio_condition(
         self,

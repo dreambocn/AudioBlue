@@ -810,7 +810,7 @@ class SessionStateCoordinator:
             return
 
         if event_name == "device_disconnected":
-            if not isinstance(device_id, str) or trigger_name == "manual":
+            if not isinstance(device_id, str) or trigger_name in {"manual", "no_audio_validation"}:
                 return
             self._start_recover_flow(device_id)
             return
@@ -1065,14 +1065,14 @@ def _map_connection_diagnostics_activity(
         if status == "active":
             return (
                 "connection.local_render.active",
-                "本机播放端点已激活",
-                f"{device_name} 当前使用的本机播放端点为 {details.get('renderName') or 'unknown'}。",
+                "本机音频端点已激活",
+                f"{device_name} 当前匹配的本机音频端点为 {details.get('renderName') or 'unknown'}。",
                 "info",
             )
         return (
             "connection.local_render.inactive",
-            "本机播放端点不可用",
-            f"{device_name} 当前默认播放端点不可用，已记录自动恢复前的诊断信息。",
+            "本机音频端点不可用",
+            f"{device_name} 当前匹配的本机音频端点不可用，已记录自动恢复前的诊断信息。",
             "warning",
         )
 
