@@ -581,6 +581,7 @@ class DesktopHost:
 
         self._configure_drag_region_settings()
         main_url = self.ui_entrypoint.as_uri()
+        self._native_theme_mode = self._resolve_native_window_theme_mode()
         self.main_window = self._webview.create_window(
             "AudioBlue",
             url=main_url,

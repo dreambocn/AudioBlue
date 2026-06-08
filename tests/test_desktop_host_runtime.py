@@ -389,7 +389,7 @@ def test_create_windows_only_builds_main_window(tmp_path):
         ui_entrypoint=index_path,
         webview_module=webview,
     )
-    host._native_theme_mode = "light"
+    host._resolve_native_window_theme_mode = lambda: "light"
 
     host.create_windows()
 
@@ -467,7 +467,7 @@ def test_before_show_installs_native_resize_chrome_when_native_form_is_ready(tmp
         ui_entrypoint=index_path,
         webview_module=WebviewModuleStub(),
     )
-    host._native_theme_mode = "light"
+    monkeypatch.setattr(host, "_resolve_native_window_theme_mode", lambda: "light")
     monkeypatch.setattr(host, "_load_native_resize_runtime", create_native_resize_runtime_stub)
 
     host.create_windows()
