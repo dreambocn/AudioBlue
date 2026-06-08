@@ -13,7 +13,6 @@ from typing import Awaitable, Protocol, TypeVar
 from uuid import UUID
 
 from winrt.windows.devices.enumeration import DeviceInformation
-from winrt.windows.media.devices import AudioDeviceRole, MediaDevice
 
 AwaitableResult = TypeVar("AwaitableResult")
 
@@ -238,17 +237,17 @@ class Win32AudioRouteProbe:
 
     def get_default_render_snapshot(self) -> LocalRenderSnapshot:
         try:
-            render_id = MediaDevice.get_default_audio_render_id(AudioDeviceRole.DEFAULT)
+            endpoint = _get_default_render_endpoint_info()
         except Exception as exc:
             return LocalRenderSnapshot(
                 render_id=None,
                 render_name=None,
                 render_state="error",
                 is_active=False,
-                error=f"render_id:{type(exc).__name__}",
+                error=f"default_render:{type(exc).__name__}",
             )
 
-        if not render_id:
+        if not endpoint.endpoint_id:
             return LocalRenderSnapshot(
                 render_id=None,
                 render_name=None,
@@ -257,24 +256,13 @@ class Win32AudioRouteProbe:
                 error="render_id_missing",
             )
 
-        render_name = _load_render_name(render_id)
-        try:
-            state = _get_device_state(render_id)
-        except Exception as exc:
-            return LocalRenderSnapshot(
-                render_id=render_id,
-                render_name=render_name,
-                render_state="error",
-                is_active=False,
-                error=f"render_state:{type(exc).__name__}",
-            )
-
         return LocalRenderSnapshot(
-            render_id=render_id,
-            render_name=render_name,
-            render_state=state,
-            is_active=state == "active",
-            endpoint_flow="render",
+            render_id=endpoint.endpoint_id,
+            render_name=endpoint.name,
+            render_state=endpoint.state,
+            is_active=endpoint.state == "active",
+            container_id=endpoint.container_id,
+            endpoint_flow=endpoint.flow,
         )
 
     def get_audio_endpoint_snapshot(
@@ -391,6 +379,17 @@ def _load_render_name(render_id: str) -> str | None:
         return None
     name = getattr(device, "name", None)
     return str(name) if isinstance(name, str) else None
+
+
+def _get_default_render_endpoint_info() -> _AudioEndpointInfo:
+    """通过 Core Audio 读取默认播放端点，避免调用不稳定的 WinRT MediaDevice 入口。"""
+    com_scope = _CoInitializeScope()
+    device = _open_default_audio_device(com_scope=com_scope)
+    try:
+        return _read_audio_endpoint_info(device, flow_name="render")
+    finally:
+        _release_com_object(device)
+        com_scope.close()
 
 
 def _get_device_state(render_id: str) -> str:

@@ -792,8 +792,7 @@ class ConnectorService:
                 action_name="probe_connection",
             )
             has_more_attempts = attempt_index < len(attempt_delays) - 1
-            endpoint_ready = render_snapshot.is_active and bool(render_snapshot.render_id)
-            audio_ready = endpoint_ready
+            endpoint_ready = self._is_audio_endpoint_connection_ready(render_snapshot)
             should_wait = strong_state == "connected" and not (remote_confirmed and endpoint_ready)
             flow_status = (
                 "observed"
@@ -830,7 +829,7 @@ class ConnectorService:
 
             if strong_state != "connected":
                 break
-            if remote_confirmed and audio_ready:
+            if remote_confirmed and endpoint_ready and flow_observation.observed:
                 with self._lock:
                     if self._audio_routing_state.current_device_id == device_id:
                         self._audio_routing_state.validation_phase = "completed"
@@ -838,6 +837,20 @@ class ConnectorService:
                 return
             if has_more_attempts:
                 continue
+            if remote_confirmed and endpoint_ready:
+                if self._try_start_no_audio_recover(
+                    device_id=device_id,
+                    handle=handle,
+                    trigger=trigger,
+                    validation_token=validation_token,
+                    details=flow_details,
+                ):
+                    return
+                with self._lock:
+                    if self._audio_routing_state.current_device_id == device_id:
+                        self._audio_routing_state.validation_phase = "completed"
+                    self._clear_validation_chain_locked(device_id)
+                return
             if remote_confirmed:
                 if self._try_start_no_audio_recover(
                     device_id=device_id,
@@ -861,6 +874,19 @@ class ConnectorService:
             if self._audio_routing_state.current_device_id == device_id:
                 self._audio_routing_state.validation_phase = "completed"
             self._clear_validation_chain_locked(device_id)
+
+    @staticmethod
+    def _is_audio_endpoint_connection_ready(render_snapshot: LocalRenderSnapshot) -> bool:
+        """判断连接是否已具备可保留的本机端点，不要求此刻已经有音频流。"""
+        if not render_snapshot.render_id:
+            return False
+        if render_snapshot.render_state in {"missing", "error", "disabled"}:
+            return False
+        if render_snapshot.endpoint_flow == "capture":
+            return True
+        if render_snapshot.is_active:
+            return True
+        return False
 
     def _stop_device_watcher(self) -> None:
         stop_watcher = getattr(self._backend, "stop_watcher", None)

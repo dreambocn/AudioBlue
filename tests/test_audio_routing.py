@@ -105,6 +105,46 @@ def test_audio_endpoint_snapshot_matches_registry_endpoint_when_core_audio_misse
     assert snapshot.container_id == "{PHONE-CONTAINER}"
 
 
+def test_default_render_snapshot_uses_core_audio_without_winrt_media_device(monkeypatch):
+    class _CrashingMediaDevice:
+        """模拟 WinRT MediaDevice 入口在原生层不可靠的场景。"""
+
+        @staticmethod
+        def get_default_audio_render_id(_role):
+            raise AssertionError("不应调用 Windows.Media.Devices.MediaDevice")
+
+    fake_device = object()
+
+    monkeypatch.setattr(audio_routing, "MediaDevice", _CrashingMediaDevice, raising=False)
+    monkeypatch.setattr(audio_routing, "_CoInitializeScope", _DummyCoScope)
+    monkeypatch.setattr(
+        audio_routing,
+        "_open_default_audio_device",
+        lambda **_kwargs: fake_device,
+    )
+    monkeypatch.setattr(
+        audio_routing,
+        "_read_audio_endpoint_info",
+        lambda device, *, flow_name: audio_routing._AudioEndpointInfo(
+            endpoint_id="{0.0.0.00000000}.{DEFAULT-RENDER}",
+            name="扬声器",
+            state="active",
+            container_id="{DEFAULT-CONTAINER}",
+            flow=flow_name,
+        ),
+    )
+    monkeypatch.setattr(audio_routing, "_release_com_object", lambda _interface: None)
+
+    snapshot = audio_routing.Win32AudioRouteProbe().get_default_render_snapshot()
+
+    assert snapshot.render_id == "{0.0.0.00000000}.{DEFAULT-RENDER}"
+    assert snapshot.render_name == "扬声器"
+    assert snapshot.render_state == "active"
+    assert snapshot.is_active is True
+    assert snapshot.endpoint_flow == "render"
+    assert snapshot.container_id == "{DEFAULT-CONTAINER}"
+
+
 def test_coerce_mmdevice_endpoint_id_strips_winrt_interface_suffix():
     assert audio_routing._coerce_mmdevice_endpoint_id(
         r"\\?\SWD#MMDEVAPI#{0.0.1.00000000}.{ABCDEFAB-1111-2222-3333-ABCDEFABCDEF}#{2eef81be-33fa-4800-9670-1cd474972c3f}"

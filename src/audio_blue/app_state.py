@@ -40,6 +40,7 @@ class AppStateStore:
 
         if event_name == "device_connected":
             self._apply_device_state(device_id=device_id, state="connected", trigger=trigger_name)
+            self._last_failure = None
         elif event_name in {"device_disconnected", "device_state_changed"}:
             state = payload.get("state", "disconnected")
             if isinstance(state, str):
@@ -259,7 +260,11 @@ class AppStateStore:
         attempts = self._load_connection_attempts(limit=20)
         last_attempt = attempts[0] if attempts else None
         last_success = next((item for item in attempts if item.get("succeeded") is True), None)
-        last_failure = next((item for item in attempts if item.get("succeeded") is False), None)
+        current_failure = (
+            last_attempt
+            if isinstance(last_attempt, dict) and last_attempt.get("succeeded") is False
+            else None
+        )
         current_status = (
             current_device.connection_state
             if current_device is not None
@@ -277,17 +282,17 @@ class AppStateStore:
             "lastAttemptAt": last_attempt.get("happened_at") if isinstance(last_attempt, dict) else None,
             "lastTrigger": last_attempt.get("trigger") if isinstance(last_attempt, dict) else self._last_trigger,
             "lastErrorCode": (
-                last_failure.get("failure_code")
-                if isinstance(last_failure, dict)
+                current_failure.get("failure_code")
+                if isinstance(current_failure, dict)
                 else self._last_failure.get("code")
-                if isinstance(self._last_failure, dict)
+                if isinstance(self._last_failure, dict) and current_device is None
                 else None
             ),
             "lastErrorMessage": (
-                last_failure.get("failure_reason")
-                if isinstance(last_failure, dict)
+                current_failure.get("failure_reason")
+                if isinstance(current_failure, dict)
                 else self._last_failure.get("message")
-                if isinstance(self._last_failure, dict)
+                if isinstance(self._last_failure, dict) and current_device is None
                 else None
             ),
             "lastStateChangedAt": (

@@ -410,12 +410,170 @@ def test_service_keeps_connection_when_matched_endpoint_is_active_but_audio_is_s
 
     assert "device-1" in service.active_connections
     assert service.known_devices["device-1"].connection_state == "connected"
-    assert backend.disconnect_calls == 0
-    assert route_probe.sampled_render_ids == ["capture-1"]
-    assert not any(item.get("event") == "device_disconnected" for item in published)
+    assert backend.disconnect_calls == 1
+    assert route_probe.sampled_render_ids == ["capture-1", "capture-1", "capture-1", "capture-1"]
     assert not any(item.get("event") == "device_connection_failed" for item in published)
-    assert not any(
-        item.get("details", {}).get("nextAction") in {"recover", "fail"}
+    assert any(
+        item.get("trigger") == "manual"
+        and item.get("details", {}).get("nextAction") == "recover"
+        for item in published
+        if item.get("event") == "device_connection_diagnostics"
+    )
+
+
+def test_service_recovers_first_manual_connection_when_endpoint_active_but_audio_is_silent():
+    published = []
+    backend = WatcherBackendStub()
+    backend.devices = [
+        DeviceSummary(
+            device_id="device-1",
+            name="Phone",
+            container_id="container-1",
+            aep_is_connected=True,
+            aep_is_present=True,
+        )
+    ]
+    route_probe = AudioRouteProbeStub(
+        render_snapshots=[
+            LocalRenderSnapshot(
+                render_id="capture-1",
+                render_name="麦克风 (Phone A2DP SNK)",
+                render_state="active",
+                is_active=True,
+                container_id="container-1",
+                endpoint_flow="capture",
+            ),
+            LocalRenderSnapshot(
+                render_id="capture-1",
+                render_name="麦克风 (Phone A2DP SNK)",
+                render_state="active",
+                is_active=True,
+                container_id="container-1",
+                endpoint_flow="capture",
+            ),
+            LocalRenderSnapshot(
+                render_id="capture-1",
+                render_name="麦克风 (Phone A2DP SNK)",
+                render_state="active",
+                is_active=True,
+                container_id="container-1",
+                endpoint_flow="capture",
+            ),
+        ],
+        flow_observations=[
+            AudioFlowObservation(
+                observed=False,
+                peak_max=0.0,
+                sample_count=8,
+                threshold=0.01,
+            ),
+            AudioFlowObservation(
+                observed=False,
+                peak_max=0.0,
+                sample_count=8,
+                threshold=0.01,
+            ),
+            AudioFlowObservation(
+                observed=True,
+                peak_max=0.31,
+                sample_count=2,
+                threshold=0.01,
+            ),
+        ],
+    )
+    service = ConnectorService(
+        backend=backend,
+        state_callback=published.append,
+        health_check_interval_seconds=0,
+        audio_route_probe=route_probe,
+        remote_aep_delay_seconds=0,
+        endpoint_probe_delay_seconds=0,
+        endpoint_ready_retry_delays_seconds=(0.0,),
+    )
+    service.refresh_devices()
+
+    service.connect("device-1", trigger="manual")
+    _wait_until(
+        lambda: any(
+            item.get("event") == "device_connection_diagnostics"
+            and item.get("trigger") == "recover"
+            and item.get("details", {}).get("phase") == "audio_flow"
+            and item.get("details", {}).get("status") == "observed"
+            for item in published
+        )
+    )
+
+    assert "device-1" in service.active_connections
+    assert service.known_devices["device-1"].connection_state == "connected"
+    assert backend.disconnect_calls == 1
+    assert route_probe.sampled_render_ids == ["capture-1", "capture-1", "capture-1"]
+    assert any(
+        item.get("event") == "device_connection_diagnostics"
+        and item.get("trigger") == "manual"
+        and item.get("details", {}).get("phase") == "audio_flow"
+        and item.get("details", {}).get("nextAction") == "recover"
+        for item in published
+    )
+    assert not any(item.get("event") == "device_connection_failed" for item in published)
+
+
+def test_service_keeps_connection_when_matched_capture_endpoint_is_unplugged_until_playback():
+    published = []
+    backend = WatcherBackendStub()
+    backend.devices = [
+        DeviceSummary(
+            device_id="device-1",
+            name="Phone",
+            container_id="container-1",
+            aep_is_connected=True,
+            aep_is_present=True,
+        )
+    ]
+    route_probe = AudioRouteProbeStub(
+        render_snapshot=LocalRenderSnapshot(
+            render_id="capture-1",
+            render_name="麦克风 (Phone A2DP SNK)",
+            render_state="unplugged",
+            is_active=False,
+            container_id="container-1",
+            endpoint_flow="capture",
+        ),
+        flow_observation=AudioFlowObservation(
+            observed=False,
+            peak_max=0.0,
+            sample_count=0,
+            threshold=0.01,
+            error="render_inactive",
+        ),
+    )
+    service = ConnectorService(
+        backend=backend,
+        state_callback=published.append,
+        health_check_interval_seconds=0,
+        audio_route_probe=route_probe,
+        remote_aep_delay_seconds=0,
+        endpoint_probe_delay_seconds=0,
+        endpoint_ready_retry_delays_seconds=(0.0,),
+    )
+    service.refresh_devices()
+
+    service.connect("device-1", trigger="manual")
+    _wait_until(
+        lambda: any(
+            item.get("event") == "device_connection_diagnostics"
+            and item.get("details", {}).get("phase") == "audio_flow"
+            for item in published
+        )
+    )
+    time.sleep(0.05)
+
+    assert "device-1" in service.active_connections
+    assert service.known_devices["device-1"].connection_state == "connected"
+    assert backend.disconnect_calls == 1
+    assert not any(item.get("event") == "device_connection_failed" for item in published)
+    assert any(
+        item.get("trigger") == "manual"
+        and item.get("details", {}).get("nextAction") == "recover"
         for item in published
         if item.get("event") == "device_connection_diagnostics"
     )
@@ -647,16 +805,17 @@ def test_service_keeps_manual_connection_when_audio_flow_stays_unconfirmed_on_ac
     _wait_until(
         lambda: any(
             item.get("event") == "device_connection_diagnostics"
+            and item.get("trigger") == "recover"
             and item.get("details", {}).get("phase") == "audio_flow"
-            and item.get("details", {}).get("status") == "unconfirmed"
+            and item.get("details", {}).get("status") == "observed"
             for item in published
         )
     )
 
     assert "device-1" in service.active_connections
     assert service.known_devices["device-1"].connection_state == "connected"
-    assert backend.disconnect_calls == 0
-    assert route_probe.sampled_render_ids == ["render-1"]
+    assert backend.disconnect_calls == 1
+    assert route_probe.sampled_render_ids == ["render-1", "render-1", "render-1"]
     assert any(
         item.get("event") == "device_connection_diagnostics"
         and item.get("trigger") == "manual"
@@ -664,10 +823,10 @@ def test_service_keeps_manual_connection_when_audio_flow_stays_unconfirmed_on_ac
         and item.get("details", {}).get("status") == "unconfirmed"
         for item in published
     )
-    assert not any(item.get("event") == "device_disconnected" for item in published)
     assert not any(item.get("event") == "device_connection_failed" for item in published)
-    assert not any(
-        item.get("details", {}).get("nextAction") in {"recover", "fail"}
+    assert any(
+        item.get("trigger") == "manual"
+        and item.get("details", {}).get("nextAction") == "recover"
         for item in published
         if item.get("event") == "device_connection_diagnostics"
     )

@@ -104,6 +104,86 @@ def test_app_state_prefers_failure_code_override_for_no_audio_failures():
     assert snapshot["devices"][0]["lastConnectionAttempt"]["failureCode"] == "connection.no_audio"
 
 
+def test_app_state_clears_last_failure_after_device_connects_successfully():
+    store = AppStateStore(config=AppConfig(ui=UiPreferences(language="zh-CN")))
+    store.sync_devices([DeviceSummary(device_id="device-1", name="Headphones")])
+
+    store.handle_connector_event(
+        {
+            "event": "device_connection_failed",
+            "device_id": "device-1",
+            "state": "failed",
+            "failure_code": "connection.no_audio",
+            "trigger": "recover",
+        }
+    )
+    store.handle_connector_event(
+        {
+            "event": "device_connected",
+            "device_id": "device-1",
+            "trigger": "recover",
+        }
+    )
+
+    snapshot = store.snapshot()
+
+    assert snapshot["lastFailure"] is None
+    assert snapshot["devices"][0]["connectionState"] == "connected"
+    assert snapshot["devices"][0]["lastConnectionAttempt"]["succeeded"] is True
+
+
+def test_connection_overview_ignores_older_failure_after_newer_success():
+    class Provider:
+        """模拟持久化历史中最新记录成功，但更早仍有 no_audio 失败。"""
+
+        def list_device_history(self, limit=10):
+            return []
+
+        def list_activity_events(self, limit=20):
+            return []
+
+        def list_connection_attempts(self, limit=20):
+            return [
+                {
+                    "device_id": "device-1",
+                    "device_name": "Phone",
+                    "trigger": "recover",
+                    "succeeded": True,
+                    "state": "connected",
+                    "failure_reason": None,
+                    "failure_code": None,
+                    "happened_at": "2026-06-08T15:26:58.250778+00:00",
+                },
+                {
+                    "device_id": "device-1",
+                    "device_name": "Phone",
+                    "trigger": "recover",
+                    "succeeded": False,
+                    "state": "failed",
+                    "failure_reason": "设备已连接，但未检测到有效音频输出，自动恢复后仍未成功。",
+                    "failure_code": "connection.no_audio",
+                    "happened_at": "2026-06-08T13:16:51.695803+00:00",
+                },
+            ]
+
+    store = AppStateStore(config=AppConfig(), history_provider=Provider())
+    store.sync_devices(
+        [
+            DeviceSummary(
+                device_id="device-1",
+                name="Phone",
+                connection_state="connected",
+            )
+        ]
+    )
+
+    snapshot = store.snapshot()
+
+    assert snapshot["connectionOverview"]["status"] == "connected"
+    assert snapshot["connectionOverview"]["lastErrorCode"] is None
+    assert snapshot["connectionOverview"]["lastErrorMessage"] is None
+
+
 def test_app_state_snapshot_includes_scan_visibility_flag():
     store = AppStateStore(config=AppConfig())
     store.sync_devices(
