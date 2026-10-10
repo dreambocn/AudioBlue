@@ -100,12 +100,14 @@
     <ClInclude Include="targetver.h" />
     <ClInclude Include="Step1_Enumerate.h" />
     <ClInclude Include="Step2_EndpointId.h" />
+    <ClInclude Include="Step2_Connect.h" />
     <ClInclude Include="Step3_FindEndpoint.h" />
     <ClInclude Include="Step4_Volume.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Step1_Enumerate.cpp" />
     <ClCompile Include="Step2_EndpointId.cpp" />
+    <ClCompile Include="Step2_Connect.cpp" />
     <ClCompile Include="Step3_FindEndpoint.cpp" />
     <ClCompile Include="Step4_Volume.cpp" />
     <ClCompile Include="main.cpp" />
