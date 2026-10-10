@@ -6,15 +6,20 @@
 
 **Architecture:** 一个独立的控制台程序 `tools/volume-spike/`，不依赖 AudioBule 主工程，不打包。它枚举 A2DP 设备 → 读取 `System_DeviceEndpointId` → 用 `IMMDeviceEnumerator` 取端点 → 读/写音量 → 注册回调观察变化。每一步打印结构化输出。
 
-**Tech Stack:** C++17 / C++WinRT（`Windows.Media.Audio`、`Windows.Devices.Enumeration`）/ Core Audio COM（`mmdeviceapi.h`、`endpointvolume.h`）/ WIL / MSVC **v180**（Visual Studio 2026，工具集 14.51.36231）。
+**Tech Stack:** C++17 / C++WinRT（`Windows.Media.Audio`、`Windows.Devices.Enumeration`）/ Core Audio COM（`mmdeviceapi.h`、`endpointvolume.h`）/ WIL / MSVC **v145**（Visual Studio 2026，编译器 14.51.36231）。
 
 **Spec:** `docs/superpowers/specs/2026-10-10-audiobule-design.md`（§5 音量控制 Spike）
 
 ## Global Constraints
 
 - 这些约束适用于本计划的每一个任务：
-  - **前置环境**（已就绪）：Visual Studio Community 2026，工具集 **v180**（MSVC 14.51.36231），安装于 `D:\Applications\Microsoft Visual Studio\Community`；.NET SDK 10.0.301；Windows SDK 已安装于默认路径 `C:\Program Files (x86)\Windows Kits\10`。
-  - NuGet 缓存已有以下版本，可**离线还原**：`Microsoft.WindowsAppSDK` 2.2.0、`Microsoft.WindowsAppSDK.WinUI` 2.2.1、`Microsoft.Windows.CppWinRT` 3.0.260520.1、`Microsoft.Windows.ImplementationLibrary` 1.0.260126.7。
+  - **前置环境**（已实测通过）：Visual Studio Community 2026（18.10.12224.181），安装于 `D:\Applications\Microsoft Visual Studio\18\Community`。
+  - **PlatformToolset 为 `v145`**，不是 `v180`。`v180` 是 MSBuild 目录名与工程版本号，写进 `<PlatformToolset>` 会报 `MSB8020 找不到 v180 的生成工具`。实际可用工具集需以 `MSBuild\Microsoft\VC\v180\PlatformToolsets\x64\PlatformToolsets\` 下的目录名为准。
+  - Windows SDK 为 **10.0.26100.0**，安装于**非默认路径** `D:\Windows Kits\10`。在 `<WindowsTargetPlatformVersion>` 中显式写 `10.0.26100.0`，不要留 `10.0`。
+  - NuGet 缓存已有以下版本，可离线还原：`Microsoft.WindowsAppSDK` 2.2.0、`Microsoft.WindowsAppSDK.WinUI` 2.2.1、`Microsoft.Windows.CppWinRT` 3.0.260520.1、`Microsoft.Windows.ImplementationLibrary` 1.0.260126.7。
+  - **WIL 等头文件一律走 NuGet `PackageReference`，不要手写 `/I` 路径**。本机 MSVC 与 Windows SDK 路径含空格，手写 `/I` 在 PowerShell 下无法正确传给 cl.exe；且 NuGet 还原是唯一可靠的路径来源。
+  - 构建命令：`msbuild <proj> -t:Restore` 后再 `-p:Configuration=Release -p:Platform=x64`。C++/WinRT 项目必须先还原，否则头文件路径不生效。
+  - 默认输出目录是 `$(SolutionDir)\x64\Release\`。Spike 有独立 sln 且位于 `tools\volume-spike\`，故产物在 `tools\volume-spike\bin\volume-spike.exe`。在 `<Import Microsoft.Cpp.targets>` 之前显式设置 `<IntDir>` 与 `<OutDir>` 可避免多 sln 场景下的产物路径歧义。
   - 最低系统版本：Windows 10 2004（build 19041）。A2DP Sink 能力由 `AudioPlaybackConnection` 提供，更低版本必须优雅退出。
   - 本 Spike 只做验证，代码不进入 `AudioBule.Core`。 Spike 全部代码保留在 `tools/volume-spike/` 作为技术决策证据。
   - C++ 标准：C++17 或更高（`/std:c++latest`）。
@@ -161,19 +166,19 @@ Task 1 不预先声明尚不存在的函数 —— 各任务的真实函数签�
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{7A1E4C2B-9D3F-4E58-8B71-2C6A0D4F3E19}</ProjectGuid>
     <RootNamespace>volume_spike</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v180</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v180</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -194,6 +199,10 @@ Task 1 不预先声明尚不存在的函数 —— 各任务的真实函数签�
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <TargetName>volume-spike</TargetName>
+  </PropertyGroup>
+  <PropertyGroup>
+    <IntDir>$(ProjectDir)obj\</IntDir>
+    <OutDir>$(ProjectDir)bin\</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -238,34 +247,57 @@ Task 1 不预先声明尚不存在的函数 —— 各任务的真实函数签�
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.ImplementationLibrary" Version="1.0.260126.7" />
+    <PackageReference Include="Microsoft.Windows.CppWinRT" Version="3.0.260520.1" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
 ```
 
-- [ ] **Step 7: 验证编译通过**
+- [ ] **Step 7: 还原 NuGet 包**
+
+C++/WinRT 项目必须先还原，否则 NuGet 提供的头文件路径不生效，编译会以 `无法打开包括文件: "wil/common.h"` 失败。
 
 Run:
 ```powershell
-msbuild tools\volume-spike\volume-spike.vcxproj /p:Configuration=Release /p:Platform=x64 /t:ClCompile
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    tools\volume-spike\volume-spike.vcxproj -t:Restore `
+    -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
 ```
 
-Expected: 编译成功，无警告无错误。
+Expected: `已还原 ...volume-spike.vcxproj`。本机 NuGet 缓存已有 WIL 1.0.260126.7 与 C++/WinRT 3.0.260520.1，无需联网。
 
-**只编译不链接**：`main.cpp` 中声明的 `Step1_Enumerate` 等函数此时尚未定义，链接必然失败。`/t:ClCompile` 只跑编译阶段，验证的是头文件与工程配置正确。完整的链接验证在 Task 2 Step 5 进行。
+**msbuild 不在 PATH 上**，必须用完整路径调用。也可先执行一次：
 
-- [ ] **Step 8: 把工程加进解决方案**
+```powershell
+$env:Path += ";D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin"
+```
 
-在 `AudioBule.sln` 中添加该项目。若 `AudioBule.sln` 尚不存在（它属于计划一的 Task 1），则本步骤推迟到计划一创建 sln 后执行。 Spike 工程刻意不加入 sln，避免污染主构建 —— 改为在此处创建独立 sln：
+- [ ] **Step 8: 验证编译通过**
+
+Run:
+```powershell
+msbuild tools\volume-spike\volume-spike.vcxproj /p:Configuration=Release /p:Platform=x64 /t:ClCompile -v:minimal -nologo
+```
+
+Expected: 编译 `pch.cpp` 与 `main.cpp` 成功，无警告无错误。
+
+**只编译不链接**：此时工程文件里还没有 Step 各源文件，链接阶段会因缺少 `main` 之外的符号而失败。`/t:ClCompile` 只跑编译阶段。完整的链接验证在 Task 2 Step 5 进行。
+
+- [ ] **Step 9: 把工程加进解决方案**
+
+Spike 工程刻意**不**加入 `AudioBule.sln`，避免污染主构建。它需要独立 sln（`AudioBule.sln` 属于计划一的 Task 1，届时尚不存在）：
 
 ```powershell
 cd tools\volume-spike
-dotnet new sln --name volume-spike 2>&1
-dotnet sln volume-spike.sln add volume-spike.vcxproj 2>&1
+dotnet new sln --name volume-spike
+dotnet sln volume-spike.sln add volume-spike.vcxproj
 ```
 
 Expected: 生成 `tools/volume-spike/volume-spike.sln`。
 
-- [ ] **Step 9: 提交**
+- [ ] **Step 10: 提交**
 
 ```bash
 git add tools/volume-spike
@@ -432,7 +464,7 @@ Expected: 编译链接成功，生成 `volume-spike.exe`。
 
 Run:
 ```powershell
-tools\volume-spike\x64\Release\volume-spike.exe
+tools\volume-spike\bin\volume-spike.exe
 ```
 
 Expected（未配对设备时）:
@@ -559,7 +591,7 @@ std::vector<std::wstring> GetEndpointIdsForDevices(const std::vector<A2dpDeviceI
 Run:
 ```powershell
 msbuild tools\volume-spike\volume-spike.vcxproj /p:Configuration=Release /p:Platform=x64
-tools\volume-spike\x64\Release\volume-spike.exe
+tools\volume-spike\bin\volume-spike.exe
 ```
 
 Expected（已配对设备且属性存在）:
@@ -779,7 +811,7 @@ bool ReadMute(const wil::com_ptr<IAudioEndpointVolume>& volume, bool& out)
 Run:
 ```powershell
 msbuild tools\volume-spike\volume-spike.vcxproj /p:Configuration=Release /p:Platform=x64
-tools\volume-spike\x64\Release\volume-spike.exe
+tools\volume-spike\bin\volume-spike.exe
 ```
 
 Expected:
@@ -946,7 +978,7 @@ private:
 Run:
 ```powershell
 msbuild tools\volume-spike\volume-spike.vcxproj /p:Configuration=Release /p:Platform=x64
-tools\volume-spike\x64\Release\volume-spike.exe
+tools\volume-spike\bin\volume-spike.exe
 ```
 
 Expected:
@@ -982,7 +1014,7 @@ git commit -m "feat: verify volume change callback threading model"
 
 Run:
 ```powershell
-tools\volume-spike\x64\Release\volume-spike.exe 2>&1 |
+tools\volume-spike\bin\volume-spike.exe 2>&1 |
     Tee-Object -FilePath docs\superpowers\spikes\volume-spike-output.txt
 ```
 
