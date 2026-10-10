@@ -54,335 +54,117 @@
 
 [TRY] 灏濊瘯杩炴帴: DreamBo鐨刋iaomi 15
 [INFO] OpenAsync 鐘舵€佹灇涓惧€? 0
-[INFO] 杩炴帴瀵硅薄褰撳墠 State: 0
-[OK]   宸茶繛鎺? DreamBo鐨刋iaomi 15
-       璇峰湪鎵嬫満涓婂紑濮嬫挱鏀鹃煶棰戯紝鐒跺悗缁х画銆?
+[INFO] 杩炴帴瀵硅薄褰撳墠 State: 1
+[OK]   OpenAsync 鎴愬姛: DreamBo鐨刋iaomi 15
+       璇锋鏌ユ墜鏈鸿摑鐗欓煶棰戣緭鍑哄垪琛紝姝ゆ椂搴斿嚭鐜般€岃繖鍙扮數鑴戙€嶃€?
 
-[OK] 宸茶繛鎺ヨ澶? DreamBo鐨刋iaomi 15
+[OK] OpenAsync 鎴愬姛璁惧: DreamBo鐨刋iaomi 15
+[INFO] 璁㈤槄鐘舵€佸彉鍖栵紝鍒濆鐘舵€?= 1锛?=Closed 1=Connecting 2=Connected锛?
+       >>> 鐜板湪鎵撳紑鎵嬫満钃濈墮闊抽杈撳嚭鍒楄〃锛屾鏌ユ槸鍚﹀嚭鐜般€岃繖鍙扮數鑴戙€嶃€?
+       >>> 鍙湁杩炴帴鐘舵€佸彉涓?2(Connected) 鏃舵墠浼氬嚭鐜般€?
 
-[4/5] 杩炴帴寤虹珛鍚庤疆璇㈡覆鏌撶鐐?..
-       >>> 璇风珛鍒诲湪灏忕背 15 涓婂紑濮嬫挱鏀鹃煶棰戯紝鏈▼搴忓皢杞 40 绉?..
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 1 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 2 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 3 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 4 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 5 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 6 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 7 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 8 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 9 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 10 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 11 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 12 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 13 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 14 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 15 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 16 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 17 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 18 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 19 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 20 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 21 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 22 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 23 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 24 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 25 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 26 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 27 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 28 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 29 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 30 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 31 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 32 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 33 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 34 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 35 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 36 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 37 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 38 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 39 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
-[INFO] 绯荤粺褰撳墠鏈?3 涓椿鍔ㄦ覆鏌撶鐐癸細
-[OK]   [0] 27M1 Pro (NVIDIA High Definition Audio)
-         Id: {0.0.0.00000000}.{0b81d85e-26f6-4f5e-bad5-c5e923368e21}
-[OK]   [1] 鎵０鍣?(Senary Audio)
-         Id: {0.0.0.00000000}.{92f0298f-b2b0-405e-a3fb-57392f629a32}
-[OK]   [2] 鑰虫満 (Senary Audio)
-         Id: {0.0.0.00000000}.{98b90bd7-0dec-40be-a092-83da8e3b5c7b}
-       ... 40 绉掞紝鏆傛棤鏂扮鐐癸紙褰撳墠鍏?3 涓級
+[4/5] 纭闊抽纭疄鍦ㄦ祦锛屽苟鍚屾椂瑙傚療鏄惁鍑虹幇鏂扮鐐?..
+[INFO] 宄板€艰〃: 27M1 Pro (NVIDIA High Definition Audio)
+[INFO] 宄板€艰〃: 鎵０鍣?(Senary Audio)
+[INFO] 宄板€艰〃: 鑰虫満 (Senary Audio)
 
-[缁撹] 杩炴帴宸插缓绔嬩笖闊抽鍙祦杩囷紝浣?40 绉掑唴娌℃湁鍑虹幇浠讳綍钃濈墮娓叉煋绔偣銆?
+[INFO] 3 涓嘲鍊艰〃灏辩华锛屽紑濮?90 绉掗噰鏍枫€?
+       >>> 璇峰湪灏忕背 15 涓婃妸钃濈墮闊抽杈撳嚭鍒囧埌杩欏彴鐢佃剳锛岀劧鍚庢挱鏀鹃煶涔愩€?
+       >>> 绋嬪簭浼氳嚜琛屾娴嬮煶閲忓嘲鍊兼潵纭闊抽鐪熺殑鍦ㄦ祦锛屾棤闇€浜哄伐鍒ゆ柇銆?
+       杩炴帴鐘舵€?= 1
+       t= 1s  [0.053]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t= 2s  [0.007]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t= 3s  [0.051]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t= 4s  [0.008]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t= 5s  [0.017]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t= 6s  [0.019]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t= 7s  [0.023]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t= 8s  [0.010]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t= 9s  [0.007]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=10s  [0.075]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=11s  [0.006]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=12s  [0.016]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=13s  [0.026]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=14s  [0.015]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=15s  [0.004]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=16s  [0.019]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=17s  [0.066]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=18s  [0.062]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=19s  [0.048]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=20s  [0.060]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=21s  [0.050]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=22s  [0.055]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=23s  [0.060]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=24s  [0.061]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=25s  [0.050]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=26s  [0.049]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=27s  [0.047]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=28s  [0.052]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=29s  [0.061]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=30s  [0.052]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=31s  [0.057]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=32s  [0.054]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=33s  [0.059]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=34s  [0.051]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=35s  [0.058]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=36s  [0.063]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=37s  [0.054]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=38s  [0.053]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=39s  [0.059]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=40s  [0.054]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=41s  [0.055]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=42s  [0.055]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=43s  [0.055]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=44s  [0.056]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=45s  [0.055]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=46s  [0.059]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=47s  [0.054]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=48s  [0.054]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=49s  [0.045]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=50s  [0.048]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=51s  [0.063]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=52s  [0.063]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=53s  [0.046]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=54s  [0.036]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=55s  [0.056]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=56s  [0.035]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=57s  [0.023]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=58s  [0.055]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=59s  [0.029]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=60s  [0.026]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=61s  [0.041]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=62s  [0.036]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=63s  [0.034]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=64s  [0.035]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=65s  [0.030]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=66s  [0.046]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=67s  [0.043]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=68s  [0.042]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=69s  [0.038]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=70s  [0.030]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=71s  [0.042]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=72s  [0.036]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=73s  [0.038]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=74s  [0.055]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=75s  [0.025]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=76s  [0.021]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=77s  [0.046]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=78s  [0.026]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=79s  [0.025]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=80s  [0.029]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=81s  [0.044]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=82s  [0.039]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=83s  [0.036]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=84s  [0.029]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=85s  [0.048]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=86s  [0.043]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=87s  [0.052]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=88s  [0.030]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=89s  [0.044]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+       t=90s  [0.045]27M1 Pro (NVIDIA High Definition Audio)  [0.000]鎵０鍣?(Senary Audio)  [0.000]鑰虫満 (Senary Audio)  <== 闊抽鍦ㄦ祦!
+
+[鑷瘉] 杩炴帴鐘舵€?= 1锛?=Connected锛? 闊抽鍦ㄦ祦 = 鏄紙绔偣: 27M1 Pro (NVIDIA High Definition Audio)锛?
+
+[缁撹] 闊抽纭疄鍦ㄦ祦锛堢鐐? 27M1 Pro (NVIDIA High Definition Audio)锛夛紝浣嗘病鏈夊嚭鐜颁换浣曡摑鐗欐覆鏌撶鐐广€?
         鈫?A2DP Sink 绔偣鏈毚闇茬粰 Core Audio锛岄煶閲忔帶鍒舵柟妗堜笉鍙銆?
 [5/5] 璺宠繃锛堟棤鍙叧鑱旂鐐癸級

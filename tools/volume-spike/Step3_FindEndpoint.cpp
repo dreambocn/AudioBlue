@@ -60,52 +60,75 @@ namespace
     }
 }
 
-std::vector<RenderEndpointInfo> ListRenderEndpoints(const wil::com_ptr<IMMDeviceEnumerator>& enumerator)
+namespace
 {
-    std::vector<RenderEndpointInfo> result;
-
-    wil::com_ptr<IMMDeviceCollection> collection;
-    HRESULT hr = enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, collection.put());
-    if (FAILED(hr) || !collection)
+    std::vector<RenderEndpointInfo> QueryRenderEndpoints(
+        const wil::com_ptr<IMMDeviceEnumerator>& enumerator, bool verbose)
     {
-        wprintf(L"[FAIL] 枚举渲染端点失败: 0x%08X\n", static_cast<uint32_t>(hr));
+        std::vector<RenderEndpointInfo> result;
+
+        wil::com_ptr<IMMDeviceCollection> collection;
+        HRESULT hr = enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, collection.put());
+        if (FAILED(hr) || !collection)
+        {
+            if (verbose)
+            {
+                wprintf(L"[FAIL] 枚举渲染端点失败: 0x%08X\n", static_cast<uint32_t>(hr));
+            }
+            return result;
+        }
+
+        UINT count = 0;
+        collection->GetCount(&count);
+        if (verbose)
+        {
+            wprintf(L"[INFO] 系统当前有 %u 个活动渲染端点：\n", count);
+        }
+
+        for (UINT i = 0; i < count; ++i)
+        {
+            wil::com_ptr<IMMDevice> device;
+            if (FAILED(collection->Item(i, device.put())) || !device)
+            {
+                continue;
+            }
+
+            // GetId 返回的字符串由 CoTaskMem 分配，必须自行释放
+            LPWSTR pId = nullptr;
+            std::wstring id;
+            if (SUCCEEDED(device->GetId(&pId)) && pId != nullptr)
+            {
+                id = pId;
+                CoTaskMemFree(pId);
+            }
+
+            RenderEndpointInfo info;
+            info.id = id;
+            info.friendlyName = GetPropertyString(device, PKEY_Device_FriendlyName);
+
+            if (verbose)
+            {
+                wprintf(L"[OK]   [%u] %s\n         Id: %s\n",
+                    i,
+                    info.friendlyName.empty() ? L"(无名)" : info.friendlyName.c_str(),
+                    info.id.c_str());
+            }
+
+            result.push_back(std::move(info));
+        }
+
         return result;
     }
+}
 
-    UINT count = 0;
-    collection->GetCount(&count);
-    wprintf(L"[INFO] 系统当前有 %u 个活动渲染端点：\n", count);
+std::vector<RenderEndpointInfo> ListRenderEndpoints(const wil::com_ptr<IMMDeviceEnumerator>& enumerator)
+{
+    return QueryRenderEndpoints(enumerator, true);
+}
 
-    for (UINT i = 0; i < count; ++i)
-    {
-        wil::com_ptr<IMMDevice> device;
-        if (FAILED(collection->Item(i, device.put())) || !device)
-        {
-            continue;
-        }
-
-        // GetId 返回的字符串由 CoTaskMem 分配，必须自行释放
-        LPWSTR pId = nullptr;
-        std::wstring id;
-        if (SUCCEEDED(device->GetId(&pId)) && pId != nullptr)
-        {
-            id = pId;
-            CoTaskMemFree(pId);
-        }
-
-        RenderEndpointInfo info;
-        info.id = id;
-        info.friendlyName = GetPropertyString(device, PKEY_Device_FriendlyName);
-
-        wprintf(L"[OK]   [%u] %s\n         Id: %s\n",
-            i,
-            info.friendlyName.empty() ? L"(无名)" : info.friendlyName.c_str(),
-            info.id.c_str());
-
-        result.push_back(std::move(info));
-    }
-
-    return result;
+std::vector<RenderEndpointInfo> ListRenderEndpointsQuiet(const wil::com_ptr<IMMDeviceEnumerator>& enumerator)
+{
+    return QueryRenderEndpoints(enumerator, false);
 }
 
 std::vector<RenderEndpointInfo> PollForNewEndpoints(
@@ -145,4 +168,46 @@ std::vector<RenderEndpointInfo> PollForNewEndpoints(
     }
 
     return {};
+}
+
+std::unique_ptr<PeakMeter> PeakMeter::Create(const std::wstring& endpointId,
+    const wil::com_ptr<IMMDeviceEnumerator>& enumerator)
+{
+    wil::com_ptr<IMMDevice> device;
+    HRESULT hr = enumerator->GetDevice(endpointId.c_str(), device.put());
+    if (FAILED(hr) || !device)
+    {
+        return nullptr;
+    }
+
+    auto meter = std::make_unique<PeakMeter>();
+    meter->name_ = GetPropertyString(device, PKEY_Device_FriendlyName);
+    if (meter->name_.empty())
+    {
+        meter->name_ = endpointId;
+    }
+
+    hr = device->Activate(__uuidof(IAudioMeterInformation), CLSCTX_ALL, nullptr,
+        reinterpret_cast<void**>(meter->meter_.put()));
+    if (FAILED(hr) || !meter->meter_)
+    {
+        return nullptr;
+    }
+
+    return meter;
+}
+
+float PeakMeter::Sample()
+{
+    if (!meter_)
+    {
+        return 0.0f;
+    }
+
+    float peak = 0.0f;
+    if (FAILED(meter_->GetPeakValue(&peak)))
+    {
+        return 0.0f;
+    }
+    return peak;
 }

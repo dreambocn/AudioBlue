@@ -3,7 +3,7 @@
 
 using namespace winrt::Windows::Media::Audio;
 
-bool ConnectDevice(const A2dpDeviceInfo& device)
+bool ConnectDevice(const A2dpDeviceInfo& device, AudioPlaybackConnection& outConnection)
 {
     AudioPlaybackConnection connection = nullptr;
     try
@@ -51,8 +51,9 @@ bool ConnectDevice(const A2dpDeviceInfo& device)
             return false;
         }
 
-        wprintf(L"[OK]   已连接: %s\n", device.name.c_str());
-        wprintf(L"       请在手机上开始播放音频，然后继续。\n");
+        wprintf(L"[OK]   OpenAsync 成功: %s\n", device.name.c_str());
+        outConnection = connection;
+        wprintf(L"       请检查手机蓝牙音频输出列表，此时应出现「这台电脑」。\n");
         return true;
     }
     catch (winrt::hresult_error const& e)
@@ -63,15 +64,40 @@ bool ConnectDevice(const A2dpDeviceInfo& device)
     }
 }
 
-std::wstring ConnectAnyDevice(const std::vector<A2dpDeviceInfo>& devices)
+std::wstring ConnectAnyDevice(const std::vector<A2dpDeviceInfo>& devices,
+    AudioPlaybackConnection& outConnection)
 {
     for (const auto& device : devices)
     {
         wprintf(L"\n[TRY] 尝试连接: %s\n", device.name.c_str());
-        if (ConnectDevice(device))
+        if (ConnectDevice(device, outConnection))
         {
             return device.name;
         }
     }
     return {};
+}
+
+void ConnectionStateWatcher::Attach(const AudioPlaybackConnection& connection)
+{
+    connection_ = connection;
+    state_ = static_cast<int>(connection.State());
+
+    token_ = connection.StateChanged([this](const AudioPlaybackConnection& sender, const auto&)
+    {
+        auto newState = static_cast<int>(sender.State());
+        auto old = state_;
+        state_ = newState;
+        if (newState == 2) { sawConnected_ = true; }
+
+        wprintf(L"       >>> 状态变化: %d -> %d\n", old, newState);
+    });
+}
+
+ConnectionStateWatcher::~ConnectionStateWatcher()
+{
+    if (connection_ && token_)
+    {
+        connection_.StateChanged(token_);
+    }
 }
