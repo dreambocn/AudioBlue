@@ -6,13 +6,15 @@
 
 **Architecture:** 一个独立的控制台程序 `tools/volume-spike/`，不依赖 AudioBule 主工程，不打包。它枚举 A2DP 设备 → 读取 `System_DeviceEndpointId` → 用 `IMMDeviceEnumerator` 取端点 → 读/写音量 → 注册回调观察变化。每一步打印结构化输出。
 
-**Tech Stack:** C++17 / C++WinRT（`Windows.Media.Audio`、`Windows.Devices.Enumeration`）/ Core Audio COM（`mmdeviceapi.h`、`endpointvolume.h`）/ WIL / MSVC v143。
+**Tech Stack:** C++17 / C++WinRT（`Windows.Media.Audio`、`Windows.Devices.Enumeration`）/ Core Audio COM（`mmdeviceapi.h`、`endpointvolume.h`）/ WIL / MSVC **v180**（Visual Studio 2026，工具集 14.51.36231）。
 
 **Spec:** `docs/superpowers/specs/2026-10-10-audiobule-design.md`（§5 音量控制 Spike）
 
 ## Global Constraints
 
 - 这些约束适用于本计划的每一个任务：
+  - **前置环境**（已就绪）：Visual Studio Community 2026，工具集 **v180**（MSVC 14.51.36231），安装于 `D:\Applications\Microsoft Visual Studio\Community`；.NET SDK 10.0.301；Windows SDK 已安装于默认路径 `C:\Program Files (x86)\Windows Kits\10`。
+  - NuGet 缓存已有以下版本，可**离线还原**：`Microsoft.WindowsAppSDK` 2.2.0、`Microsoft.WindowsAppSDK.WinUI` 2.2.1、`Microsoft.Windows.CppWinRT` 3.0.260520.1、`Microsoft.Windows.ImplementationLibrary` 1.0.260126.7。
   - 最低系统版本：Windows 10 2004（build 19041）。A2DP Sink 能力由 `AudioPlaybackConnection` 提供，更低版本必须优雅退出。
   - 本 Spike 只做验证，代码不进入 `AudioBule.Core`。 Spike 全部代码保留在 `tools/volume-spike/` 作为技术决策证据。
   - C++ 标准：C++17 或更高（`/std:c++latest`）。
@@ -155,7 +157,7 @@ Task 1 不预先声明尚不存在的函数 —— 各任务的真实函数签�
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <VCProjectVersion>17.0</VCProjectVersion>
+    <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{7A1E4C2B-9D3F-4E58-8B71-2C6A0D4F3E19}</ProjectGuid>
     <RootNamespace>volume_spike</RootNamespace>
@@ -165,13 +167,13 @@ Task 1 不预先声明尚不存在的函数 —— 各任务的真实函数签�
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v180</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v180</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
