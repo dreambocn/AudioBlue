@@ -9,12 +9,17 @@
 #include <io.h>
 #include <mmdeviceapi.h>
 #include <endpointvolume.h>
+// PKEY_Device_FriendlyName 等属性键常量定义于此。
+// 注意：SDK 26100 中此头名为 functiondiscoverykeys_devpkey.h，
+// 旧文档里的 functiondiscoverykeysapi.h 已不存在。
+#include <functiondiscoverykeys_devpkey.h>
 
 #include <cstdio>
 #include <string>
 #include <vector>
 
 #include <wil/common.h>
+#include <wil/com.h>
 #include <wil/result.h>
 
 // C++/WinRT 的 Windows.Foundation 头会定义 GetCurrentTime 宏，

@@ -57,6 +57,6 @@ std::vector<A2dpDeviceInfo> EnumerateA2dpDevices()
         result.push_back(std::move(info));
     }
 
-    wprintf(L"[OK] 共枚举到 %zu 台设备\n", result.size());
+    wprintf(L"[OK] 共枚举到 %u 台设备\n", static_cast<unsigned>(result.size()));
     return result;
 }

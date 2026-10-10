@@ -1,6 +1,8 @@
 ﻿#include "pch.h"
 #include "Step1_Enumerate.h"
 #include "Step2_EndpointId.h"
+#include "Step3_FindEndpoint.h"
+#include "Step4_Volume.h"
 
 int wmain()
 {
@@ -31,11 +33,39 @@ int wmain()
     auto endpointIds = GetEndpointIdsForDevices(devices);
     if (endpointIds.empty())
     {
-        wprintf(L"[结论] 无法从任何设备获取音频端点 ID。\n");
-        wprintf(L"        音量控制方案不可行 —— AudioPlaybackConnection 与 Core Audio 端点无可用关联。\n");
+        wprintf(L"[结论] 没有任何设备暴露 System_DeviceEndpointId 属性。\n");
+        wprintf(L"        原假设（属性 ID 可直接关联端点）不成立，转入兜底方案验证。\n");
+
+        wprintf(L"\n[3/5] 枚举系统渲染端点，寻找可关联对象...\n");
+        wil::com_ptr<IMMDeviceEnumerator> enumerator;
+        HRESULT hr = CoCreateInstance(
+            __uuidof(MMDeviceEnumerator), nullptr, CLSCTX_INPROC_SERVER,
+            __uuidof(IMMDeviceEnumerator), reinterpret_cast<void**>(enumerator.put()));
+        if (FAILED(hr))
+        {
+            wprintf(L"[FAIL] 创建 MMDeviceEnumerator 失败: 0x%08X\n", static_cast<uint32_t>(hr));
+            return 4;
+        }
+
+        auto renderEndpoints = ListRenderEndpoints(enumerator);
+        if (renderEndpoints.empty())
+        {
+            wprintf(L"[结论] 系统没有任何活动渲染端点，音量控制方案完全不可行。\n");
+            return 4;
+        }
+
+        // 若枚举结果中出现蓝牙设备名，说明可以走名称模糊匹配兜底；
+        // 否则说明 A2DP 端点根本不在 eRender 列表里，方案不可行。
+        wprintf(L"\n[INFO] 上方 %u 个渲染端点中请人工确认是否存在蓝牙设备。\n",
+            static_cast<unsigned>(renderEndpoints.size()));
+        wprintf(L"        若存在蓝牙端点 → 名称模糊匹配可行但不稳定；\n");
+        wprintf(L"        若不存在 → A2DP 端点未暴露给 Core Audio，音量控制不可行。\n");
+
+        wprintf(L"\n[4/5] 跳过（无可关联端点，无法验证音量读写）\n");
+        wprintf(L"[5/5] 跳过（无可关联端点，无法验证回调）\n");
         return 3;
     }
-    wprintf(L"[OK]   %zu 台设备成功关联到音频端点\n", endpointIds.size());
+    wprintf(L"[OK]   %u 台设备成功关联到音频端点\n", static_cast<unsigned>(endpointIds.size()));
 
     return 0;
 }
