@@ -3,7 +3,7 @@
 
 using namespace winrt::Windows::Media::Audio;
 
-bool ConnectFirstDevice(const A2dpDeviceInfo& device)
+bool ConnectDevice(const A2dpDeviceInfo& device)
 {
     AudioPlaybackConnection connection = nullptr;
     try
@@ -29,13 +29,25 @@ bool ConnectFirstDevice(const A2dpDeviceInfo& device)
         connection.StartAsync().get();
 
         auto openResult = connection.OpenAsync().get();
-        wprintf(L"[INFO] OpenAsync 结果: %s\n",
-            openResult.Status() == AudioPlaybackConnectionOpenResultStatus::Success ? L"Success" : L"失败");
+        wprintf(L"[INFO] OpenAsync 状态枚举值: %d\n", static_cast<int>(openResult.Status()));
+        wprintf(L"[INFO] 连接对象当前 State: %d\n", static_cast<int>(connection.State()));
 
         if (openResult.Status() != AudioPlaybackConnectionOpenResultStatus::Success)
         {
-            wprintf(L"[FAIL] 连接未建立，扩展错误码 0x%08X\n",
-                static_cast<uint32_t>(openResult.ExtendedError()));
+            auto ext = openResult.ExtendedError();
+            wprintf(L"[FAIL] 连接未建立，扩展错误码 0x%08X\n", static_cast<uint32_t>(ext));
+
+            switch (ext)
+            {
+            case 0x8007001F:
+                wprintf(L"[HINT] 0x8007001F = ERROR_GEN_FAILURE。常见原因：\n");
+                wprintf(L"       · 手机正作为 A2DP 源连接其它设备（耳机/车机），无法同时做接收端\n");
+                wprintf(L"       · 手机未处于可接受连接的状态（息屏/锁屏）\n");
+                wprintf(L"       · 手机蓝牙关闭或超出范围\n");
+                break;
+            default:
+                break;
+            }
             return false;
         }
 
@@ -49,4 +61,17 @@ bool ConnectFirstDevice(const A2dpDeviceInfo& device)
             e.message().c_str(), static_cast<uint32_t>(e.code()));
         return false;
     }
+}
+
+std::wstring ConnectAnyDevice(const std::vector<A2dpDeviceInfo>& devices)
+{
+    for (const auto& device : devices)
+    {
+        wprintf(L"\n[TRY] 尝试连接: %s\n", device.name.c_str());
+        if (ConnectDevice(device))
+        {
+            return device.name;
+        }
+    }
+    return {};
 }

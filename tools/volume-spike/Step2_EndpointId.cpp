@@ -29,6 +29,34 @@ std::vector<std::wstring> GetEndpointIdsForDevices(const std::vector<A2dpDeviceI
         if (!properties.HasKey(L"System_DeviceEndpointId"))
         {
             wprintf(L"[SKIP] 设备 %s 没有 System_DeviceEndpointId 属性\n", device.name.c_str());
+
+            // 诊断：把该设备所有可读属性打印出来，寻找可替代的关联线索
+            wprintf(L"       --- 该设备的全部属性 ---\n");
+            for (auto&& [key, value] : properties)
+            {
+                std::wstring text;
+                auto propertyValue = value.try_as<winrt::Windows::Foundation::IPropertyValue>();
+                if (propertyValue)
+                {
+                    switch (propertyValue.Type())
+                    {
+                    case PropertyType::String: text = propertyValue.GetString(); break;
+                    case PropertyType::UInt32: text = std::to_wstring(propertyValue.GetUInt32()); break;
+                    case PropertyType::Boolean: text = propertyValue.GetBoolean() ? L"true" : L"false"; break;
+                    case PropertyType::Guid:
+                    {
+                        auto g = propertyValue.GetGuid();
+                        wchar_t buf[64]{};
+                        StringFromGUID2(g, buf, 64);
+                        text = buf;
+                        break;
+                    }
+                    default: text = L"<其它类型>"; break;
+                    }
+                }
+                wprintf(L"       %s = %s\n", key.c_str(), text.c_str());
+            }
+            wprintf(L"       --- 属性结束 ---\n");
             continue;
         }
 

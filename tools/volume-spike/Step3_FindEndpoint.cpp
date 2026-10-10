@@ -107,3 +107,42 @@ std::vector<RenderEndpointInfo> ListRenderEndpoints(const wil::com_ptr<IMMDevice
 
     return result;
 }
+
+std::vector<RenderEndpointInfo> PollForNewEndpoints(
+    const wil::com_ptr<IMMDeviceEnumerator>& enumerator,
+    const std::vector<std::wstring>& baseline,
+    int maxSeconds)
+{
+    wprintf(L"       >>> 请立刻在小米 15 上开始播放音频，本程序将轮询 %d 秒...\n", maxSeconds);
+
+    for (int second = 1; second <= maxSeconds; ++second)
+    {
+        Sleep(1000);
+
+        auto current = ListRenderEndpoints(enumerator);
+        std::vector<RenderEndpointInfo> added;
+
+        for (const auto& endpoint : current)
+        {
+            bool existed = false;
+            for (const auto& id : baseline)
+            {
+                if (id == endpoint.id) { existed = true; break; }
+            }
+            if (!existed)
+            {
+                added.push_back(endpoint);
+            }
+        }
+
+        if (!added.empty())
+        {
+            wprintf(L"       >>> 第 %d 秒检测到 %u 个新端点！\n", second, static_cast<unsigned>(added.size()));
+            return added;
+        }
+
+        wprintf(L"       ... %d 秒，暂无新端点（当前共 %u 个）\n", second, static_cast<unsigned>(current.size()));
+    }
+
+    return {};
+}

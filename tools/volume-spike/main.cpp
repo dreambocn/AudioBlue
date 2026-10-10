@@ -38,14 +38,7 @@ int wmain()
         wprintf(L"        原假设（属性 ID 可直接关联端点）不成立，转入兜底方案验证。\n");
 
         wprintf(L"\n[3/5] 建立 A2DP 连接（端点仅在连接激活后才出现）...\n");
-        if (!ConnectFirstDevice(devices.front()))
-        {
-            wprintf(L"[结论] 无法建立 A2DP 连接，验证终止。\n");
-            wprintf(L"        请确认手机已配对且可连接，再重试。\n");
-            return 4;
-        }
 
-        wprintf(L"\n[4/5] 连接建立后重新枚举渲染端点...\n");
         wil::com_ptr<IMMDeviceEnumerator> enumerator;
         HRESULT hr = CoCreateInstance(
             __uuidof(MMDeviceEnumerator), nullptr, CLSCTX_INPROC_SERVER,
@@ -56,20 +49,78 @@ int wmain()
             return 4;
         }
 
-        auto renderEndpoints = ListRenderEndpoints(enumerator);
-        if (renderEndpoints.empty())
+        // 连接前基线
+        std::vector<std::wstring> baselineIds;
+        for (const auto& e : ListRenderEndpoints(enumerator))
         {
-            wprintf(L"[结论] 系统没有任何活动渲染端点，音量控制方案完全不可行。\n");
+            baselineIds.push_back(e.id);
+        }
+        wprintf(L"[INFO] 连接前基线：%u 个渲染端点\n", static_cast<unsigned>(baselineIds.size()));
+
+        auto connectedName = ConnectAnyDevice(devices);
+        if (connectedName.empty())
+        {
+            wprintf(L"[结论] 所有设备均无法建立 A2DP 连接，验证终止。\n");
+            wprintf(L"        请确认手机已解锁亮屏、在范围内、未连其它蓝牙音频设备。\n");
             return 4;
         }
+        wprintf(L"\n[OK] 已连接设备: %s\n", connectedName.c_str());
 
-        wprintf(L"\n[INFO] 上方 %u 个渲染端点中请人工确认是否存在蓝牙设备。\n",
-            static_cast<unsigned>(renderEndpoints.size()));
-        wprintf(L"        若存在蓝牙端点 → 名称模糊匹配可行但不稳定；\n");
-        wprintf(L"        若不存在 → A2DP 端点未暴露给 Core Audio，音量控制不可行。\n");
+        wprintf(L"\n[4/5] 连接建立后轮询渲染端点...\n");
+        auto added = PollForNewEndpoints(enumerator, baselineIds, 40);
 
-        wprintf(L"\n[5/5] 跳过（待确认是否存在蓝牙端点后再验证回调）\n");
-        return 3;
+        if (added.empty())
+        {
+            wprintf(L"\n[结论] 连接已建立且音频可流过，但 %d 秒内没有出现任何蓝牙渲染端点。\n", 40);
+            wprintf(L"        → A2DP Sink 端点未暴露给 Core Audio，音量控制方案不可行。\n");
+            wprintf(L"[5/5] 跳过（无可关联端点）\n");
+            return 3;
+        }
+
+        for (const auto& e : added)
+        {
+            wprintf(L"[KEY] 发现新增端点: %s\n       Id: %s\n",
+                e.friendlyName.c_str(), e.id.c_str());
+        }
+
+        wprintf(L"\n[5/5] 对新增端点验证音量读写...\n");
+        wil::com_ptr<IMMDevice> device = FindDevice(enumerator, added.front().id);
+        if (!device)
+        {
+            wprintf(L"[结论] 无法取到新增端点的 IMMDevice。\n");
+            return 5;
+        }
+
+        wil::com_ptr<IAudioEndpointVolume> volume;
+        hr = device->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr,
+            reinterpret_cast<void**>(volume.put()));
+        if (FAILED(hr))
+        {
+            wprintf(L"[FAIL] 激活 IAudioEndpointVolume 失败: 0x%08X\n", static_cast<uint32_t>(hr));
+            wprintf(L"[结论] 该端点不支持音量控制。\n");
+            return 5;
+        }
+
+        float originalVolume = 0.0f;
+        bool volumeRead = ReadMasterVolume(volume, originalVolume);
+
+        bool muted = false;
+        ReadMute(volume, muted);
+
+        bool writeOk = false;
+        if (volumeRead)
+        {
+            writeOk = WriteMasterVolume(volume, 0.5f);
+        }
+
+        if (writeOk && volumeRead)
+        {
+            WriteMasterVolume(volume, originalVolume);
+        }
+
+        wprintf(L"\n[结论] 音量可读=%s 可写=%s\n",
+            volumeRead ? L"是" : L"否", writeOk ? L"是" : L"否");
+        return volumeRead && writeOk ? 0 : 5;
     }
     wprintf(L"[OK]   %u 台设备成功关联到音频端点\n", static_cast<unsigned>(endpointIds.size()));
 
