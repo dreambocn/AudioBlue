@@ -1,5 +1,6 @@
 ﻿#include "pch.h"
 #include "Step1_Enumerate.h"
+#include "Step2_EndpointId.h"
 
 int wmain()
 {
@@ -25,6 +26,16 @@ int wmain()
     }
 
     // 后续步骤在此插入
+
+    wprintf(L"\n[2/5] 读取设备音频端点 ID...\n");
+    auto endpointIds = GetEndpointIdsForDevices(devices);
+    if (endpointIds.empty())
+    {
+        wprintf(L"[结论] 无法从任何设备获取音频端点 ID。\n");
+        wprintf(L"        音量控制方案不可行 —— AudioPlaybackConnection 与 Core Audio 端点无可用关联。\n");
+        return 3;
+    }
+    wprintf(L"[OK]   %zu 台设备成功关联到音频端点\n", endpointIds.size());
 
     return 0;
 }

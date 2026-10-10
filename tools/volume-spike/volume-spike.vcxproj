@@ -99,9 +99,11 @@
     <ClInclude Include="pch.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="Step1_Enumerate.h" />
+    <ClInclude Include="Step2_EndpointId.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Step1_Enumerate.cpp" />
+    <ClCompile Include="Step2_EndpointId.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
