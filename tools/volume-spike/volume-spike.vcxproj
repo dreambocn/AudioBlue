@@ -98,8 +98,10 @@
   <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="targetver.h" />
+    <ClInclude Include="Step1_Enumerate.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Step1_Enumerate.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
