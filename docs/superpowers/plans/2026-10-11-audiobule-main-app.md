@@ -2813,4 +2813,371 @@ git add AudioBule.Core tests
 git commit -m "feat: add connection state machine with injectable device provider"
 ```
 
+---
+
+## Task 5: WinRtDeviceProvider（生产实现）
+
+**Files:**
+- Create: `AudioBule.Core/WinRtDeviceProvider.h`
+- Create: `AudioBule.Core/WinRtDeviceProvider.cpp`
+- Modify: `AudioBule.Core/AudioBule.Core.vcxproj`
+- Modify: `tests/ConnectionManager.test.cpp`（补一个真实 provider 的冒烟用例）
+
+**Interfaces:**
+- Consumes: Task 4 的 `IAudioDeviceProvider`
+- Produces: `namespace AudioBule::Core::WinRtDeviceProvider final : public IAudioDeviceProvider`
+
+**已核实的 API 事实（不要凭记忆写，值以此为准）：**
+
+| 事实 | 值 | 来源 |
+| --- | --- | --- |
+| `AudioPlaybackConnectionOpenResultStatus` | `Success=0, RequestTimedOut=1, DeniedBySystem=2, UnknownFailure=3` | `winrt/impl/windows.media.audio.0.h` |
+| `AudioPlaybackConnectionState` | **只有** `Closed=0, Opened=1` | 同上 |
+| `StartAsync()` 返回 | `void`，无结果值 | spike 实测 |
+| `OpenAsync()` 返回 | 带 `Status` + `ExtendedError` 的结果 | spike 实测 |
+| `TryCreateFromId(id)` 返回 | null 表示设备不支持 A2DP | spike 实测 |
+
+> ⚠️ **`AudioPlaybackConnectionState` 没有 `Connecting` 状态**，只有
+> `Closed` 和 `Opened`。spike 里的 `newState == 2` 判断（Step2_Connect.cpp:91）
+> **永远不会成立**，那是 spike 遗留的死代码 —— 主工程不要照抄。
+> 「连接中」是 AudioBule **自己**的 `ConnectionState::Connecting`，
+> 由 `ConnectionManager` 在 `OpenAsync` 返回前维持。
+
+---
+
+- [ ] **Step 1: 创建 `AudioBule.Core/WinRtDeviceProvider.h`**
+
+```cpp
+#pragma once
+
+#include "IAudioDeviceProvider.h"
+
+#include <winrt/Windows.Media.Audio.h>
+
+#include <mutex>
+#include <unordered_map>
+
+namespace AudioBule::Core
+{
+
+// IAudioDeviceProvider 的生产实现，包装 AudioPlaybackConnection。
+//
+// 线程模型：Connect / Disconnect 会被 ConnectionManager 在工作线程上调用，
+// 因此这里不加 STA 假设；但 StateChanged 事件的处理器可能在任意线程被调用，
+// 所以 m_connections 的访问一律加锁。
+class WinRtDeviceProvider final : public IAudioDeviceProvider
+{
+public:
+    WinRtDeviceProvider();
+    ~WinRtDeviceProvider() override;
+
+    bool IsSupported() const override;
+    std::vector<DeviceInfo> EnumerateDevices() override;
+    ConnectResult Connect(std::wstring_view deviceId) override;
+    void Disconnect(std::wstring_view deviceId) override;
+
+private:
+    // 设备 id → 活跃连接。断开时从这里移除并释放。
+    std::mutex m_mutex;
+    std::unordered_map<std::wstring, winrt::Windows::Media::Audio::AudioPlaybackConnection>
+        m_connections;
+};
+
+} // namespace AudioBule::Core
+```
+
+- [ ] **Step 2: 创建 `AudioBule.Core/WinRtDeviceProvider.cpp`**
+
+```cpp
+#include "pch.h"
+#include "WinRtDeviceProvider.h"
+
+#include <winrt/Windows.Devices.Enumeration.h>
+#include <winrt/Windows.Foundation.Metadata.h>
+#include <winrt/Windows.Media.Audio.h>
+
+namespace AudioBule::Core
+{
+
+using namespace winrt::Windows::Devices::Enumeration;
+using namespace winrt::Windows::Foundation::Metadata;
+using namespace winrt::Windows::Media::Audio;
+
+namespace {
+
+// 把 OpenAsync 的 Status 映射到我们的 ConnectFailure。
+ConnectFailure MapOpenStatus(AudioPlaybackConnectionOpenResultStatus status)
+{
+    switch (status)
+    {
+    case AudioPlaybackConnectionOpenResultStatus::Success:
+        return ConnectFailure::None;
+    case AudioPlaybackConnectionOpenResultStatus::RequestTimedOut:
+        return ConnectFailure::RequestTimedOut;
+    case AudioPlaybackConnectionOpenResultStatus::DeniedBySystem:
+        return ConnectFailure::DeniedBySystem;
+    case AudioPlaybackConnectionOpenResultStatus::UnknownFailure:
+    default:
+        return ConnectFailure::UnknownFailure;
+    }
+}
+
+} // namespace
+
+WinRtDeviceProvider::WinRtDeviceProvider() = default;
+
+WinRtDeviceProvider::~WinRtDeviceProvider()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    // 直接清空即可：AudioPlaybackConnection 的析构会断开底层 A2DP 会话。
+    // 刻意不逐个 Close()——析构程序正在退出时，任何 COM 调用都可能失败并阻塞。
+    m_connections.clear();
+}
+
+bool WinRtDeviceProvider::IsSupported() const
+{
+    try
+    {
+        // Windows 10 2004 以下 AudioPlaybackConnection 类型不存在。
+        // 先探测再调用，否则低版本系统上会在 GetDeviceSelector 处 E_NOINTERFACE。
+        return ApiInformation::IsTypePresent(winrt::name_of<AudioPlaybackConnection>());
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+std::vector<DeviceInfo> WinRtDeviceProvider::EnumerateDevices()
+{
+    std::vector<DeviceInfo> result;
+
+    if (!IsSupported())
+    {
+        return result;
+    }
+
+    auto selector = AudioPlaybackConnection::GetDeviceSelector();
+
+    // 同步阻塞：ConnectionManager::Refresh 是同步方法，调用方已在工作线程上
+    auto devices = DeviceInformation::FindAllAsync(selector).get();
+
+    for (auto const& device : devices)
+    {
+        DeviceInfo info;
+        info.id = std::wstring(device.Id());
+        auto name = device.Name();
+        info.name = name.empty() ? info.id : std::wstring(name);
+        result.push_back(std::move(info));
+    }
+
+    return result;
+}
+
+ConnectResult WinRtDeviceProvider::Connect(std::wstring_view deviceId)
+{
+    if (!IsSupported())
+    {
+        return ConnectResult{ false, ConnectFailure::DeviceNotSupported, 0 };
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_connections.find(std::wstring(deviceId)) != m_connections.end())
+        {
+            // 已经连着。ConnectionManager 的幂等检查通常已经拦住了，
+            // 这里是第二道防线 —— 万一两个线程同时进来，不能建两个会话。
+            return ConnectResult{ true, ConnectFailure::None, 0 };
+        }
+    }
+
+    AudioPlaybackConnection connection = nullptr;
+    try
+    {
+        connection = AudioPlaybackConnection::TryCreateFromId(
+            winrt::to_hstring(std::wstring(deviceId)));
+    }
+    catch (winrt::hresult_error const& e)
+    {
+        return ConnectResult{ false, ConnectFailure::HresultError, e.code() };
+    }
+
+    if (!connection)
+    {
+        // 设备不支持 A2DP Sink（spike 实测：某些手机会这样）
+        return ConnectResult{ false, ConnectFailure::DeviceNotSupported, 0 };
+    }
+
+    try
+    {
+        // StartAsync 返回 void，无结果值可查 —— 不要试图检查它的"返回值"
+        connection.StartAsync().get();
+
+        auto openResult = connection.OpenAsync().get();
+
+        if (openResult.Status() != AudioPlaybackConnectionOpenResultStatus::Success)
+        {
+            auto extended = openResult.ExtendedError();
+
+            // ERROR_GEN_FAILURE (0x8007001F) 在实践中几乎总是同一个原因：
+            // 手机正作为 A2DP 源连着别的设备，无法同时当接收端。
+            // 归到 GenericFailure 而不是 UnknownFailure，好让 Messages 给出
+            // 针对性的操作建议。
+            ConnectFailure failure = MapOpenStatus(openResult.Status());
+            if (static_cast<DWORD>(extended) == 0x8007001Fu)
+            {
+                failure = ConnectFailure::GenericFailure;
+            }
+
+            return ConnectResult{ false, failure, extended };
+        }
+    }
+    catch (winrt::hresult_error const& e)
+    {
+        return ConnectResult{ false, ConnectFailure::HresultError, e.code() };
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        // 重新检查：可能在我们等待 OpenAsync 期间已被别的线程断开
+        if (m_connections.find(std::wstring(deviceId)) != m_connections.end())
+        {
+            return ConnectResult{ true, ConnectFailure::None, 0 };
+        }
+
+        m_connections.emplace(std::wstring(deviceId), connection);
+
+        // 底层连接被系统关闭（设备走远、手机关蓝牙）时通知 ConnectionManager。
+        // 注意 AudioPlaybackConnectionState 只有 Closed / Opened 两种，
+        // 没有中间的 Connecting —— 我们只关心"从开着变成关着"这一跳。
+        connection.StateChanged(
+            [this, id = std::wstring(deviceId)](AudioPlaybackConnection const& sender, auto const&)
+            {
+                if (sender.State() == AudioPlaybackConnectionState::Closed)
+                {
+                    {
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        m_connections.erase(id);
+                    }
+                    ConnectionLost.Raise(id);
+                }
+            });
+    }
+
+    return ConnectResult{ true, ConnectFailure::None, 0 };
+}
+
+void WinRtDeviceProvider::Disconnect(std::wstring_view deviceId)
+{
+    std::wstring id(deviceId);
+
+    AudioPlaybackConnection connection = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto it = m_connections.find(id);
+        if (it == m_connections.end())
+        {
+            return;   // 幂等：未连接时直接返回
+        }
+        connection = it->second;
+        m_connections.erase(it);
+    }
+
+    // 在锁外 Close：Close 会触发 StateChanged → 上面那个 lambda → 再取锁。
+    // 若在锁内调用会死锁（非递归 mutex）。
+    try
+    {
+        connection.Close();
+    }
+    catch (winrt::hresult_error const&)
+    {
+        // 关不掉也不要紧：连接对象已从表里移除并在此析构，
+        // AudioPlaybackConnection 的析构同样会关闭底层会话。
+    }
+}
+
+} // namespace AudioBule::Core
+```
+
+**实现上的三个关键点：**
+
+1. **`Close()` 必须在锁外调用。** 它会同步触发 `StateChanged`，
+   而那个 lambda 会 `lock(m_mutex)`。锁内调用 = 非递归 mutex 自死锁。
+2. **`Connect` 里有两次「已在表中」的检查**（调用前后各一次）。第二次是必要的：
+   `OpenAsync` 可能要等几秒，期间另一线程可能已经连上或断开。
+3. **析构时不清 `StateChanged` 订阅，直接 clear 容器。** 程序退出路径上
+   不值得再发起 COM 交互；`AudioPlaybackConnection` 析构会自行收尾。
+
+- [ ] **Step 3: 在 `AudioBule.Core.vcxproj` 登记新文件**
+
+```xml
+  <ItemGroup>
+    <ClInclude Include="WinRtDeviceProvider.h" />
+  </ItemGroup>
+```
+```xml
+    <ClCompile Include="WinRtDeviceProvider.cpp" />
+```
+
+- [ ] **Step 4: 加真实 provider 的冒烟用例**
+
+追加到 `tests/ConnectionManager.test.cpp` 末尾：
+
+```cpp
+// 真实 provider 的冒烟测试。只验证"在真实系统上不会崩、能枚举"，
+// 不断言具体设备 —— 测试机上不一定有可连接的蓝牙设备。
+// 真正需要设备的行为由 Task 13 的手动验证清单覆盖。
+AB_TEST(WinRtProviderEnumeratesWithoutCrashing)
+{
+    WinRtDeviceProvider provider;
+    CHECK(provider.IsSupported());   // 开发机是 Windows 11，必支持
+
+    auto devices = provider.EnumerateDevices();
+    // 不检查数量 —— 有没有配对设备取决于测试机状态
+    for (auto const& device : devices)
+    {
+        CHECK(!device.id.empty());
+    }
+}
+
+AB_TEST(WinRtProviderConnectOnUnknownDeviceFailsGracefully)
+{
+    WinRtDeviceProvider provider;
+    // 随便编一个不存在的 id。期望：返回失败，绝不抛异常。
+    auto result = provider.Connect(L"BTHENUM\\{00000000-0000-0000-0000-000000000000}\\0000");
+    CHECK(!result.succeeded);
+    CHECK(result.failure != ConnectFailure::None);
+}
+
+AB_TEST(WinRtProviderDisconnectOnUnknownDeviceIsNoOp)
+{
+    WinRtDeviceProvider provider;
+    provider.Disconnect(L"not-connected");   // 不得崩溃
+}
+```
+
+并在文件顶部补 `#include "WinRtDeviceProvider.h"`。
+
+- [ ] **Step 5: 编译并运行测试**
+
+Run:
+
+```powershell
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
+& ".\tests\bin\AudioBule.Core.Tests.exe"
+```
+
+Expected: 全部通过。若 `WinRtProviderEnumeratesWithoutCrashing` 失败且报
+`IsSupported()` 为 false，说明测试机系统版本低于 19041 —— 这在开发机上不可能，
+遇到就先检查 `targetver.h` 是否被正确编入。
+
+- [ ] **Step 6: 提交**
+
+```bash
+git add AudioBule.Core tests
+git commit -m "feat: add WinRT-backed device provider for A2DP connections"
+```
+
 <!-- APPEND-MARKER -->
