@@ -48,9 +48,27 @@ $env:NUGET_PACKAGES = "D:\NuGetPackages"   # 包不装在 C 盘
 & ".\tests\bin\AudioBule.Core.Tests.exe"
 ```
 
-当前 **67 个用例全过**。
+当前 **67 个用例全过**（`AudioBule.Core` 与 `tests` 两个工程；
+`AudioBule.App` 尚不能编译，见下节）。
 
-### 图标方案（已定，勿改）
+### ⚠️ WinUI 3 工程阻塞（Task 7，进行中）
+
+`AudioBule.App` 目前**还不能编译**。已定位到一对互相冲突的工具链问题：
+
+| 设置 | 结果 |
+| --- | --- |
+| 设 `<ApplicationType>Windows Store</ApplicationType>` + Windows Store 的 `ProjectTypeGuids` | UAP 相关的 MSBuild target 会把 `_NuGetTargetFallbackMoniker` 设成 `UAP,Version=v10.0`，而 NuGet 对 C++/WinUI 工程还原出的框架是 `native`。`ResolveNuGetPackageAssets` 于是报 **「Your project does not reference ... framework」**，构建直接失败 |
+| 不设这两项 | NuGet 通过了，但 WinUI 的 XAML 工具链不激活，改用了 .NET Framework 的 `C:\Windows\Microsoft.NET\Framework\v4.0.30319\Microsoft.Xaml.targets`，于是**不生成 `*.xaml.g.h`**，`App.xaml.h` / `MainWindow.xaml.h` 找不到 |
+
+已知细节：
+- `XamlCompilerTaskPath` 本身是能解析到的（`D:\NuGetPackages\microsoft.windowsappsdk.winui\2.2.1\...Markup.Compiler.dll`），所以不是包缺失
+- CppWinRT 的投影头生成是**正常的**（`obj\Generated Files\winrt\` 下齐全）
+- 已验证的组合：NuGet 还原成功（包已下载到 `D:\NuGetPackages`）
+
+**下一步要试的方向**（尚未验证，不要当成结论）：
+1. 保持 `ApplicationType`，改用 `TargetFrameworks`/`TargetPlatformVersion` 的某种组合让还原也产出 UAP 框架
+2. 换 Windows App SDK 版本（2.2.0 可能对该组合支持不完整）
+3. 显式 import `Microsoft.UI.Xaml.Markup.Compiler.targets`，绕开 .NET Framework 的 XAML targets
 
 - 设计源：`assets/icons/bluetooth.svg`（Tabler Icons，MIT）
 - 构建期由 `assets/icons/Build-Icons.ps1` 用 ImageMagick（装在 D 盘）转成
