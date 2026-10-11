@@ -3577,4 +3577,468 @@ git commit -m "feat: add GDI-based tray icon factory with light and dark variant
 26（ConnectionManager）+ 3（WinRtDeviceProvider 冒烟）+ 6（IconFactory）。
 执行时 `RunAll` 打印的 `Running N test(s)` 与 `N passed, 0 failed` 中的 N 必须相等。
 
+---
+
+## Task 7: WinUI 3 App 工程骨架
+
+**Files:**
+- Create: `AudioBule.App/AudioBule.App.vcxproj`
+- Create: `AudioBule.App/pch.h` / `AudioBule.App/pch.cpp`
+- Create: `AudioBule.App/targetver.h`
+- Create: `AudioBule.App/main.cpp`
+- Create: `AudioBule.App/App.xaml` / `AudioBule.App/App.xaml.h` / `AudioBule.App/App.xaml.cpp`
+- Create: `AudioBule.App/MainWindow.xaml` / `AudioBule.App/MainWindow.xaml.h` / `AudioBule.App/MainWindow.xaml.cpp`
+- Modify: `AudioBule.sln`
+- Modify: `.gitignore`
+
+**Interfaces:**
+- Consumes: Task 1 的 `Directory.Build.props`
+- Produces: 可启动的空 WinUI 3 应用，窗口标题为 `AudioBule`
+
+**本任务是全计划风险最高的一步。** Windows App SDK 的 C++/WinUI 3 工程依赖
+XAML 编译器（由 `Microsoft.WindowsAppSDK.WinUI` 包的 MSBuild targets 驱动），
+配置项错一个就是几百行 MSBuild 报错。如果下面的构建步骤失败，
+**不要**猜着改，先看错误码再对照本步末尾的排查表。
+
+**技术栈事实（已核实 NuGet 缓存内容）：**
+- `Microsoft.WindowsAppSDK` **2.2.0**
+- `Microsoft.WindowsAppSDK.WinUI` **2.2.1**（自带 XAML 编译器 targets，
+  位于 `build/Microsoft.UI.Xaml.Markup.Compiler.interop.targets`）
+- 二者是独立包，`Microsoft.WindowsAppSDK` 通过 nuspec 依赖 `WinUI`，
+  所以**只需**引用 `Microsoft.WindowsAppSDK` 一个包
+
+---
+
+- [ ] **Step 1: 创建 `AudioBule.App/targetver.h`**
+
+与 Core 一致。
+
+```cpp
+#pragma once
+
+#define _WIN32_WINNT 0x0A00
+#define WINVER 0x0A00
+#define NTDDI_VERSION NTDDI_WIN10_RS3
+```
+
+- [ ] **Step 2: 创建 `AudioBule.App/pch.h`**
+
+```cpp
+#pragma once
+
+#include "targetver.h"
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <objbase.h>
+
+#include <string>
+#include <vector>
+
+#include <wil/common.h>
+#include <wil/com.h>
+#include <wil/result.h>
+
+// C++/WinRT 的 Windows.Foundation 头会定义 GetCurrentTime 宏，与 windows.h 冲突（C4002）
+#undef GetCurrentTime
+
+#include <winrt/base.h>
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.Foundation.Metadata.h>
+
+// Core 的公开头 —— App 允许依赖 Core，反之不行
+#include "ConnectionEntry.h"
+#include "ConnectionManager.h"
+#include "IAudioDeviceProvider.h"
+#include "IconFactory.h"
+#include "Messages.h"
+#include "Settings.h"
+#include "StringUtil.h"
+#include "WinRtDeviceProvider.h"
+```
+
+- [ ] **Step 3: 创建 `AudioBule.App/pch.cpp`**
+
+```cpp
+#include "pch.h"
+```
+
+- [ ] **Step 4: 创建 `AudioBule.App/App.xaml`**
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="AudioBule.App.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+</Application>
+```
+
+> WinUI 3 的 `Application` 元素**不接受** `RequestedTheme` 属性（那是 UWP 的写法）。
+> 也不要在这里放 `x:Class` 之外的复杂内容 —— 样式资源在 Task 10 加。
+
+- [ ] **Step 5: 创建 `AudioBule.App/App.xaml.h`**
+
+```cpp
+#pragma once
+
+#include "App.xaml.g.h"
+
+namespace winrt::AudioBule::App::implementation
+{
+
+struct App : AppT<App>
+{
+    App() noexcept;
+
+    void OnLaunched(Windows::ApplicationModel::Activation::LaunchActivatedEventArgs const& e);
+};
+
+} // namespace winrt::AudioBule::App::implementation
+```
+
+- [ ] **Step 6: 创建 `AudioBule.App/App.xaml.cpp`**
+
+```cpp
+#include "pch.h"
+
+#include "App.xaml.h"
+
+#include "MainWindow.xaml.h"
+
+using namespace winrt;
+using namespace Windows::ApplicationModel::Activation;
+using namespace Windows::UI;
+using namespace Windows::UI::Xaml;
+using namespace Windows::UI::Xaml::Controls;
+using namespace AudioBule::App::implementation;
+
+namespace winrt::AudioBule::App::implementation
+{
+
+App::App() noexcept
+{
+    InitializeComponent();
+}
+
+void App::OnLaunched(LaunchActivatedEventArgs const& e)
+{
+    auto window = Window();
+    window.Activate();
+}
+
+} // namespace winrt::AudioBule::App::implementation
+```
+
+> `Window()` / `WindowT<App>()` 是 XAML 编译器根据 `x:Class="AudioBule.App.App"`
+> 生成的成员函数，返回 `MainWindow`。本任务先不显式 new 出 MainWindow ——
+> 由生成的代码负责。Task 10 会改成显式持有窗口实例以便控制显示/隐藏。
+
+- [ ] **Step 7: 创建 `AudioBule.App/MainWindow.xaml`**
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="AudioBule.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <TextBlock Text="AudioBule" HorizontalAlignment="Center" VerticalAlignment="Center" />
+    </Grid>
+</Window>
+```
+
+- [ ] **Step 8: 创建 `AudioBule.App/MainWindow.xaml.h`**
+
+```cpp
+#pragma once
+
+#include "MainWindow.xaml.g.h"
+
+namespace winrt::AudioBule::App::implementation
+{
+
+struct MainWindow : MainWindowT<MainWindow>
+{
+    MainWindow() noexcept;
+};
+
+} // namespace winrt::AudioBule::App::implementation
+
+namespace winrt::AudioBule::App::factory_implementation
+{
+
+struct MainWindow : MainWindowT<MainWindow, implementation::MainWindow>
+{
+};
+
+} // namespace winrt::AudioBule::App::factory_implementation
+```
+
+- [ ] **Step 9: 创建 `AudioBule.App/MainWindow.xaml.cpp`**
+
+```cpp
+#include "pch.h"
+
+#include "MainWindow.xaml.h"
+
+#if __has_include("MainWindow.g.cpp")
+#include "MainWindow.g.cpp"
+#endif
+
+using namespace winrt;
+using namespace AudioBule::App::implementation;
+
+namespace winrt::AudioBule::App::implementation
+{
+
+MainWindow::MainWindow() noexcept
+{
+    InitializeComponent();
+}
+
+} // namespace winrt::AudioBule::App::implementation
+```
+
+- [ ] **Step 10: 创建 `AudioBule.App/main.cpp`**
+
+```cpp
+#include "pch.h"
+
+// XAML 编译器生成的 Application 派生类（来自 App.xaml 的 x:Class）
+#include "winrt/AudioBule.App.h"
+
+using namespace winrt;
+
+int WINAPI wWinMain(WinRT initInstance, _In_ HINSTANCE /*hInstance*/,
+    _In_opt_ HINSTANCE /*hPrevInstance*/, _In_ LPWSTR /*lpCmdLine*/, _In_ int /*nCmdShow*/)
+{
+    // 初始化 COM/WinRT apartment。WinUI 3 必须是 STA。
+    winrt::init_apartment(winrt::apartment_type::single_threaded);
+
+    // 启动 XAML 消息循环。生成的 Application 类由 App.xaml 的 x:Class 决定。
+    winrt::AudioBule::App::App().Launch(winrt::initInstance);
+}
+```
+
+> **WinUI 3 的 `wWinMain` 签名是特殊的**：第一个参数是 `WinRT initInstance`
+> （`IInspectable*`），不是 `HINSTANCE` / `PSTR`。这是 Windows App SDK
+> 定义的入口约定，务必照抄，不要改成传统的 WinMain 签名。
+
+- [ ] **Step 11: 创建 `AudioBule.App/AudioBule.App.vcxproj`**
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{A1B2C3D4-0002-4E5F-9A8B-000000000002}</ProjectGuid>
+    <RootNamespace>AudioBuleApp</RootNamespace>
+    <ApplicationType>Windows Store</ApplicationType>
+    <ApplicationEnvironment>windows</ApplicationEnvironment>
+    <ApplicationKind>windows</ApplicationKind>
+    <WindowsPackageType>None</WindowsPackageType>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <EnableDefaultCssItems>false</EnableDefaultCssItems>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <TargetName>AudioBule</TargetName>
+    <IntDir>$(ProjectDir)obj\</IntDir>
+    <OutDir>$(ProjectDir)bin\</OutDir>
+    <!-- 自包含 Windows App SDK 运行时：目标机器无需预装 Windows App Runtime -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <WindowsPackageType>None</WindowsPackageType>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(CppWinRTProjectionIncludePath);$(ProjectDir);$(ProjectDir)..\AudioBule.Core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <WarningLevel>Level4</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <!-- Core 是 /MT（静态 CRT），App 必须一致，否则链接期 LNK2038 -->
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClInclude Include="pch.h" />
+    <ClInclude Include="targetver.h" />
+    <ClInclude Include="App.xaml.h" />
+    <ClInclude Include="MainWindow.xaml.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="pch.cpp">
+      <PrecompiledHeader>Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="App.xaml.cpp">
+      <DependentUpon>App.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="MainWindow.xaml.cpp">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="App.xaml">
+      <SubType>Designer</SubType>
+    </ApplicationDefinition>
+    <Page Include="MainWindow.xaml">
+      <SubType>Designer</SubType>
+    </Page>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AudioBule.Core\AudioBule.Core.vcxproj">
+      <Project>{A1B2C3D4-0001-4E5F-9A8B-000000000001}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Windows.CppWinRT" Version="3.0.260520.1" />
+    <PackageReference Include="Microsoft.Windows.ImplementationLibrary" Version="1.0.260126.7" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
+```
+
+> `<WindowsPackageType>None</WindowsPackageType>` 表示**未打包**运行。
+> 这是有意的：Task 7~11 全程用未打包模式跑通，Task 12 再切到 MSIX。
+> 未打包模式下 `StartupTask` 与 toast 不可用 —— 那正是 Task 12 之后的计划二内容，
+> 本计划不需要它们。
+>
+> `Core` 需在 Release 下设 `/MT` 才能与 App 的 `/MT` 一致。Task 1 建立 Core 时
+> 只在测试工程设了 `<RuntimeLibrary>MultiThreaded</RuntimeLibrary>`，
+> **Core 的 vcxproj 现在要补上**（见 Step 12）。
+
+- [ ] **Step 12: 给 `AudioBule.Core.vcxproj` 的 Release 配置补 `/MT`**
+
+Core 是静态库，链接期不检查 CRT 一致性，所以问题会推迟到 App 链接时才爆。
+现在补上：
+
+```xml
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+  </ItemDefinitionGroup>
+```
+
+- [ ] **Step 13: 把 App 加进 `AudioBule.sln`**
+
+在 `AudioBule.sln` 的两个 `Project(...)` 之间插入：
+
+```text
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "AudioBule.App", "AudioBule.App\AudioBule.App.vcxproj", "{A1B2C3D4-0002-4E5F-9A8B-000000000002}"
+EndProject
+```
+
+并在 `ProjectConfigurationPlatforms` 节里追加四行：
+
+```text
+		{A1B2C3D4-0002-4E5F-9A8B-000000000002}.Debug|x64.ActiveCfg = Debug|x64
+		{A1B2C3D4-0002-4E5F-9A8B-000000000002}.Debug|x64.Build.0 = Debug|x64
+		{A1B2C3D4-0002-4E5F-9A8B-000000000002}.Release|x64.ActiveCfg = Release|x64
+		{A1B2C3D4-0002-4E5F-9A8B-000000000002}.Release|x64.Build.0 = Release|x64
+```
+
+- [ ] **Step 14: 更新 `.gitignore`**
+
+XAML 编译器会在 `obj\` 下生成 `.g.h` / `.g.cpp`，加一条：
+
+```gitignore
+# XAML 编译器产物
+/AudioBule.App/Generated Files/
+```
+
+- [ ] **Step 15: 还原并编译**
+
+Run:
+
+```powershell
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -t:Restore -p:Configuration=Debug -p:Platform=x64 -v:minimal -nologo
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -p:Configuration=Debug -p:Platform=x64 -v:minimal -nologo
+```
+
+Expected: 退出码 0，产物 `AudioBule.App\bin\AudioBule.exe`。
+用 **Debug** 而非 Release —— XAML 编译器在 Debug 下的报错信息更完整，
+首次打通工具链时更容易定位问题。
+
+- [ ] **Step 16: 运行应用**
+
+Run:
+
+```powershell
+& ".\AudioBule.App\bin\AudioBule.exe"
+```
+
+Expected: 弹出一个窗口，中央显示 `AudioBule`。关闭窗口后进程退出。
+
+### 构建失败排查表
+
+按错误信息对照，不要盲目改：
+
+| 错误 | 原因 | 处理 |
+| --- | --- | --- |
+| `MSB8020 找不到 v180 的生成工具` | `PlatformToolset` 写成了 `v180` | 检查 `Directory.Build.props` 是 `v145` |
+| `无法打开包括文件: "wil/common.h"` | 没先 Restore | 先跑 `-t:Restore` |
+| `无法打开包括文件: "winrt/base.h"` | `CppWinRTProjectionIncludePath` 没生效 | 检查该属性是否在 `Directory.Build.props` 中，且工程 `ItemDefinitionGroup` 引用了它 |
+| `C2065 GetCurrentTime` / `C4002` | 忘了在 C++/WinRT 头之前 `#undef GetCurrentTime` | 检查 `pch.h` |
+| `LNK2038 检测到不一致` | Core 与 App 的 CRT 不一致 | 两者都必须是 `MultiThreaded`（`/MT`） |
+| `找不到 XamlCompiler 任务` | `Microsoft.WindowsAppSDK` 未还原 | 确认已 `-t:Restore`，且 NuGet 缓存里有 2.2.0 |
+| `error C3775: 无法从"const App"转换为"App"` | WinUI 3 的 App 结构体需非 const | 检查 `OnLaunched` 的 `const&` 参数签名与 `AppT<App>` 匹配 |
+| `找不到 winrt/AudioBule.App.h` | `RootNamespace` 与 `x:Class` 命名空间不一致 | 二者必须都是 `AudioBule.App` |
+
+- [ ] **Step 17: 提交**
+
+```bash
+git add AudioBule.App AudioBule.sln .gitignore AudioBule.Core/AudioBule.Core.vcxproj
+git commit -m "build: add WinUI 3 app skeleton that launches an empty window"
+```
+
 <!-- APPEND-MARKER -->
