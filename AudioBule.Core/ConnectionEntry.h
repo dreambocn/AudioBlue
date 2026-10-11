@@ -9,8 +9,7 @@
 namespace AudioBule::Core
 {
 
-// 连接的四个状态。注意 Connecting 之后只有两个出口：Connected 或 Failed。
-// 没有「取消中」—— 取消语义由断开后在 Disconnected 状态下重建条目承担。
+// 连接请求可成功、失败或取消；取消后忽略迟到结果并关闭底层会话。
 enum class ConnectionState
 {
     Disconnected,
@@ -54,6 +53,9 @@ struct ConnectionEntry
 
     // 仅 state == Failed 时有效。连上后必须清空。
     std::wstring errorMessage;
+    // 保留机器可读的错误信息，界面按当前语言格式化，不翻译设备名称。
+    ConnectFailure failure = ConnectFailure::None;
+    HRESULT extendedError = 0;
 };
 
 } // namespace AudioBule::Core

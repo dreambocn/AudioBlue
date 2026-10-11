@@ -136,8 +136,8 @@ std::future<void> ConnectionManager::ConnectAsync(std::wstring_view deviceId)
         std::lock_guard<std::mutex> lock(m_mutex);
 
         auto* entry = FindLocked(id);
-        if (entry != nullptr && (entry->state == ConnectionState::Connecting ||
-                                 entry->state == ConnectionState::Connected))
+        if (m_connectingDevices.contains(id) || (entry != nullptr &&
+            (entry->state == ConnectionState::Connecting || entry->state == ConnectionState::Connected)))
         {
             // 幂等：重复点「连接」不应产生第二次真实连接尝试
             return CompletedFuture();
@@ -152,6 +152,7 @@ std::future<void> ConnectionManager::ConnectAsync(std::wstring_view deviceId)
             snapshot.state = ConnectionState::Failed;
             snapshot.errorMessage =
                 MessageForConnectFailure(ConnectFailure::DeviceNotFound, 0);
+            snapshot.failure = ConnectFailure::DeviceNotFound;
             m_entries.push_back(snapshot);
         }
         else
@@ -159,7 +160,10 @@ std::future<void> ConnectionManager::ConnectAsync(std::wstring_view deviceId)
             snapshot = *entry;
             snapshot.state = ConnectionState::Connecting;
             snapshot.errorMessage.clear();
+            snapshot.failure = ConnectFailure::None;
+            snapshot.extendedError = 0;
             *entry = snapshot;
+            m_connectingDevices.insert(id);
         }
     }
 
@@ -201,9 +205,10 @@ std::future<void> ConnectionManager::ConnectAsync(std::wstring_view deviceId)
         try
         {
             ApplyConnectResult(id, result);
+            { std::lock_guard lock(m_mutex); m_connectingDevices.erase(id); }
             promise.set_value();
         }
-        catch (...) { promise.set_exception(std::current_exception()); }
+        catch (...) { { std::lock_guard lock(m_mutex); m_connectingDevices.erase(id); } promise.set_exception(std::current_exception()); }
         if (apartment) winrt::uninit_apartment();
 
         {
@@ -221,31 +226,62 @@ void ConnectionManager::ApplyConnectResult(std::wstring const& deviceId,
     ConnectResult const& result)
 {
     ConnectionEntry snapshot;
+    bool discarded = false;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
 
         auto* entry = FindLocked(deviceId);
-        if (entry == nullptr)
+        if (entry == nullptr || entry->state != ConnectionState::Connecting)
         {
-            return;   // 连接期间设备被 Refresh 掉了：静默丢弃结果
-        }
-
-        snapshot = *entry;
-        if (result.succeeded)
-        {
-            snapshot.state = ConnectionState::Connected;
-            snapshot.errorMessage.clear();
+            discarded = true;
         }
         else
         {
-            snapshot.state = ConnectionState::Failed;
-            snapshot.errorMessage =
-                MessageForConnectFailure(result.failure, result.extendedError);
+            snapshot = *entry;
+            if (result.succeeded)
+            {
+                snapshot.state = ConnectionState::Connected;
+                snapshot.errorMessage.clear();
+            }
+            else
+            {
+                snapshot.state = ConnectionState::Failed;
+                snapshot.errorMessage = MessageForConnectFailure(result.failure, result.extendedError);
+            }
+            snapshot.failure = result.succeeded ? ConnectFailure::None : result.failure;
+            snapshot.extendedError = result.succeeded ? 0 : result.extendedError;
+            *entry = snapshot;
         }
-        *entry = snapshot;
     }
+    // 不能只忽略迟到状态：成功的底层会话必须在锁外关闭。
+    if (discarded)
+    {
+        if (result.succeeded) m_provider.Disconnect(deviceId);
+    }
+    else RaiseEntryChanged(snapshot);
+}
 
+bool ConnectionManager::CancelConnection(std::wstring_view deviceId)
+{
+    ConnectionEntry snapshot;
+    {
+        std::lock_guard lock(m_mutex);
+        auto* entry = FindLocked(std::wstring(deviceId));
+        if (!entry || entry->state != ConnectionState::Connecting) return false;
+        entry->state = ConnectionState::Disconnected;
+        entry->errorMessage.clear();
+        entry->failure = ConnectFailure::None;
+        entry->extendedError = 0;
+        snapshot = *entry;
+    }
     RaiseEntryChanged(snapshot);
+    return true;
+}
+
+bool ConnectionManager::IsConnectionPending(std::wstring_view deviceId) const
+{
+    std::lock_guard lock(m_mutex);
+    return m_connectingDevices.contains(std::wstring(deviceId));
 }
 
 std::future<void> ConnectionManager::DisconnectAsync(std::wstring_view deviceId)
@@ -267,6 +303,8 @@ std::future<void> ConnectionManager::DisconnectAsync(std::wstring_view deviceId)
         snapshot = *entry;
         snapshot.state = ConnectionState::Disconnected;
         snapshot.errorMessage.clear();
+        snapshot.failure = ConnectFailure::None;
+        snapshot.extendedError = 0;
         *entry = snapshot;
     }
 
@@ -338,6 +376,8 @@ void ConnectionManager::HandleConnectionLost(std::wstring const& deviceId)
         snapshot = *entry;
         snapshot.state = ConnectionState::Disconnected;
         snapshot.errorMessage.clear();
+        snapshot.failure = ConnectFailure::None;
+        snapshot.extendedError = 0;
         *entry = snapshot;
     }
 

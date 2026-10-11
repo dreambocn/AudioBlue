@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include <future>
 #include <mutex>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -47,6 +48,12 @@ public:
     // 异步断开。对非 Connected 条目是无害的空操作。
     std::future<void> DisconnectAsync(std::wstring_view deviceId);
 
+    // 立即撤销 UI 上的连接请求；底层 Open 完成后清理迟到的连接。
+    // 清理完成前同一设备不能再发起连接，其它设备不受影响。
+    bool CancelConnection(std::wstring_view deviceId);
+    // 取消后清理底层请求期间仍返回 true，供界面控制重试按钮。
+    bool IsConnectionPending(std::wstring_view deviceId) const;
+
     // 按顺序对每个 id 发起连接（开机自启用）。单个失败不影响其余。
     void ReconnectSavedDevices(std::vector<std::wstring> const& deviceIds);
 
@@ -75,6 +82,7 @@ private:
 
     mutable std::mutex m_mutex;
     std::vector<ConnectionEntry> m_entries;
+    std::set<std::wstring> m_connectingDevices;
 
     // 追踪在途异步操作，供 WaitForIdle 使用
     mutable std::mutex m_pendingMutex;

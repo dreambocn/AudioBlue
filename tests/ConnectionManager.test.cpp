@@ -611,3 +611,105 @@ TEST(WinRtDeviceProvider, DisconnectUnknownDeviceIsNoOp)
     WinRtDeviceProvider provider;
     provider.Disconnect(L"not-connected");   // 不得崩溃
 }
+
+namespace
+{
+// 由测试显式放行连接结果，稳定复现取消与迟到成功的竞争。
+class DelayedProvider final : public IAudioDeviceProvider
+{
+public:
+    DelayedProvider() : released(release.get_future().share()), entered(started.get_future()) {}
+    std::promise<void> release, started;
+    std::shared_future<void> released;
+    std::future<void> entered;
+    std::atomic<int> attempts{ 0 }, closed{ 0 };
+    ConnectResult result{ true, ConnectFailure::None, 0 };
+    bool includeA = true;
+    bool IsSupported() const override { return true; }
+    std::vector<DeviceInfo> EnumerateDevices() override
+    {
+        return includeA ? std::vector<DeviceInfo>{ {L"A", L"手机 A"}, {L"B", L"手机 B"} } : std::vector<DeviceInfo>{ {L"B", L"手机 B"} };
+    }
+    ConnectResult Connect(std::wstring_view id) override
+    {
+        if (id == L"A") { ++attempts; started.set_value(); released.wait(); return result; }
+        return { true, ConnectFailure::None, 0 };
+    }
+    void Disconnect(std::wstring_view id) override { if (id == L"A") ++closed; }
+};
+}
+TEST(ConnectionManager, CancelClosesLateSuccessAndKeepsOtherDevicesConnected)
+{
+    DelayedProvider provider;
+    ConnectionManager manager(provider);
+    manager.Refresh();
+    manager.ConnectAsync(L"B").get();
+    auto connection = manager.ConnectAsync(L"A");
+    provider.entered.wait();
+    EXPECT_TRUE(manager.CancelConnection(L"A"));
+    EXPECT_FALSE(manager.CancelConnection(L"A"));
+    EXPECT_TRUE(manager.IsConnectionPending(L"A"));
+    // 清理完成前不可再为相同设备发起第二个底层会话。
+    manager.ConnectAsync(L"A").get();
+    EXPECT_EQ(provider.attempts.load(), 1);
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Disconnected);
+    provider.release.set_value();
+    connection.get();
+    EXPECT_EQ(provider.closed.load(), 1);
+    EXPECT_FALSE(manager.IsConnectionPending(L"A"));
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Disconnected);
+    EXPECT_EQ(StateOf(manager, L"B"), ConnectionState::Connected);
+}
+TEST(ConnectionManager, CanceledFailureCannotReplaceDisconnectedState)
+{
+    DelayedProvider provider;
+    provider.result = { false, ConnectFailure::RequestTimedOut, E_FAIL };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+    auto connection = manager.ConnectAsync(L"A");
+    provider.entered.wait();
+    EXPECT_TRUE(manager.CancelConnection(L"A"));
+    provider.release.set_value();
+    connection.get();
+    auto entry = Find(manager, L"A");
+    ASSERT_TRUE(entry.has_value());
+    EXPECT_EQ(entry->state, ConnectionState::Disconnected);
+    EXPECT_TRUE(entry->errorMessage.empty());
+    EXPECT_EQ(entry->failure, ConnectFailure::None);
+    EXPECT_EQ(entry->extendedError, 0);
+    EXPECT_EQ(provider.closed.load(), 0);
+}
+TEST(ConnectionManager, RemovedDeviceClosesLateConnection)
+{
+    DelayedProvider provider;
+    ConnectionManager manager(provider);
+    manager.Refresh();
+    auto connection = manager.ConnectAsync(L"A");
+    provider.entered.wait();
+    provider.includeA = false;
+    manager.Refresh();
+    provider.release.set_value();
+    connection.get();
+    EXPECT_FALSE(Find(manager, L"A").has_value());
+    EXPECT_EQ(provider.closed.load(), 1);
+}
+TEST(ConnectionManager, ErrorCodesSurviveForLocalizationAndClearAfterRetry)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"A", L"手机 A" } };
+    provider.SetConnectResult(L"A", { false, ConnectFailure::GenericFailure, static_cast<HRESULT>(0x8007001F) });
+    ConnectionManager manager(provider);
+    manager.Refresh();
+    manager.ConnectAsync(L"A").get();
+    auto failed = Find(manager, L"A");
+    ASSERT_TRUE(failed.has_value());
+    EXPECT_EQ(failed->failure, ConnectFailure::GenericFailure);
+    EXPECT_EQ(failed->extendedError, static_cast<HRESULT>(0x8007001F));
+    provider.SetConnectResult(L"A", { true, ConnectFailure::None, 0 });
+    manager.ConnectAsync(L"A").get();
+    auto connected = Find(manager, L"A");
+    ASSERT_TRUE(connected.has_value());
+    EXPECT_EQ(connected->failure, ConnectFailure::None);
+    EXPECT_EQ(connected->extendedError, 0);
+    EXPECT_TRUE(connected->errorMessage.empty());
+}
