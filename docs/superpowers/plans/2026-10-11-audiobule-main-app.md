@@ -634,4 +634,902 @@ git add Directory.Build.props .gitignore AudioBule.sln AudioBule.Core tests
 git commit -m "build: scaffold solution with Core library and test harness"
 ```
 
+---
+
+## Task 2: SimpleEvent 与 StringUtil
+
+**Files:**
+- Create: `AudioBule.Core/SimpleEvent.h`
+- Create: `AudioBule.Core/StringUtil.h`
+- Create: `AudioBule.Core/StringUtil.cpp`
+- Modify: `AudioBule.Core/AudioBule.Core.vcxproj`（登记新文件）
+- Create: `tests/StringUtil.test.cpp`
+- Modify: `tests/AudioBule.Core.Tests.vcxproj`（登记新文件）
+
+**Interfaces:**
+- Consumes: Task 1 的 `TestHarness.h`、`AudioBule.Core.pch`
+- Produces:
+  - `namespace AudioBule::Core::SimpleEvent<Args...>`：
+    - `void Add(std::function<void(Args...)>)`
+    - `void Remove(std::function<void(Args...)>)` —— 按 handler 身份移除
+    - `void Raise(Args...) const` —— **在副本上遍历**，回调中可以安全地 Add/Remove
+    - `bool Empty() const`
+  - `namespace AudioBule::Core`：
+    - `std::string WideToUtf8(std::wstring_view)`
+    - `std::wstring Utf8ToWide(std::string_view)`
+    - `std::wstring FormatWin32Error(DWORD hr)` —— 格式化为 `0x%08X`
+    - `std::wstring FormatMessageForHresult(HRESULT hr)` —— 取系统错误文本，失败回落为 `FormatWin32Error`
+
+`SimpleEvent` 存在的唯一理由：`ConnectionManager` 要在**不引入任何 WinRT 类型**的前提下
+对外广播条目变更。Core 的边界要求（Global Constraints）不允许 `IInspectable` 泄漏到
+接口面，而 `winrt::event_token` 会把 WinRT 类型拖进来。
+
+---
+
+- [ ] **Step 1: 写失败的测试 `tests/StringUtil.test.cpp`**
+
+```cpp
+#include "TestHarness.h"
+#include "StringUtil.h"
+
+#include <string>
+
+using namespace AudioBule::Core;
+
+AB_TEST(AsciiRoundTrip)
+{
+    CHECK_EQ(WideToUtf8(L"hello"), std::string("hello"));
+    CHECK(Utf8ToWide("hello") == std::wstring(L"hello"));
+}
+
+AB_TEST(EmptyStringRoundTrip)
+{
+    CHECK(WideToUtf8(L"").empty());
+    CHECK(Utf8ToWide("").empty());
+}
+
+AB_TEST(ChineseRoundTrip)
+{
+    // 窄 wprintf 按控制台 ANSI 代码页解释字节，所以宽字符是主表示，
+    // 窄字符只是日志/调试用的次要表示。
+    auto wide = Utf8ToWide("蓝牙音频");
+    CHECK(wide == std::wstring(L"蓝牙音频"));
+    CHECK(WideToUtf8(wide) == std::string("蓝牙音频"));
+}
+
+AB_TEST(SurrogatePairRoundTrip)
+{
+    // U+1F50A 扬声器 emoji，需 UTF-16 代理对处理正确
+    auto s = Utf8ToWide("\xF0\x9F\x94\x8A");
+    CHECK_EQ(s.size(), static_cast<size_t>(2)); // 代理对 = 2 个 wchar
+    CHECK_EQ(WideToUtf8(s), std::string("\xF0\x9F\x94\x8A"));
+}
+
+AB_TEST(EmbeddedNulIsTruncatedByCStringConvention)
+{
+    // WideToUtf8 按 wcslen 语义处理，遇 NUL 停止。这是刻意的：
+    // 错误文案与设备名在实践中不含内嵌 NUL。
+    CHECK_EQ(WideToUtf8(L"ab\0cd").size(), static_cast<size_t>(2));
+}
+
+AB_TEST(FormatWin32ErrorIsUppercaseHex)
+{
+    auto text = FormatWin32Error(0x8007001Fu);
+    CHECK(text == std::wstring(L"0x8007001F"));
+}
+
+AB_TEST(FormatMessageForHresultFallsBackToHex)
+{
+    // 0x8007001F 是 ERROR_GEN_FAILURE，系统有文本；但用一个人为构造的、
+    // 几乎不可能有本地化文本的码来验证回落路径更稳妥。
+    auto text = FormatMessageForHresult(static_cast<HRESULT>(0x00001234u));
+    CHECK(!text.empty());
+}
+```
+
+- [ ] **Step 2: 运行测试，确认失败**
+
+Run:
+
+```powershell
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
+```
+
+Expected: **失败**，`无法打开包括文件: "StringUtil.h"`。这正是我们要的 —— 先看到红。
+
+> 注意：本步预期编译失败，因此**不要**执行 `-t:Restore`。Restore 已在 Task 1
+> 完成，且文件列表未变，NuGet 缓存路径依然生效。
+
+- [ ] **Step 3: 创建 `AudioBule.Core/SimpleEvent.h`**
+
+```cpp
+#pragma once
+
+#include <functional>
+#include <mutex>
+#include <utility>
+#include <vector>
+
+namespace AudioBule::Core
+{
+
+// 线程安全的轻量事件。用途：ConnectionManager 需要广播条目变更，
+// 但 Core 的公开接口不允许出现 WinRT 类型（winrt::event_token 会把
+// IInspectable 拖进接口面），因此自建。
+//
+// Raise 在副本上遍历：回调里可以安全地 Add / Remove 而不会让迭代器失效。
+template <typename... Args>
+class SimpleEvent
+{
+public:
+    using Handler = std::function<void(Args...)>;
+
+    void Add(Handler handler)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_handlers.push_back(std::move(handler));
+    }
+
+    // 按 handler 身份移除。传入的必须是先前 Add 的同一个 std::function 对象，
+    // 或与之一致（lambda 拷贝即可，std::function 的 operator== 比较目标与参数）。
+    void Remove(Handler const& handler)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (auto it = m_handlers.begin(); it != m_handlers.end(); ++it)
+        {
+            if (*it == handler)
+            {
+                m_handlers.erase(it);
+                return;
+            }
+        }
+    }
+
+    void Raise(Args... args) const
+    {
+        std::vector<Handler> copy;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            copy = m_handlers;
+        }
+        // 解锁后再回调：回调里可以自由 Add/Remove，也可以重入 Snapshot()
+        for (auto const& handler : copy)
+        {
+            handler(args...);
+        }
+    }
+
+    bool Empty() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_handlers.empty();
+    }
+
+private:
+    mutable std::mutex m_mutex;
+    std::vector<Handler> m_handlers;
+};
+
+} // namespace AudioBule::Core
+```
+
+> 注意 `Remove` 在**解锁后不重试**是刻意的：多个相同的 lambda 被注册时，
+> 移除第一个匹配项即可，语义上等同于"退订一次"。UI 层每个订阅点都是
+> 一个独立的 lambda 捕获，不存在歧义。
+
+- [ ] **Step 4: 创建 `AudioBule.Core/StringUtil.h`**
+
+```cpp
+#pragma once
+
+#include <string>
+#include <string_view>
+
+namespace AudioBule::Core
+{
+
+// 宽字符串 → UTF-8。按 wcslen 语义处理，遇 NUL 停止。
+std::string WideToUtf8(std::wstring_view text);
+
+// UTF-8 → 宽字符串。无效的 UTF-8 字节序列替换为 U+FFFD，不抛异常。
+std::wstring Utf8ToWide(std::string_view text);
+
+// 把 HRESULT/Win32 错误码格式化为 0x%08X（八位大写十六进制）。
+std::wstring FormatWin32Error(DWORD code);
+
+// 取系统错误文本。系统没有可用文本时回落到 FormatWin32Error，保证非空。
+std::wstring FormatMessageForHresult(HRESULT hr);
+
+} // namespace AudioBule::Core
+```
+
+- [ ] **Step 5: 创建 `AudioBule.Core/StringUtil.cpp`**
+
+```cpp
+#include "pch.h"
+#include "StringUtil.h"
+
+namespace AudioBule::Core
+{
+
+std::string WideToUtf8(std::wstring_view text)
+{
+    if (text.empty())
+    {
+        return {};
+    }
+
+    // wcslen 语义：std::wstring_view 可能含内嵌 NUL，显式按首个 NUL 截断
+    size_t length = text.find(L'\0');
+    if (length == std::wstring_view::npos)
+    {
+        length = text.size();
+    }
+
+    int required = ::WideCharToMultiByte(
+        CP_UTF8, 0, text.data(), static_cast<int>(length), nullptr, 0, nullptr, nullptr);
+    if (required <= 0)
+    {
+        return {};
+    }
+
+    std::string result(static_cast<size_t>(required), '\0');
+    int written = ::WideCharToMultiByte(
+        CP_UTF8, 0, text.data(), static_cast<int>(length),
+        result.data(), required, nullptr, nullptr);
+    if (written <= 0)
+    {
+        return {};
+    }
+    result.resize(static_cast<size_t>(written));
+    return result;
+}
+
+std::wstring Utf8ToWide(std::string_view text)
+{
+    if (text.empty())
+    {
+        return {};
+    }
+
+    // MB_ERR_INVALID_CHARS 在旧系统上对部分合法序列会误报，
+    // 这里不传该标志：无效字节按 WinAPI 默认行为替换为 U+FFFD。
+    int required = ::MultiByteToWideChar(
+        CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    if (required <= 0)
+    {
+        return {};
+    }
+
+    std::wstring result(static_cast<size_t>(required), L'\0');
+    int written = ::MultiByteToWideChar(
+        CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+        result.data(), required);
+    if (written <= 0)
+    {
+        return {};
+    }
+    result.resize(static_cast<size_t>(written));
+    return result;
+}
+
+std::wstring FormatWin32Error(DWORD code)
+{
+    wchar_t buffer[16] = {};
+    swprintf_s(buffer, L"0x%08X", static_cast<unsigned>(code));
+    return std::wstring(buffer);
+}
+
+std::wstring FormatMessageForHresult(HRESULT hr)
+{
+    LPWSTR text = nullptr;
+    DWORD length = ::FormatMessageW(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+            FORMAT_MESSAGE_IGNORE_INSERTS,
+        nullptr, static_cast<DWORD>(hr),
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        reinterpret_cast<LPWSTR>(&text), 0, nullptr);
+
+    if (length == 0 || text == nullptr)
+    {
+        // 系统无本地化文本 —— 用十六进制兜底，保证调用方永远拿到非空字符串
+        if (text != nullptr)
+        {
+            ::LocalFree(text);
+        }
+        return FormatWin32Error(static_cast<DWORD>(hr));
+    }
+
+    std::wstring result(text, length);
+    ::LocalFree(text);
+
+    // FormatMessageW 的文本带尾随 CRLF，UI 上显示会多出空白
+    while (!result.empty() && (result.back() == L'\r' || result.back() == L'\n' ||
+                              result.back() == L' '))
+    {
+        result.pop_back();
+    }
+
+    return result.empty() ? FormatWin32Error(static_cast<DWORD>(hr)) : result;
+}
+
+} // namespace AudioBule::Core
+```
+
+- [ ] **Step 6: 在 `AudioBule.Core.vcxproj` 登记新文件**
+
+在 `<ItemGroup>` 里加入：
+
+```xml
+  <ItemGroup>
+    <ClInclude Include="SimpleEvent.h" />
+    <ClInclude Include="StringUtil.h" />
+  </ItemGroup>
+```
+
+并在源文件 `ItemGroup` 里加入：
+
+```xml
+    <ClCompile Include="StringUtil.cpp" />
+```
+
+- [ ] **Step 7: 在测试工程登记 `tests/StringUtil.test.cpp`**
+
+```xml
+    <ClCompile Include="StringUtil.test.cpp" />
+```
+
+- [ ] **Step 8: 编译并运行测试**
+
+Run:
+
+```powershell
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
+& ".\tests\bin\AudioBule.Core.Tests.exe"
+```
+
+Expected:
+
+```text
+Running 7 test(s)
+  [PASS] AsciiRoundTrip
+  [PASS] EmptyStringRoundTrip
+  [PASS] ChineseRoundTrip
+  [PASS] SurrogatePairRoundTrip
+  [PASS] EmbeddedNulIsTruncatedByCStringConvention
+  [PASS] FormatWin32ErrorIsUppercaseHex
+  [PASS] FormatMessageForHresultFallsBackToHex
+7 passed, 0 failed
+```
+
+退出码 `0`。
+
+- [ ] **Step 9: 提交**
+
+```bash
+git add AudioBule.Core tests
+git commit -m "feat: add SimpleEvent and string conversion utilities"
+```
+
+---
+
+## Task 3: Settings 持久化
+
+**Files:**
+- Create: `AudioBule.Core/Settings.h`
+- Create: `AudioBule.Core/Settings.cpp`
+- Modify: `AudioBule.Core/AudioBule.Core.vcxproj`
+- Create: `tests/Settings.test.cpp`
+- Modify: `tests/AudioBule.Core.Tests.vcxproj`
+
+**Interfaces:**
+- Consumes: Task 2 的 `StringUtil.h`
+- Produces:
+  - `namespace AudioBule::Core`
+    - `struct AppSettings { bool autoReconnect = true; bool runAtStartup = false; std::vector<std::wstring> lastConnectedDevices; }`
+    - `std::wstring DefaultSettingsPath()` —— `%LOCALAPPDATA%\AudioBule\settings.json`
+    - `AppSettings LoadSettings(std::wstring const& path)`
+    - `bool SaveSettings(AppSettings const& settings, std::wstring const& path)`
+
+**核心契约（spec §3.8「配置读写失败 → 记日志并使用默认值，不阻断启动」）：**
+`LoadSettings` **永不抛出、永不返回错误码**，任何失败都回落到默认值。
+`SaveSettings` 返回 bool 供调用方记日志，但不抛。
+
+---
+
+- [ ] **Step 1: 写失败的测试 `tests/Settings.test.cpp`**
+
+```cpp
+#include "TestHarness.h"
+#include "Settings.h"
+
+#include <cstdio>
+#include <string>
+
+using namespace AudioBule::Core;
+
+namespace {
+
+// 每个用例一个独立的临时子目录，避免互相污染
+class TempDir
+{
+public:
+    TempDir()
+    {
+        wchar_t tempDir[MAX_PATH] = {};
+        DWORD length = ::GetTempPathW(MAX_PATH, tempDir);
+        if (length == 0 || length >= MAX_PATH)
+        {
+            return;
+        }
+        // 用测试名做后缀，保证同一进程内多次运行互不干扰
+        m_path = std::wstring(tempDir, length) + L"AudioBuleTest_" +
+            std::to_wstring(::GetCurrentProcessId()) + L"_" +
+            std::to_wstring(reinterpret_cast<uintptr_t>(this));
+        ::CreateDirectoryW(m_path.c_str(), nullptr);
+    }
+
+    ~TempDir()
+    {
+        if (!m_path.empty())
+        {
+            ::RemoveDirectoryW(m_path.c_str());
+        }
+    }
+
+    TempDir(TempDir const&) = delete;
+    TempDir& operator=(TempDir const&) = delete;
+
+    std::wstring FilePath() const { return m_path + L"\\settings.json"; }
+
+private:
+    std::wstring m_path;
+};
+
+void WriteFile(std::wstring const& path, std::wstring const& content)
+{
+    FILE* file = nullptr;
+    _wfopen_s(&file, path.c_str(), L"wb");
+    if (file == nullptr)
+    {
+        return;
+    }
+    fwrite(content.data(), 1, content.size() * sizeof(wchar_t), file);
+    fclose(file);
+}
+
+} // namespace
+
+AB_TEST(DefaultSettingsPathEndsWithExpectedSuffix)
+{
+    auto path = DefaultSettingsPath();
+    CHECK(!path.empty());
+    CHECK(path.size() > 20);
+    CHECK_EQ(path.substr(path.size() - 13), std::wstring(L"settings.json"));
+    CHECK(path.find(L"AudioBule") != std::wstring::npos);
+}
+
+AB_TEST(MissingFileYieldsDefaults)
+{
+    // Review Focus 第 2 条：用户首次启动，配置文件不存在，
+    // 期望静默使用默认值正常启动，不弹任何错误。
+    TempDir dir;
+    auto settings = LoadSettings(dir.FilePath());
+    CHECK(settings.autoReconnect);
+    CHECK(!settings.runAtStartup);
+    CHECK(settings.lastConnectedDevices.empty());
+}
+
+AB_TEST(RoundTripPreservesAllFields)
+{
+    TempDir dir;
+    AppSettings original;
+    original.autoReconnect = false;
+    original.runAtStartup = true;
+    original.lastConnectedDevices = { L"BTHENUM\\{AAA}\\0000", L"BTHENUM\\{BBB}\\0000" };
+
+    CHECK(SaveSettings(original, dir.FilePath()));
+
+    auto loaded = LoadSettings(dir.FilePath());
+    CHECK(!loaded.autoReconnect);
+    CHECK(loaded.runAtStartup);
+    CHECK_EQ(loaded.lastConnectedDevices.size(), static_cast<size_t>(2));
+    CHECK(loaded.lastConnectedDevices[0] == L"BTHENUM\\{AAA}\\0000");
+    CHECK(loaded.lastConnectedDevices[1] == L"BTHENUM\\{BBB}\\0000");
+}
+
+AB_TEST(CorruptJsonFallsBackToDefaults)
+{
+    // Review Focus 第 3 条：JSON 被手改坏，期望静默回落默认值，不崩溃。
+    TempDir dir;
+    WriteFile(dir.FilePath(), L"{ this is not json at all ]]");
+
+    auto settings = LoadSettings(dir.FilePath());
+    CHECK(settings.autoReconnect);
+    CHECK(!settings.runAtStartup);
+    CHECK(settings.lastConnectedDevices.empty());
+}
+
+AB_TEST(TruncatedJsonFallsBackToDefaults)
+{
+    TempDir dir;
+    WriteFile(dir.FilePath(), L"{\"autoReconnect\": fal");
+
+    auto settings = LoadSettings(dir.FilePath());
+    CHECK(settings.autoReconnect);
+}
+
+AB_TEST(EmptyFileFallsBackToDefaults)
+{
+    TempDir dir;
+    WriteFile(dir.FilePath(), L"");
+
+    auto settings = LoadSettings(dir.FilePath());
+    CHECK(settings.autoReconnect);
+    CHECK(settings.lastConnectedDevices.empty());
+}
+
+AB_TEST(UnknownFieldsAreIgnoredAndDefaultsFilledIn)
+{
+    TempDir dir;
+    WriteFile(dir.FilePath(), L"{\"autoReconnect\": false, \"futureField\": 123}");
+
+    auto settings = LoadSettings(dir.FilePath());
+    CHECK(!settings.autoReconnect);          // 已知字段生效
+    CHECK(!settings.runAtStartup);           // 缺失字段回落默认
+    CHECK(settings.lastConnectedDevices.empty());
+}
+
+AB_TEST(SaveCreatesMissingDirectory)
+{
+    TempDir dir;
+    // 目标子目录尚不存在，Save 必须自己创建 —— MSIX 下用户可能从未运行过旧版
+    auto nested = dir.FilePath() + L".nested\\settings.json";
+    AppSettings settings;
+    settings.autoReconnect = false;
+    CHECK(SaveSettings(settings, nested));
+
+    auto loaded = LoadSettings(nested);
+    CHECK(!loaded.autoReconnect);
+}
+
+AB_TEST(SaveToUnwritablePathReturnsFalseWithoutThrowing)
+{
+    // 无效路径（盘符不存在）。期望：返回 false，不抛异常。
+    bool result = false;
+    bool threw = false;
+    try
+    {
+        result = SaveSettings(AppSettings{}, L"Z:\\definitely\\not\\exist\\settings.json");
+    }
+    catch (...)
+    {
+        threw = true;
+    }
+    CHECK(!threw);
+    CHECK(!result);
+}
+```
+
+- [ ] **Step 2: 运行测试，确认失败**
+
+Run:
+
+```powershell
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
+```
+
+Expected: **失败**，`无法打开包括文件: "Settings.h"`。
+
+- [ ] **Step 3: 创建 `AudioBule.Core/Settings.h`**
+
+```cpp
+#pragma once
+
+#include <string>
+#include <vector>
+
+namespace AudioBule::Core
+{
+
+struct AppSettings
+{
+    bool autoReconnect = true;
+    bool runAtStartup = false;
+    std::vector<std::wstring> lastConnectedDevices;
+};
+
+// %LOCALAPPDATA%\AudioBule\settings.json
+// 不用 exe 同目录：MSIX 打包后安装目录只读，写不进去。
+std::wstring DefaultSettingsPath();
+
+// 读配置。**永不抛出、永不返回错误码** —— 文件不存在、JSON 损坏、
+// 字段缺失、类型不符，一律回落到默认值。对齐 spec §3.8
+// 「配置读写失败 → 记日志并使用默认值，不阻断启动」。
+AppSettings LoadSettings(std::wstring const& path);
+
+// 写配置。失败返回 false（调用方记日志即可），不抛异常。
+bool SaveSettings(AppSettings const& settings, std::wstring const& path);
+
+} // namespace AudioBule::Core
+```
+
+- [ ] **Step 4: 创建 `AudioBule.Core/Settings.cpp`**
+
+```cpp
+#include "pch.h"
+#include "Settings.h"
+#include "StringUtil.h"
+
+#include <wil/result.h>
+
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Data.Json.h>
+#include <winrt/Windows.Storage.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <system_error>
+#include <vector>
+
+namespace AudioBule::Core
+{
+
+using namespace winrt::Windows::Foundation;
+using namespace winrt::Windows::Storage;
+
+namespace {
+
+constexpr wchar_t kAutoReconnectKey[] = L"autoReconnect";
+constexpr wchar_t kRunAtStartupKey[] = L"runAtStartup";
+constexpr wchar_t kLastDevicesKey[] = L"lastConnectedDevices";
+
+// 从 IInspectable 取 bool，非 bool 返回 defaultValue。
+// Lookup 返回的可能是任意类型，必须先试 IPropertyValue，
+// 且类型判断用 Type() 而不是 ValueType()。
+bool TryGetBool(IInspectable const& value, bool defaultValue)
+{
+    auto property = value.try_as<IPropertyValue>();
+    if (!property)
+    {
+        return defaultValue;
+    }
+    if (property.Type() != PropertyType::Boolean)
+    {
+        return defaultValue;
+    }
+    return property.GetBoolean();
+}
+
+// 从 IInspectable 取字符串数组，非字符串数组返回空。
+std::vector<std::wstring> TryGetStringArray(IInspectable const& value)
+{
+    std::vector<std::wstring> result;
+
+    auto property = value.try_as<IPropertyValue>();
+    if (!property)
+    {
+        return result;
+    }
+    if (property.Type() != PropertyType::StringArray)
+    {
+        return result;
+    }
+
+    for (auto const& item : property.GetStringArray())
+    {
+        result.push_back(item);
+    }
+    return result;
+}
+
+// 去重并限制长度，防止配置文件被改坏导致条目无限增长。
+void NormalizeDeviceList(std::vector<std::wstring>& devices)
+{
+    constexpr size_t kMaxDevices = 32;
+
+    devices.erase(std::unique(devices.begin(), devices.end()), devices.end());
+    devices.erase(std::remove_if(devices.begin(), devices.end(),
+                      [](std::wstring const& id) { return id.empty(); }),
+        devices.end());
+
+    if (devices.size() > kMaxDevices)
+    {
+        devices.resize(kMaxDevices);
+    }
+}
+
+} // namespace
+
+std::wstring DefaultSettingsPath()
+{
+    wchar_t localAppData[MAX_PATH] = {};
+    DWORD length = ::GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH)
+    {
+        // 环境变量缺失（几乎不可能，但 API 契约允许）：退回 exe 同级的临时目录，
+        // 至少保证本进程内读写一致，不至于崩溃。
+        return L"AudioBule\\settings.json";
+    }
+
+    std::wstring base(localAppData, length);
+    return base + L"\\AudioBule\\settings.json";
+}
+
+AppSettings LoadSettings(std::wstring const& path)
+{
+    AppSettings settings; // 默认值
+
+    if (path.empty())
+    {
+        return settings;
+    }
+
+    try
+    {
+        // PathIO 直接收发路径字符串，省掉 StorageFile + FileIO 两步。
+        // 注意：PathIO::ReadTextAsync 收的是 hstring（UTF-16），
+        // 不是 UTF-8 —— 见下方注释里的常见误解。
+        auto content = PathIO::ReadTextAsync(winrt::to_hstring(path)).get();
+
+        if (content.empty())
+        {
+            return settings; // 空文件 → 默认值
+        }
+
+        auto json = JsonObject::Parse(content);
+        if (json == nullptr)
+        {
+            return settings;
+        }
+
+        if (auto value = json.Lookup(kAutoReconnectKey); value != nullptr)
+        {
+            settings.autoReconnect = TryGetBool(value, settings.autoReconnect);
+        }
+        if (auto value = json.Lookup(kRunAtStartupKey); value != nullptr)
+        {
+            settings.runAtStartup = TryGetBool(value, settings.runAtStartup);
+        }
+        if (auto value = json.Lookup(kLastDevicesKey); value != nullptr)
+        {
+            settings.lastConnectedDevices = TryGetStringArray(value);
+        }
+    }
+    catch (winrt::hresult_error const&)
+    {
+        // 文件不存在（0x80070002）、JSON 语法错误（E_FAIL）等一律回落默认值。
+        // 这里刻意不记日志：首次启动时"文件不存在"是常态，记日志会污染输出。
+        return AppSettings{};
+    }
+    catch (std::exception const&)
+    {
+        return AppSettings{};
+    }
+
+    NormalizeDeviceList(settings.lastConnectedDevices);
+    return settings;
+}
+
+bool SaveSettings(AppSettings const& settings, std::wstring const& path)
+{
+    if (path.empty())
+    {
+        return false;
+    }
+
+    AppSettings normalized = settings;
+    NormalizeDeviceList(normalized.lastConnectedDevices);
+
+    try
+    {
+        JsonObject json;
+        json.Insert(kAutoReconnectKey, winrt::box_value(normalized.autoReconnect));
+        json.Insert(kRunAtStartupKey, winrt::box_value(normalized.runAtStartup));
+
+        // 字符串数组必须用 PropertyValue::CreateStringArray —— winrt::box_value
+        // 对 array_view 没有 reference_traits 特化，编译不过。
+        std::vector<winrt::hstring> ids;
+        ids.reserve(normalized.lastConnectedDevices.size());
+        for (auto const& id : normalized.lastConnectedDevices)
+        {
+            ids.push_back(winrt::hstring(id));
+        }
+        json.Insert(kLastDevicesKey, PropertyValue::CreateStringArray(ids));
+
+        // 父目录不存在时自己创建 —— 用户可能从未运行过旧版本
+        std::filesystem::path parent = std::filesystem::path(path).parent_path();
+        if (!parent.empty())
+        {
+            std::error_code ec;
+            std::filesystem::create_directories(parent, ec);
+            if (ec)
+            {
+                return false;
+            }
+        }
+
+        auto file = StorageFile::GetFileFromPathAsync(winrt::to_hstring(path)).get();
+        FileIO::WriteTextAsync(file, json.Stringify()).get();
+        return true;
+    }
+    catch (winrt::hresult_error const&)
+    {
+        return false;
+    }
+    catch (std::exception const&)
+    {
+        return false;
+    }
+}
+
+} // namespace AudioBule::Core
+```
+
+> **WinRT 字符串类型**：本文件用到的 `PathIO` / `StorageFile` / `FileIO` /
+> `JsonObject::Parse` 参数**全部是 `hstring`（UTF-16）**，用
+> `winrt::to_hstring(std::wstring)` 传入即可。没有一个收 `char const*`。
+>
+> **字符串数组的装箱**：`winrt::box_value` 对 `array_view<hstring const>`
+> 没有 `reference_traits` 特化，会编译失败。必须走
+> `PropertyValue::CreateStringArray(std::vector<winrt::hstring>)`。
+> 读取侧对应 `IPropertyValue::GetStringArray()` 与 `PropertyType::StringArray`。
+>
+> 写文件这里用 `StorageFile` + `FileIO`（而非 `PathIO::WriteTextAsync`）是因为
+> `PathIO::WriteTextAsync` 只能覆盖已存在的文件，无法新建；配置首启时文件不存在，
+> 必须走 `StorageFile`。而读用 `PathIO` 是因为它一步到位且能正确抛出
+> `0x80070002 (FILE_NOT_FOUND)`。
+>
+> `std::filesystem` 需要 `<system_error>`，已在上面显式 include 链中通过
+> `<algorithm>` / `<filesystem>` 间接引入。若编译报 C2039 或缺 `error_code`，
+> 在文件顶部补 `#include <system_error>`。
+
+- [ ] **Step 5: 在 `AudioBule.Core.vcxproj` 登记 `Settings`**
+
+```xml
+  <ItemGroup>
+    <ClInclude Include="Settings.h" />
+  </ItemGroup>
+```
+```xml
+    <ClCompile Include="Settings.cpp" />
+```
+
+- [ ] **Step 6: 在测试工程登记 `tests/Settings.test.cpp`**
+
+```xml
+    <ClCompile Include="Settings.test.cpp" />
+```
+
+> 测试文件用 `TempDir` 辅助类，需要 `<direct.h>`/`<filesystem>` 之外的标准头，
+> 已在文件内自行 include。`GetTempPathW` / `CreateDirectoryW` / `RemoveDirectoryW`
+> 来自 `pch.h` 里已经 include 的 `<windows.h>`。
+
+- [ ] **Step 7: 编译并运行测试**
+
+Run:
+
+```powershell
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
+& ".\tests\bin\AudioBule.Core.Tests.exe"
+```
+
+Expected: 17 个用例全过（8 个新增 + 7 个 StringUtil + 1 个冒烟 + 1 个空）。
+`0 failed`，退出码 `0`。
+
+> 若 `CorruptJsonFallsBackToDefaults` 失败并显示 JSON 解析成功，说明
+> `JsonObject::Parse` 对该输入宽容度过高 —— 换一个测试数据：
+> `L"[[[{"`（非法的对象起始）。
+
+- [ ] **Step 8: 提交**
+
+```bash
+git add AudioBule.Core tests
+git commit -m "feat: add JSON settings persistence with fail-safe defaults"
+```
+
 <!-- APPEND-MARKER -->
