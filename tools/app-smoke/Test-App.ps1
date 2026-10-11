@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Executable = (Join-Path $PSScriptRoot '..\..\AudioBule.App\bin\AudioBule.exe'),
     [string]$ScreenshotPath
 )
@@ -18,12 +18,22 @@ namespace AudioBuleSmoke {
         public delegate bool EnumProc(IntPtr window, IntPtr parameter);
         [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback, IntPtr parameter);
         [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
+        [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr window);
+        [DllImport("user32.dll", EntryPoint="GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
+        [DllImport("user32.dll")] public static extern bool GetGUIThreadInfo(uint thread, ref ThreadInfo info);
+        [StructLayout(LayoutKind.Sequential)] public struct ThreadInfo {
+            public uint size, flags;
+            public IntPtr active, focus, capture, menuOwner, moveSize, caret;
+            public Rect caretRect;
+        }
         [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr window, StringBuilder text, int count);
         [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string name, string title);
         [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
         [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wparam, IntPtr lparam);
         [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern uint RegisterWindowMessage(string text);
         [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wparam, IntPtr lparam);
+        [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr LoadImage(IntPtr instance, string name, uint type, int width, int height, uint flags);
+        [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr icon);
         [DllImport("user32.dll")] public static extern int GetMenuItemCount(IntPtr menu);
         [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetMenuString(IntPtr menu, uint item, StringBuilder text, int count, uint flags);
         [DllImport("user32.dll")] public static extern uint GetGuiResources(IntPtr process, uint flags);
@@ -42,9 +52,39 @@ namespace AudioBuleSmoke {
             }, IntPtr.Zero);
             return found;
         }
+        [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr window, StringBuilder text, int count);
+        [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
+        public static IntPtr FindTitle(uint process, string title) {
+            IntPtr found = IntPtr.Zero;
+            EnumWindows((window, parameter) => {
+                uint owner; GetWindowThreadProcessId(window, out owner);
+                var text = new StringBuilder(256); GetWindowText(window, text, text.Capacity);
+                if (owner == process && text.ToString() == title) { found = window; return false; }
+                return true;
+            }, IntPtr.Zero);
+            return found;
+        }
         public static bool HasIcon(IntPtr window) {
             var identifier = new IconIdentifier { size = (uint)Marshal.SizeOf<IconIdentifier>(), window = window, id = 1 };
             Rect rect; return Shell_NotifyIconGetRect(ref identifier, out rect) == 0;
+        }
+        // 消息窗口不在 EnumWindows 中，逐个查找并核验进程，避免影响用户正在运行的实例。
+        public static IntPtr FindCallback(uint process) {
+            IntPtr window = IntPtr.Zero;
+            while ((window = FindWindowEx(new IntPtr(-3), window, "AudioBule.Tray", "AudioBule.Tray.Callback")) != IntPtr.Zero) {
+                uint owner; GetWindowThreadProcessId(window, out owner);
+                if (owner == process) return window;
+            }
+            return IntPtr.Zero;
+        }
+        public static bool SendEscape(IntPtr panel, uint process) {
+            uint owner;
+            uint thread = GetWindowThreadProcessId(panel, out owner);
+            var info = new ThreadInfo { size = (uint)Marshal.SizeOf<ThreadInfo>() };
+            if (owner != process || !GetGUIThreadInfo(thread, ref info) || info.focus == IntPtr.Zero) return false;
+            GetWindowThreadProcessId(info.focus, out owner);
+            // 键盘消息送到测试进程当前的输入窗口，不能直接送到顶层宿主。
+            return owner == process && PostMessage(info.focus, 0x100, new IntPtr(0x1B), new IntPtr(1));
         }
     }
 }
@@ -65,124 +105,260 @@ function Wait-Condition([scriptblock]$Condition, [int]$TimeoutMs = 8000) {
     return $false
 }
 
-# 临时 LOCALAPPDATA 隔离测试配置，保留用户现有的重连设备与开关。
+# 临时目录隔离配置，测试不启用真实开机启动或注册系统通知。
 $testData = Join-Path ([IO.Path]::GetTempPath()) ('AudioBuleSmoke_' + [Guid]::NewGuid().ToString('N'))
 $originalLocalAppData = $env:LOCALAPPDATA
+$originalSmoke = $env:AUDIOBULE_SMOKE_TEST
 $application = $null
+$runtime = Get-ChildItem "$env:ProgramFiles\dotnet\shared\Microsoft.WindowsDesktop.App" -Directory |
+    Where-Object { $_.Name.StartsWith([Environment]::Version.Major.ToString() + '.') } |
+    Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+if (-not $runtime) { throw '缺少与 PowerShell 对应的 Windows Desktop Runtime。' }
+foreach ($assembly in 'WindowsBase.dll', 'UIAutomationTypes.dll', 'UIAutomationClient.dll') { Add-Type -Path (Join-Path $runtime.FullName $assembly) }
+$scope = [System.Windows.Automation.TreeScope]::Descendants
+function Find-Ui($Root, [string]$Value, [switch]$Name) {
+    $property = if ($Name) { [System.Windows.Automation.AutomationElement]::NameProperty } else { [System.Windows.Automation.AutomationElement]::AutomationIdProperty }
+    $Root.FindFirst($scope, [System.Windows.Automation.PropertyCondition]::new($property, $Value))
+}
+function Invoke-Ui($Element) {
+    if (-not $Element) { throw '目标控件不存在。' }
+    $pattern = $null
+    if ($Element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { $pattern.Invoke() }
+    elseif ($Element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { $pattern.Select() }
+    else { throw "控件无法调用：$($Element.Current.Name)" }
+    Start-Sleep -Milliseconds 250
+}
+function Save-WindowImage([IntPtr]$Handle, [string]$Suffix) {
+    if (-not $ScreenshotPath) { return }
+    Add-Type -AssemblyName System.Drawing
+    Start-Sleep -Milliseconds 400
+    $bounds = [AudioBuleSmoke.Native+Rect]::new()
+    $null = [AudioBuleSmoke.Native]::GetWindowRect($Handle, [ref]$bounds)
+    $bitmap = [Drawing.Bitmap]::new($bounds.right - $bounds.left, $bounds.bottom - $bounds.top)
+    $graphics = [Drawing.Graphics]::FromImage($bitmap)
+    $dc = $graphics.GetHdc()
+    try { $null = [AudioBuleSmoke.Native]::PrintWindow($Handle, $dc, 2) }
+    finally { $graphics.ReleaseHdc($dc); $graphics.Dispose() }
+    try {
+        $destination = [IO.Path]::GetFullPath($ScreenshotPath)
+        if ($Suffix) { $destination = Join-Path (Split-Path $destination) ([IO.Path]::GetFileNameWithoutExtension($destination) + "-$Suffix.png") }
+        $null = New-Item -ItemType Directory -Path (Split-Path $destination) -Force
+        $bitmap.Save($destination, [Drawing.Imaging.ImageFormat]::Png)
+        Write-Output "截图：$destination"
+    } finally { $bitmap.Dispose() }
+}
+function Select-Combo($Root, [string]$Name, [string]$Option) {
+    $combo = Find-Ui $Root $Name
+    if (-not $combo) { throw "找不到下拉框：$Name" }
+    $scroll = $null
+    if ($combo.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern, [ref]$scroll)) { $scroll.ScrollIntoView() }
+    $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
+    Start-Sleep -Milliseconds 200
+    $optionElement = Find-Ui $Root $Option -Name
+    if (-not $optionElement) { throw "找不到选项：$Option" }
+    Invoke-Ui $optionElement
+}
+function Test-WindowIcon([IntPtr]$Window, [string]$Path, [int]$Kind) {
+    # 对比实际窗口图标与品牌 ICO 像素，防止通用默认图标也通过非空检查。
+    Add-Type -AssemblyName System.Drawing
+    $handle = [AudioBuleSmoke.Native]::SendMessage($Window, 0x7F, [IntPtr]$Kind, [IntPtr]0)
+    if ($handle -eq [IntPtr]::Zero) { return $false }
+    $actual = [Drawing.Icon]::FromHandle($handle).ToBitmap()
+    $reference = [AudioBuleSmoke.Native]::LoadImage([IntPtr]::Zero, $Path, 1, $actual.Width, $actual.Height, 0x10)
+    $expected = $null
+    try {
+        if ($reference -eq [IntPtr]::Zero) { throw '无法加载对照品牌图标。' }
+        $expected = [Drawing.Icon]::FromHandle($reference).ToBitmap()
+        for ($y = 0; $y -lt $actual.Height; $y++) {
+            for ($x = 0; $x -lt $actual.Width; $x++) {
+                if ($actual.GetPixel($x, $y).ToArgb() -ne $expected.GetPixel($x, $y).ToArgb()) { return $false }
+            }
+        }
+        return $true
+    } finally {
+        $actual.Dispose()
+        if ($expected) { $expected.Dispose() }
+        if ($reference -ne [IntPtr]::Zero) { $null = [AudioBuleSmoke.Native]::DestroyIcon($reference) }
+    }
+}
 try {
-    $env:LOCALAPPDATA = $testData
-    $application = Start-Process -FilePath $Executable -WindowStyle Hidden -PassThru
-    $env:LOCALAPPDATA = $originalLocalAppData
+    $null = New-Item -ItemType Directory -Path (Join-Path $testData 'AudioBule') -Force
+    '{"language":"zh-CN","theme":"light","autoReconnect":true,"lastConnectedDevices":[]}' | Set-Content (Join-Path $testData 'AudioBule\settings.json') -Encoding utf8
+    $env:LOCALAPPDATA = $testData; $env:AUDIOBULE_SMOKE_TEST = '1'
+    $application = Start-Process -FilePath $Executable -ArgumentList '--startup' -WindowStyle Hidden -PassThru
+    $env:LOCALAPPDATA = $originalLocalAppData; $env:AUDIOBULE_SMOKE_TEST = $originalSmoke
     Assert-Condition (Wait-Condition {
         $application.Refresh()
-        if ($application.HasExited) { throw ('应用启动崩溃，退出码：0x{0:X8}' -f $application.ExitCode) }
+        if ($application.HasExited) { throw ('应用启动崩溃：0x{0:X8}' -f $application.ExitCode) }
         [AudioBuleSmoke.Native]::Find([uint32]$application.Id, 'AudioBule.Tray') -ne [IntPtr]::Zero
-    }) '应用启动且托盘线程建立窗口'
+    }) '启动成功且托盘线程正常'
     $broadcast = [AudioBuleSmoke.Native]::Find([uint32]$application.Id, 'AudioBule.Tray')
-    $callback = [AudioBuleSmoke.Native]::FindWindowEx([IntPtr](-3), [IntPtr]::Zero, 'AudioBule.Tray', 'AudioBule.Tray.Callback')
-    Assert-Condition ($callback -ne [IntPtr]::Zero) 'message-only 托盘回调窗口存在'
+    $callback = [AudioBuleSmoke.Native]::FindCallback([uint32]$application.Id)
+    Assert-Condition ($callback -ne [IntPtr]::Zero) '托盘消息窗口属于本次测试进程'
+    $window = [AudioBuleSmoke.Native]::FindTitle([uint32]$application.Id, 'AudioBule')
+    $panel = [AudioBuleSmoke.Native]::FindTitle([uint32]$application.Id, 'AudioBule.QuickPanel')
+    Assert-Condition ($window -ne [IntPtr]::Zero -and $panel -ne [IntPtr]::Zero) '主窗口与独立快速面板已创建'
+    $iconPath = Join-Path (Split-Path ([IO.Path]::GetFullPath($Executable))) 'Assets\AppIcon.ico'
+    Assert-Condition (Test-WindowIcon $window $iconPath 1) '主窗口大图标与品牌图标一致'
+    Assert-Condition (Test-WindowIcon $window $iconPath 0) '主窗口小图标与品牌图标一致'
+    Assert-Condition (-not [AudioBuleSmoke.Native]::IsWindowVisible($window)) '开机启动模式不弹出主窗口'
     Assert-Condition ([AudioBuleSmoke.Native]::HasIcon($callback)) 'Shell 已登记托盘图标'
-    $window = [AudioBuleSmoke.Native]::Find([uint32]$application.Id, 'WinUIDesktopWin32WindowClass')
-    Assert-Condition ($window -ne [IntPtr]::Zero) '设备窗口已创建'
-    Assert-Condition (-not [AudioBuleSmoke.Native]::IsWindowVisible($window)) '启动时窗口隐藏'
-
-    # 版本 4 的 NIN_SELECT 在 lParam 低位，图标 ID 在高位。
     $null = [AudioBuleSmoke.Native]::PostMessage($callback, 0x8001, [IntPtr]0, [IntPtr]0x10400)
-    Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::IsWindowVisible($window) }) '托盘左键显示设备窗口'
-    $null = [AudioBuleSmoke.Native]::PostMessage($window, 0x10, [IntPtr]0, [IntPtr]0)
-    Assert-Condition (Wait-Condition { -not [AudioBuleSmoke.Native]::IsWindowVisible($window) }) '关闭按钮隐藏窗口'
-    $application.Refresh()
-    Assert-Condition (-not $application.HasExited) '关闭窗口后进程保持运行'
-
-    # 隐藏状态下右键也必须能弹出菜单，Esc 取消后仍然可再次使用。
+    Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::IsWindowVisible($panel) }) '托盘左键显示快速面板'
+    Assert-Condition (([AudioBuleSmoke.Native]::GetWindowLongPtr($panel, -16).ToInt64() -band 0xC40000) -eq 0) '托盘窗口没有传统对话框和调整大小边框'
+    $quickRoot = [System.Windows.Automation.AutomationElement]::FromHandle($panel)
+    Assert-Condition ($null -ne (Find-Ui $quickRoot '打开设备窗口' -Name)) '快速面板使用中文资源'
+    Save-WindowImage $panel 'tray'
+    Invoke-Ui (Find-Ui $quickRoot '打开设备窗口' -Name)
+    Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::IsWindowVisible($window) -and -not [AudioBuleSmoke.Native]::IsWindowVisible($panel) }) '快速面板打开主窗口并收起'
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($window)
+    Assert-Condition ($null -ne (Find-Ui $root '设备' -Name)) '主窗口设备页使用中文资源'
+    Invoke-Ui (Find-Ui $root 'RefreshButton')
+    Assert-Condition (Wait-Condition { (Find-Ui $root 'RefreshButton').Current.IsEnabled }) '真实设备枚举和刷新不阻塞界面'
+    Save-WindowImage $window ''
+    Invoke-Ui (Find-Ui $root 'SettingsNav')
+    Assert-Condition ($null -ne (Find-Ui $root '启动时自动重连' -Name)) '设置页显示原生开关'
+    $reconnect = Find-Ui $root 'AutoReconnect'
+    $startup = Find-Ui $root 'RunAtStartup'
+    $notifications = Find-Ui $root 'ConnectionNotifications'
+    Assert-Condition ([Math]::Abs($reconnect.Current.BoundingRectangle.Right - $startup.Current.BoundingRectangle.Right) -lt 2 -and [Math]::Abs($reconnect.Current.BoundingRectangle.Right - $notifications.Current.BoundingRectangle.Right) -lt 2) '设置页所有开关右边缘对齐'
+    Assert-Condition ($null -eq (Find-Ui $root '始终开启' -Name) -and $null -eq (Find-Ui $root '关闭窗口后继续运行' -Name)) '固定行为不再作为设置项展示'
+    # 验证开关真实可修改且保存，然后恢复测试配置。
+    $reconnect.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+    Assert-Condition (Wait-Condition { -not ([IO.File]::ReadAllText((Join-Path $testData 'AudioBule\settings.json')) | ConvertFrom-Json).autoReconnect }) '自动重连开关可关闭并保存'
+    (Find-Ui $root 'AutoReconnect').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+    Assert-Condition (Wait-Condition { ([IO.File]::ReadAllText((Join-Path $testData 'AudioBule\settings.json')) | ConvertFrom-Json).autoReconnect }) '自动重连开关可重新开启'
+    Save-WindowImage $window 'settings'
+    Select-Combo $root 'Theme' '深色'
+    Assert-Condition (Wait-Condition { ([IO.File]::ReadAllText((Join-Path $testData 'AudioBule\settings.json')) | ConvertFrom-Json).theme -eq 'dark' }) '深色主题即时生效并保存'
+    $null = [AudioBuleSmoke.Native]::SetWindowPos($window, [IntPtr]::Zero, 0, 0, 976, 880, 0x6)
+    Start-Sleep -Milliseconds 200
+    $settingsScroll = (Find-Ui $root 'SettingsPage').GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+    if ($settingsScroll.Current.VerticallyScrollable) { $settingsScroll.SetScrollPercent(-1, 0) }
+    Save-WindowImage $window 'settings-dark-zh'
+    Select-Combo $root 'Language' 'English'
+    Assert-Condition (Wait-Condition { $null -ne (Find-Ui $root 'Settings' -Name) }) '语言切换即时更新导航和设置'
+    $null = [AudioBuleSmoke.Native]::SetWindowPos($window, [IntPtr]::Zero, 0, 0, 976, 880, 0x6)
+    Start-Sleep -Milliseconds 200
+    $settingsScroll = (Find-Ui $root 'SettingsPage').GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+    if ($settingsScroll.Current.VerticallyScrollable) { $settingsScroll.SetScrollPercent(-1, 0) }
+    Start-Sleep -Milliseconds 300
+    $reconnect = Find-Ui $root 'AutoReconnect'
+    $theme = Find-Ui $root 'Theme'
+    $language = Find-Ui $root 'Language'
+    Save-WindowImage $window 'english-dark'
+    # 原生下拉框自动化边界比可见边框向外扩展约 4 DIP，允许不同控件的交互区域差异。
+    $columnTolerance = 6 * [AudioBuleSmoke.Native]::GetDpiForWindow($window) / 96
+    Assert-Condition ([Math]::Abs($reconnect.Current.BoundingRectangle.Right - $theme.Current.BoundingRectangle.Right) -lt $columnTolerance -and [Math]::Abs($reconnect.Current.BoundingRectangle.Right - $language.Current.BoundingRectangle.Right) -lt $columnTolerance) '英文界面开关与下拉框右边缘对齐'
+    $null = [AudioBuleSmoke.Native]::PostMessage($callback, 0x8001, [IntPtr]0, [IntPtr]0x10400)
+    Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::IsWindowVisible($panel) }) '深色快速面板正常打开'
+    Save-WindowImage $panel 'tray-dark'
+    Invoke-Ui (Find-Ui ([System.Windows.Automation.AutomationElement]::FromHandle($panel)) 'Open device window' -Name)
+    Invoke-Ui (Find-Ui $root 'AboutNav')
+    Assert-Condition ($null -ne (Find-Ui $root 'How to listen' -Name)) '使用介绍仅位于关于页'
+    Save-WindowImage $window 'about'
+    Invoke-Ui (Find-Ui $root 'DevicesNav')
+    Save-WindowImage $window 'devices-english-dark'
+    $null = [AudioBuleSmoke.Native]::SetWindowPos($window, [IntPtr]::Zero, 0, 0, 640, 620, 0x6)
+    Save-WindowImage $window 'compact'
+    Assert-Condition ($null -ne (Find-Ui $root 'NavigationButton')) '窄窗口保留标题栏导航入口'
+    $null = [AudioBuleSmoke.Native]::SetWindowPos($window, [IntPtr]::Zero, 0, 0, 420, 620, 0x6)
+    Invoke-Ui (Find-Ui $root 'NavigationButton')
+    Assert-Condition ($null -ne (Find-Ui $root 'SettingsNav')) '最窄窗口可从标题栏打开导航'
+    Save-WindowImage $window 'minimal-navigation'
+    Invoke-Ui (Find-Ui $root 'NavigationButton')
+    $null = [AudioBuleSmoke.Native]::SetWindowPos($window, [IntPtr]::Zero, 0, 0, 976, 680, 0x6)
+    $null = [AudioBuleSmoke.Native]::PostMessage($window, 0x112, [IntPtr]0xF020, [IntPtr]0)
+    Assert-Condition (Wait-Condition { -not [AudioBuleSmoke.Native]::IsWindowVisible($window) }) '最小化隐藏至托盘'
     $null = [AudioBuleSmoke.Native]::PostMessage($callback, 0x8001, [IntPtr]0x00640064, [IntPtr]0x1007B)
-    Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::Find([uint32]$application.Id, '#32768') -ne [IntPtr]::Zero }) '隐藏窗口时托盘右键菜单可用'
-    $popup = [AudioBuleSmoke.Native]::Find([uint32]$application.Id, '#32768')
-    $menu = [AudioBuleSmoke.Native]::SendMessage($popup, 0x01E1, [IntPtr]0, [IntPtr]0)
-    Assert-Condition ([AudioBuleSmoke.Native]::GetMenuItemCount($menu) -eq 7) '菜单项目完整'
-    $labels = for ($index = 0; $index -lt 7; $index++) {
-        $text = [Text.StringBuilder]::new(128)
-        $null = [AudioBuleSmoke.Native]::GetMenuString($menu, $index, $text, 128, 0x400)
-        $text.ToString()
-    }
-    Assert-Condition ($labels -contains '退出' -and $labels -contains '启动时自动重连') '菜单文字正确'
-    $null = [AudioBuleSmoke.Native]::PostMessage($popup, 0x100, [IntPtr]27, [IntPtr]0)
-    Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::Find([uint32]$application.Id, '#32768') -eq [IntPtr]::Zero }) 'Esc 取消菜单'
-
-    # 模拟系统广播，验证恢复路径；避免结束用户的桌面进程。
+    Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::IsWindowVisible($panel) }) '主窗口隐藏时右键菜单仍可用'
+    $quickRoot = [System.Windows.Automation.AutomationElement]::FromHandle($panel)
+    Assert-Condition ($null -ne (Find-Ui $quickRoot 'Settings' -Name) -and $null -ne (Find-Ui $quickRoot 'Exit AudioBule' -Name)) '右键菜单同步使用英文资源'
+    Assert-Condition ($null -eq (Find-Ui $quickRoot 'Reconnect on launch' -Name) -and $null -eq (Find-Ui $quickRoot 'Run at startup' -Name)) '右键菜单不重复放置设置开关'
+    Save-WindowImage $panel 'menu'
+    Invoke-Ui (Find-Ui $quickRoot 'Open device window' -Name)
+    $null = [AudioBuleSmoke.Native]::PostMessage($window, 0x10, [IntPtr]0, [IntPtr]0)
+    Assert-Condition (Wait-Condition { -not [AudioBuleSmoke.Native]::IsWindowVisible($window) }) '关闭窗口保持托盘运行'
+    Assert-Condition (-not $application.HasExited) '隐藏窗口不会退出进程'
+    # 键盘打开仍可定位控件并用 Esc 关闭，鼠标模式不影响键盘可访问性。
+    $null = [AudioBuleSmoke.Native]::PostMessage($callback, 0x8001, [IntPtr]0, [IntPtr]0x10401)
+    Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::IsWindowVisible($panel) }) '键盘托盘选择显示快速面板'
+    $quickRoot = [System.Windows.Automation.AutomationElement]::FromHandle($panel)
+    Assert-Condition (Wait-Condition { (Find-Ui $quickRoot 'Open device window' -Name).Current.HasKeyboardFocus }) '键盘打开面板保留操作焦点'
+    Assert-Condition ([AudioBuleSmoke.Native]::SendEscape($panel, [uint32]$application.Id)) 'Esc 消息仅发送到测试进程的输入窗口'
+    Assert-Condition (Wait-Condition { -not [AudioBuleSmoke.Native]::IsWindowVisible($panel) }) '键盘 Esc 关闭快速面板'
+    $null = [AudioBuleSmoke.Native]::PostMessage($callback, 0x8001, [IntPtr](-1), [IntPtr]0x1007B)
+    Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::IsWindowVisible($panel) }) '键盘快捷菜单可以打开'
+    $quickRoot = [System.Windows.Automation.AutomationElement]::FromHandle($panel)
+    Assert-Condition (Wait-Condition { (Find-Ui $quickRoot 'Open device window' -Name).Current.HasKeyboardFocus }) '键盘菜单首项获得焦点'
+    $null = [AudioBuleSmoke.Native]::SendEscape($panel, [uint32]$application.Id)
+    Assert-Condition (Wait-Condition { -not [AudioBuleSmoke.Native]::IsWindowVisible($panel) }) '键盘 Esc 关闭菜单'
+    # 模拟广播验证 Explorer 恢复路径，不终止桌面进程。
     $gdiBefore = [AudioBuleSmoke.Native]::GetGuiResources($application.Handle, 0)
     $taskbarCreated = [AudioBuleSmoke.Native]::RegisterWindowMessage('TaskbarCreated')
-    for ($index = 0; $index -lt 20; $index++) {
+    for ($index = 0; $index -lt 10; $index++) {
         $null = [AudioBuleSmoke.Native]::PostMessage($broadcast, $taskbarCreated, [IntPtr]0, [IntPtr]0)
         $null = [AudioBuleSmoke.Native]::PostMessage($broadcast, 0x1A, [IntPtr]0, [IntPtr]0)
     }
-    Start-Sleep -Milliseconds 800
-    Assert-Condition ([AudioBuleSmoke.Native]::HasIcon($callback)) 'TaskbarCreated 后托盘图标存在'
+    Start-Sleep -Milliseconds 600
     $gdiAfter = [AudioBuleSmoke.Native]::GetGuiResources($application.Handle, 0)
-    Assert-Condition ($gdiAfter -le $gdiBefore + 2) "重复广播无持续 GDI 泄漏（$gdiBefore → $gdiAfter）"
-
-    # UI Automation 仅调用本进程的退出按钮，覆盖真实关闭和配置保存链路。
-    $null = [AudioBuleSmoke.Native]::PostMessage($callback, 0x8001, [IntPtr]0, [IntPtr]0x10400)
-    Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::IsWindowVisible($window) }) '关闭后可再次从托盘显示窗口'
-    # PowerShell Core 使用与自身 .NET 主版本一致的桌面运行时，不能加载旧 Framework 转发程序集。
-    $desktopRuntime = Get-ChildItem -LiteralPath "$env:ProgramFiles\dotnet\shared\Microsoft.WindowsDesktop.App" -Directory |
-        Where-Object { $_.Name.StartsWith([Environment]::Version.Major.ToString() + '.') } |
-        Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
-    if (-not $desktopRuntime) { throw '冒烟测试需要与 PowerShell 对应的 .NET Windows Desktop Runtime。' }
-    foreach ($assembly in 'WindowsBase.dll', 'UIAutomationTypes.dll', 'UIAutomationClient.dll') {
-        Add-Type -Path (Join-Path $desktopRuntime.FullName $assembly)
+    Assert-Condition ([AudioBuleSmoke.Native]::HasIcon($callback)) 'Explorer 恢复广播后托盘存在'
+    # 首轮会建立 WinUI/DWM 缓存，第二轮判断资源是否持续增长。
+    Write-Output "系统资源预热：$gdiBefore → $gdiAfter"
+    $gdiBefore = $gdiAfter
+    for ($index = 0; $index -lt 10; $index++) {
+        $null = [AudioBuleSmoke.Native]::PostMessage($broadcast, $taskbarCreated, [IntPtr]0, [IntPtr]0)
+        $null = [AudioBuleSmoke.Native]::PostMessage($broadcast, 0x1A, [IntPtr]0, [IntPtr]0)
     }
+    Start-Sleep -Milliseconds 600
+    $gdiAfter = [AudioBuleSmoke.Native]::GetGuiResources($application.Handle, 0)
+    Assert-Condition ($gdiAfter -le $gdiBefore + 2) "图标更新无 GDI 泄漏（$gdiBefore → $gdiAfter）"
+    $null = [AudioBuleSmoke.Native]::PostMessage($callback, 0x8001, [IntPtr]0x00640064, [IntPtr]0x1007B)
+    Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::IsWindowVisible($panel) }) '菜单可以重复打开'
+    $quickRoot = [System.Windows.Automation.AutomationElement]::FromHandle($panel)
+    Invoke-Ui (Find-Ui $quickRoot 'Exit AudioBule' -Name)
     $root = [System.Windows.Automation.AutomationElement]::FromHandle($window)
-    $summary = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'SummaryText'))
-    Assert-Condition ($null -ne $summary -and $summary.Current.Name -match '台设备') '设备枚举完成且窗口呈现设备数量'
-    $refresh = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'RefreshButton'))
-    $refresh.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-    Assert-Condition (Wait-Condition { $summary.Current.Name -match '台设备' }) '刷新后界面保持响应并更新列表'
-    if ($ScreenshotPath) {
-        # 只渲染本次测试的设备窗口，不抓取整个桌面。
-        Add-Type -AssemblyName System.Drawing
-        $bounds = [AudioBuleSmoke.Native+Rect]::new()
-        $null = [AudioBuleSmoke.Native]::GetWindowRect($window, [ref]$bounds)
-        $bitmap = [Drawing.Bitmap]::new($bounds.right - $bounds.left, $bounds.bottom - $bounds.top)
-        $graphics = [Drawing.Graphics]::FromImage($bitmap)
-        $dc = $graphics.GetHdc()
-        try {
-            $null = [AudioBuleSmoke.Native]::PrintWindow($window, $dc, 2)
-        } finally { $graphics.ReleaseHdc($dc); $graphics.Dispose() }
-        try {
-            $destination = [IO.Path]::GetFullPath($ScreenshotPath)
-            $null = New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force
-            $bitmap.Save($destination, [Drawing.Imaging.ImageFormat]::Png)
-            Write-Output "窗口截图：$destination"
-        } finally { $bitmap.Dispose() }
-    }
-    $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, '退出')
-    $button = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
-    Assert-Condition ($null -ne $button) '设备窗口可访问退出按钮'
-    $pattern = $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-    $pattern.Invoke()
-    Assert-Condition ($application.WaitForExit(10000)) '正常退出无残留进程'
-    Assert-Condition ($application.ExitCode -eq 0) '退出码为 0'
-    Assert-Condition (-not [AudioBuleSmoke.Native]::HasIcon($callback)) '退出后托盘图标移除'
-    $saved = Join-Path $testData 'AudioBule\settings.json'
-    Assert-Condition (Test-Path -LiteralPath $saved) '退出时保存配置'
-    $settings = [IO.File]::ReadAllText($saved) | ConvertFrom-Json
-    Assert-Condition ($settings.autoReconnect -eq $true) '配置可解析且保留重连设置'
+    Assert-Condition (Wait-Condition { $null -ne (Find-Ui $root 'Cancel' -Name) }) '退出前显示原生确认框'
+    Save-WindowImage $window 'exit-dialog'
+    Invoke-Ui (Find-Ui $root 'Cancel' -Name)
+    Assert-Condition (-not $application.HasExited) '取消退出后继续运行'
+    Invoke-Ui (Find-Ui $root 'SettingsNav')
+    $exit = Find-Ui $root 'Exit AudioBule' -Name
+    $scroll = $null
+    if ($exit.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern, [ref]$scroll)) { $scroll.ScrollIntoView() }
+    Invoke-Ui $exit
+    Assert-Condition (Wait-Condition { $null -ne (Find-Ui $root 'Exit' -Name) }) '设置页退出同样经过确认'
+    Invoke-Ui (Find-Ui $root 'Exit' -Name)
+    Assert-Condition ($application.WaitForExit(10000)) '确认后正常退出无残留进程'
+    Assert-Condition ($application.ExitCode -eq 0) '正常退出码为 0'
+    Assert-Condition (-not [AudioBuleSmoke.Native]::HasIcon($callback)) '退出后托盘移除'
+    $settings = [IO.File]::ReadAllText((Join-Path $testData 'AudioBule\settings.json')) | ConvertFrom-Json
+    Assert-Condition ($settings.language -eq 'en-US' -and $settings.theme -eq 'dark' -and $settings.autoReconnect) '退出保留语言、主题与重连设置'
+    $application.Dispose()
+    $env:LOCALAPPDATA = $testData; $env:AUDIOBULE_SMOKE_TEST = '1'
+    $application = Start-Process -FilePath $Executable -WindowStyle Hidden -PassThru
+    $env:LOCALAPPDATA = $originalLocalAppData; $env:AUDIOBULE_SMOKE_TEST = $originalSmoke
+    Assert-Condition (Wait-Condition {
+        $window = [AudioBuleSmoke.Native]::FindTitle([uint32]$application.Id, 'AudioBule')
+        $window -ne [IntPtr]::Zero -and [AudioBuleSmoke.Native]::IsWindowVisible($window)
+    }) '普通启动显示主窗口'
+    $window = [AudioBuleSmoke.Native]::FindTitle([uint32]$application.Id, 'AudioBule')
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($window)
+    Assert-Condition ($null -ne (Find-Ui $root 'Devices' -Name)) '再次启动保留英文界面'
+    Invoke-Ui (Find-Ui $root 'SettingsNav')
+    $theme = Find-Ui $root 'Theme'
+    $selection = $theme.GetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern).Current.GetSelection()
+    Assert-Condition ($selection[0].Current.Name -eq 'Dark') '再次启动保留深色设置'
+    $exit = Find-Ui $root 'Exit AudioBule' -Name
+    $scroll = $null
+    if ($exit.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern, [ref]$scroll)) { $scroll.ScrollIntoView() }
+    Invoke-Ui $exit
+    Invoke-Ui (Find-Ui $root 'Exit' -Name)
+    Assert-Condition ($application.WaitForExit(10000) -and $application.ExitCode -eq 0) '第二次启动也正常退出'
 } finally {
-    $env:LOCALAPPDATA = $originalLocalAppData
-    if ($application) {
-        $application.Refresh()
-        if (-not $application.HasExited) { Stop-Process -Id $application.Id }
-        $application.Dispose()
-    }
-    # 只清理本脚本创建的随机临时目录，并核验最终绝对路径。
+    $env:LOCALAPPDATA = $originalLocalAppData; $env:AUDIOBULE_SMOKE_TEST = $originalSmoke
+    if ($application) { $application.Refresh(); if (-not $application.HasExited) { Stop-Process -Id $application.Id }; $application.Dispose() }
     $resolved = [IO.Path]::GetFullPath($testData)
     $temporaryRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
-    if ($resolved.StartsWith($temporaryRoot, [StringComparison]::OrdinalIgnoreCase) -and
-        [IO.Path]::GetFileName($resolved).StartsWith('AudioBuleSmoke_') -and
-        (Test-Path -LiteralPath $resolved)) {
-        Remove-Item -LiteralPath $resolved -Recurse -Force
-    }
+    if ($resolved.StartsWith($temporaryRoot, [StringComparison]::OrdinalIgnoreCase) -and [IO.Path]::GetFileName($resolved).StartsWith('AudioBuleSmoke_') -and (Test-Path -LiteralPath $resolved)) { Remove-Item -LiteralPath $resolved -Recurse -Force }
 }

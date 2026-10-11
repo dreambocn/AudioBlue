@@ -10,6 +10,10 @@ struct AppSettings
 {
     bool autoReconnect = true;
     bool runAtStartup = false;
+    bool connectionNotifications = true;
+    // 只接受 system / light / dark 和 system / zh-CN / en-US。
+    std::wstring theme = L"system";
+    std::wstring language = L"system";
     std::vector<std::wstring> lastConnectedDevices;
 };
 

@@ -2,7 +2,10 @@
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-         IgnorableNamespaces="uap rescap">
+         xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+         xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+         xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+         IgnorableNamespaces="uap uap5 desktop com rescap">
   <Identity Name="AudioBule" Publisher="CN=AudioBule" Version="1.0.0.0" ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>AudioBule</DisplayName>
@@ -17,13 +20,29 @@
         MinVersion="8000.994.2142.0" />
   </Dependencies>
   <Resources>
-    <Resource Language="zh-CN" />
+    <Resource Language="zh-CN" /><Resource Language="en-US" />
   </Resources>
   <Applications>
     <Application Id="App" Executable="AudioBule.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements DisplayName="AudioBule" Description="让电脑接收来自手机的蓝牙音频"
           BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png"
           Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <!-- 开机启动默认关闭，用户在设置中启用。 -->
+        <uap5:Extension Category="windows.startupTask" Executable="AudioBule.exe" EntryPoint="Windows.FullTrustApplication">
+          <uap5:StartupTask TaskId="AudioBuleStartup" Enabled="false" DisplayName="AudioBule" />
+        </uap5:Extension>
+        <desktop:Extension Category="windows.toastNotificationActivation">
+          <desktop:ToastNotificationActivation ToastActivatorCLSID="23C92AAC-1B09-4335-B670-0C1769B97E99" />
+        </desktop:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="AudioBule.exe" DisplayName="AudioBule" Arguments="----AppNotificationActivated:">
+              <com:Class Id="23C92AAC-1B09-4335-B670-0C1769B97E99" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
+      </Extensions>
     </Application>
   </Applications>
   <Capabilities>

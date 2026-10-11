@@ -129,3 +129,15 @@ TEST(IconFactory, DestroyToleratesNull)
 {
     DestroyTrayIcon(TrayIcon{});   // 不得崩溃
 }
+TEST(IconFactory, ConnectedBadgeResourcesLoadForBothTaskbarThemes)
+{
+    // 徽标资源必须独立存在，且能在运行时创建有效图标。
+    for (auto dark : { false, true }) {
+        auto resource = ReadIconResource(dark ? 203 : 204);
+        ASSERT_FALSE(resource.empty());
+        EXPECT_NE(resource, ReadIconResource(dark ? 201 : 202));
+        auto icon = CreateTrayIcon(dark, true);
+        EXPECT_TRUE(static_cast<bool>(icon));
+        DestroyTrayIcon(icon);
+    }
+}

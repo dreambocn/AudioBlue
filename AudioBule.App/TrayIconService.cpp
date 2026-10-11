@@ -170,13 +170,23 @@ void TrayIconService::ProcessMessage(HWND window, UINT message, WPARAM wParam, L
         UINT event = m_version4 ? LOWORD(lParam) : static_cast<UINT>(lParam);
         if (m_version4 && HIWORD(lParam) != m_data.uID) return;
         if (event == NIN_SELECT || event == NIN_KEYSELECT || (!m_version4 && event == WM_LBUTTONUP))
-            Dispatch([](Callbacks const& callbacks) { if (callbacks.onToggled) callbacks.onToggled(); });
+            {
+            NOTIFYICONIDENTIFIER identifier{ sizeof(identifier), m_window, m_data.uID, {} };
+            RECT bounds{};
+            POINT point{ GET_X_LPARAM(wParam), GET_Y_LPARAM(wParam) };
+            if (SUCCEEDED(::Shell_NotifyIconGetRect(&identifier, &bounds)))
+                point = { (bounds.left + bounds.right) / 2, bounds.top };
+            else if (!m_version4 || (point.x == -1 && point.y == -1)) ::GetCursorPos(&point);
+            bool keyboard = event == NIN_KEYSELECT;
+            Dispatch([point, keyboard](Callbacks const& callbacks) { if (callbacks.onToggled) callbacks.onToggled(point, keyboard); });
+        }
         else if (event == WM_CONTEXTMENU || (!m_version4 && event == WM_RBUTTONUP))
         {
             POINT point{ GET_X_LPARAM(wParam), GET_Y_LPARAM(wParam) };
+            bool keyboard = m_version4 && point.x == -1 && point.y == -1;
             if (!m_version4 || (point.x == -1 && point.y == -1)) ::GetCursorPos(&point);
-            Dispatch([point](Callbacks const& callbacks) {
-                if (callbacks.onContextMenu) callbacks.onContextMenu(point);
+            Dispatch([point, keyboard](Callbacks const& callbacks) {
+                if (callbacks.onContextMenu) callbacks.onContextMenu(point, keyboard);
             });
         }
     }
@@ -216,10 +226,11 @@ void TrayIconService::PostWork(std::function<void()> work)
     if (!::PostMessageW(m_publishedWindow, kWork, 0, 0)) m_work.clear();
 }
 
-void TrayIconService::UpdateIcon(bool darkTheme)
+void TrayIconService::UpdateIcon(bool darkTheme, bool connected)
 {
-    PostWork([this, darkTheme] {
-        auto replacement = Core::CreateTrayIcon(darkTheme);
+    PostWork([this, darkTheme, connected] {
+        if (m_icon && m_darkTheme == darkTheme && m_connected == connected) return;
+        auto replacement = Core::CreateTrayIcon(darkTheme, connected);
         if (!replacement) return;
         auto data = m_data;
         data.hIcon = static_cast<HICON>(replacement.handle);
@@ -230,6 +241,7 @@ void TrayIconService::UpdateIcon(bool darkTheme)
         }
         Core::DestroyTrayIcon(m_icon);
         m_icon = replacement;
+        m_darkTheme = darkTheme; m_connected = connected;
         m_data.hIcon = data.hIcon;
     });
 }

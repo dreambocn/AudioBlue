@@ -17,7 +17,7 @@ struct TrayIcon
 //   darkTheme = true  → 深色任务栏：画浅色图形
 // 返回空 TrayIcon 表示资源加载失败；调用方可显示设备窗口作为备用入口。
 // 调用方**必须**用 DestroyTrayIcon 释放，否则 GDI 对象泄漏。
-TrayIcon CreateTrayIcon(bool darkTheme);
+TrayIcon CreateTrayIcon(bool darkTheme, bool connected = false);
 
 void DestroyTrayIcon(TrayIcon icon);
 

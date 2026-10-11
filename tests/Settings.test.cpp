@@ -256,3 +256,46 @@ TEST(Settings, RoundTripOnStaThread)
     worker.join();
     EXPECT_TRUE(completed.get());
 }
+
+TEST(Settings, AppearanceAndNotificationsRoundTrip)
+{
+    TempDir temporary;
+    AppSettings settings;
+    settings.theme = L"dark";
+    settings.language = L"en-US";
+    settings.connectionNotifications = false;
+    ASSERT_TRUE(SaveSettings(settings, temporary.FilePath()));
+    auto loaded = LoadSettings(temporary.FilePath());
+    EXPECT_EQ(loaded.theme, L"dark");
+    EXPECT_EQ(loaded.language, L"en-US");
+    EXPECT_FALSE(loaded.connectionNotifications);
+}
+
+TEST(Settings, LegacyConfigurationUsesAppearanceDefaults)
+{
+    TempDir temporary;
+    WriteTextFile(temporary.FilePath(), LR"({"autoReconnect":false,"runAtStartup":true})");
+    auto settings = LoadSettings(temporary.FilePath());
+    EXPECT_FALSE(settings.autoReconnect);
+    EXPECT_TRUE(settings.runAtStartup);
+    EXPECT_EQ(settings.theme, L"system");
+    EXPECT_EQ(settings.language, L"system");
+    EXPECT_TRUE(settings.connectionNotifications);
+}
+
+TEST(Settings, InvalidAppearanceValuesFallBackIndependently)
+{
+    TempDir temporary;
+    WriteTextFile(temporary.FilePath(), LR"({"theme":"purple","language":23,"connectionNotifications":"yes","autoReconnect":false})");
+    auto settings = LoadSettings(temporary.FilePath());
+    EXPECT_EQ(settings.theme, L"system");
+    EXPECT_EQ(settings.language, L"system");
+    EXPECT_TRUE(settings.connectionNotifications);
+    EXPECT_FALSE(settings.autoReconnect);
+    settings.theme = L"invalid";
+    settings.language = L"invalid";
+    ASSERT_TRUE(SaveSettings(settings, temporary.FilePath()));
+    auto normalized = LoadSettings(temporary.FilePath());
+    EXPECT_EQ(normalized.theme, L"system");
+    EXPECT_EQ(normalized.language, L"system");
+}

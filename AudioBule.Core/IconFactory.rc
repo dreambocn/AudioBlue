@@ -1,9 +1,14 @@
 #include <windows.h>
 
 // 托盘图标资源。由 assets/icons/Build-Icons.ps1 从
-// assets/icons/bluetooth.svg（Tabler Icons, MIT）生成。
+// assets/icons/app.svg 和 tray-light/dark.svg 生成。
 // ID 201 = 深色任务栏用（浅色图形），202 = 浅色任务栏用（深色图形）。
 // 与 IconFactory.cpp 里的常量对应。
 
 201 RCDATA "icons/tray-dark.ico"
 202 RCDATA "icons/tray-light.ico"
+101 ICON "icons/app.ico"
+
+// 带连接状态徽标的主题资源。
+203 RCDATA "icons/tray-dark-connected.ico"
+204 RCDATA "icons/tray-light-connected.ico"

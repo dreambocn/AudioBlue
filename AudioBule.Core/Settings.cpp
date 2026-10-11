@@ -58,6 +58,18 @@ bool TryGetBool(IJsonObject const& json, wchar_t const* key, bool defaultValue)
     }
 }
 
+std::wstring TryGetChoice(IJsonObject const& json, wchar_t const* key,
+    std::initializer_list<std::wstring_view> choices)
+{
+    try
+    {
+        auto value = std::wstring(json.GetNamedString(key));
+        if (std::find(choices.begin(), choices.end(), value) != choices.end()) return value;
+    }
+    catch (winrt::hresult_error const&) { /* 无效或旧版字段回退到跟随系统。 */ }
+    return L"system";
+}
+
 // 取字符串数组。字段不存在 / 不是数组 / 元素非字符串时返回空或部分结果，不抛异常。
 std::vector<std::wstring> TryGetStringArray(IJsonObject const& json, wchar_t const* key)
 {
@@ -140,6 +152,9 @@ AppSettings LoadSettings(std::wstring const& path)
 
         settings.autoReconnect = TryGetBool(json, kAutoReconnectKey, settings.autoReconnect);
         settings.runAtStartup = TryGetBool(json, kRunAtStartupKey, settings.runAtStartup);
+        settings.connectionNotifications = TryGetBool(json, L"connectionNotifications", true);
+        settings.theme = TryGetChoice(json, L"theme", { L"system", L"light", L"dark" });
+        settings.language = TryGetChoice(json, L"language", { L"system", L"zh-CN", L"en-US" });
         settings.lastConnectedDevices = TryGetStringArray(json, kLastDevicesKey);
     }
     catch (winrt::hresult_error const&)
@@ -175,6 +190,11 @@ bool SaveSettings(AppSettings const& settings, std::wstring const& path)
             JsonValue::CreateBooleanValue(normalized.autoReconnect));
         json.Insert(kRunAtStartupKey,
             JsonValue::CreateBooleanValue(normalized.runAtStartup));
+        json.Insert(L"connectionNotifications", JsonValue::CreateBooleanValue(normalized.connectionNotifications));
+        auto theme = normalized.theme == L"light" || normalized.theme == L"dark" ? normalized.theme : L"system";
+        auto language = normalized.language == L"zh-CN" || normalized.language == L"en-US" ? normalized.language : L"system";
+        json.Insert(L"theme", JsonValue::CreateStringValue(theme));
+        json.Insert(L"language", JsonValue::CreateStringValue(language));
 
         JsonArray deviceArray;
         for (auto const& id : normalized.lastConnectedDevices)

@@ -1,43 +1,62 @@
 <Window x:Class="AudioBule.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <!-- 固定操作区、可滚动设备列表和底部状态区。 -->
-    <Grid x:Name="RootPanel" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="24" RowSpacing="16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-        <StackPanel Spacing="4">
-            <TextBlock Text="AudioBule" FontSize="28" FontWeight="SemiBold" />
-            <TextBlock Text="让电脑接收来自手机的蓝牙音频" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        </StackPanel>
-        <Grid Grid.Row="1" ColumnSpacing="8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <TextBlock x:Name="SummaryText" Text="正在查找设备…" VerticalAlignment="Center" />
-            <Button x:Name="RefreshButton" Grid.Column="1" Content="刷新" AutomationProperties.Name="刷新设备列表" />
-            <Button x:Name="AddDeviceButton" Grid.Column="2" Content="添加设备" AutomationProperties.Name="打开系统蓝牙设置" />
+    <!-- 原生导航和主题资源保持与 Windows 控件一致。 -->
+    <Grid x:Name="RootPanel">
+        <Grid.RowDefinitions><RowDefinition Height="48"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Button x:Name="NavigationButton" Width="40" Height="32" Background="Transparent" BorderThickness="0" HorizontalAlignment="Center"><FontIcon Glyph="&#xE700;" FontSize="16"/></Button>
+            <Grid x:Name="TitleDragRegion" Grid.Column="1" Margin="0,0,140,0">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Image Source="ms-appx:///Assets/AppIcon.png" Width="20" Height="20"/>
+                    <TextBlock Text="AudioBule" FontSize="12" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
         </Grid>
-        <Grid Grid.Row="2">
-            <ListView x:Name="DeviceList" SelectionMode="None" HorizontalContentAlignment="Stretch" />
-            <StackPanel x:Name="EmptyState" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" MaxWidth="330">
-                <FontIcon Glyph="&#xE702;" FontSize="36" HorizontalAlignment="Center" />
-                <TextBlock Text="还没有可连接的设备" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" />
-                <TextBlock Text="先在系统蓝牙设置中配对手机，再点击刷新。连接后，在手机上播放音频即可。" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
-        </Grid>
-        <Grid Grid.Row="3" ColumnSpacing="12">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <TextBlock x:Name="FooterText" Text="关闭窗口后继续在托盘运行" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
-            <Button x:Name="ExitButton" Grid.Column="1" Content="退出" />
-        </Grid>
+        <NavigationView x:Name="Navigation" Grid.Row="1" IsBackButtonVisible="Collapsed" IsSettingsVisible="False"
+            IsPaneToggleButtonVisible="False" IsPaneOpen="True" OpenPaneLength="208" CompactPaneLength="48" PaneDisplayMode="Auto"
+            ExpandedModeThresholdWidth="800" CompactModeThresholdWidth="480" IsTitleBarAutoPaddingEnabled="False">
+            <NavigationView.MenuItems>
+                <NavigationViewItem x:Name="DevicesNav" Tag="devices"><NavigationViewItem.Icon><FontIcon Glyph="&#xE8EA;"/></NavigationViewItem.Icon></NavigationViewItem>
+            </NavigationView.MenuItems>
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem x:Name="AboutNav" Tag="about"><NavigationViewItem.Icon><FontIcon Glyph="&#xE946;"/></NavigationViewItem.Icon></NavigationViewItem>
+                <NavigationViewItem x:Name="SettingsNav" Tag="settings"><NavigationViewItem.Icon><FontIcon Glyph="&#xE713;"/></NavigationViewItem.Icon></NavigationViewItem>
+            </NavigationView.FooterMenuItems>
+            <Grid Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="8,0,0,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1,1,0,0" Padding="28,24">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <InfoBar x:Name="StatusBar" Severity="Error" IsOpen="False" Margin="0,0,0,16"/>
+                <Grid Grid.Row="1">
+                    <Grid x:Name="DevicesPage" RowSpacing="24">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <StackPanel Spacing="4"><TextBlock x:Name="PageTitle" FontSize="28" FontWeight="SemiBold"/><TextBlock x:Name="PageDescription" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/></StackPanel>
+                            <Button x:Name="AddDeviceButton" Grid.Column="1" Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Center" Padding="12,5"/>
+                        </Grid>
+                        <Grid Grid.Row="1">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <StackPanel><Button x:Name="AllFilter" Background="Transparent" BorderThickness="0" Padding="0,5"/><Rectangle x:Name="AllIndicator" Width="20" Height="3" RadiusX="1.5" RadiusY="1.5" Fill="{ThemeResource SystemAccentColor}"/></StackPanel>
+                                <StackPanel Margin="12,0,0,0"><Button x:Name="ConnectedFilter" Background="Transparent" BorderThickness="0" Padding="0,5"/><Rectangle x:Name="ConnectedIndicator" Width="20" Height="3" RadiusX="1.5" RadiusY="1.5" Fill="{ThemeResource SystemAccentColor}" Visibility="Collapsed"/></StackPanel>
+                            </StackPanel>
+                            <Button x:Name="RefreshButton" HorizontalAlignment="Right" Background="Transparent" BorderThickness="0"><StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE72C;" FontSize="16"/><TextBlock x:Name="RefreshLabel"/></StackPanel></Button>
+                        </Grid>
+                        <Grid Grid.Row="2">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="DeviceRows" Spacing="8"/></ScrollViewer>
+                            <StackPanel x:Name="EmptyState" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" MaxWidth="320">
+                                <FontIcon Glyph="&#xE702;" FontSize="32" HorizontalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <TextBlock x:Name="EmptyTitle" FontSize="20" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap"/>
+                                <TextBlock x:Name="EmptyDescription" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextAlignment="Center" TextWrapping="Wrap"/>
+                                <Button x:Name="EmptyAction" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                    <ScrollViewer x:Name="SettingsPage" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"><StackPanel x:Name="SettingsRows" Spacing="4"/></ScrollViewer>
+                    <ScrollViewer x:Name="AboutPage" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"><StackPanel x:Name="AboutRows" Spacing="8"/></ScrollViewer>
+                </Grid>
+                <TextBlock x:Name="SummaryText" Grid.Row="2" Margin="0,20,0,0" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </Grid>
+        </NavigationView>
     </Grid>
 </Window>

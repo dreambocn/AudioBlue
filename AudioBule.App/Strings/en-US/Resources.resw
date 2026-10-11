@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms</value>
+  </resheader>
+  <data name="Devices" xml:space="preserve">
+    <value>Devices</value>
+  </data>
+  <data name="Settings" xml:space="preserve">
+    <value>Settings</value>
+  </data>
+  <data name="About" xml:space="preserve">
+    <value>About AudioBule</value>
+  </data>
+  <data name="DeviceDescription" xml:space="preserve">
+    <value>Manage Bluetooth audio connections for paired devices.</value>
+  </data>
+  <data name="SettingsDescription" xml:space="preserve">
+    <value>Make connections work your way.</value>
+  </data>
+  <data name="AboutDescription" xml:space="preserve">
+    <value>Bluetooth audio companion</value>
+  </data>
+  <data name="AddDevice" xml:space="preserve">
+    <value>Add device</value>
+  </data>
+  <data name="Refresh" xml:space="preserve">
+    <value>Refresh</value>
+  </data>
+  <data name="Refreshing" xml:space="preserve">
+    <value>Refreshing devices…</value>
+  </data>
+  <data name="AllDevices" xml:space="preserve">
+    <value>All devices</value>
+  </data>
+  <data name="ConnectedDevices" xml:space="preserve">
+    <value>Connected</value>
+  </data>
+  <data name="Connected" xml:space="preserve">
+    <value>Connected</value>
+  </data>
+  <data name="Disconnected" xml:space="preserve">
+    <value>Not connected</value>
+  </data>
+  <data name="Connecting" xml:space="preserve">
+    <value>Connecting</value>
+  </data>
+  <data name="Processing" xml:space="preserve">
+    <value>Finishing operation…</value>
+  </data>
+  <data name="Failed" xml:space="preserve">
+    <value>Connection failed</value>
+  </data>
+  <data name="Connect" xml:space="preserve">
+    <value>Connect</value>
+  </data>
+  <data name="Disconnect" xml:space="preserve">
+    <value>Disconnect</value>
+  </data>
+  <data name="Retry" xml:space="preserve">
+    <value>Retry</value>
+  </data>
+  <data name="Cancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="On" xml:space="preserve">
+    <value>On</value>
+  </data>
+  <data name="Off" xml:space="preserve">
+    <value>Off</value>
+  </data>
+  <data name="ConnectedOne" xml:space="preserve">
+    <value>{count} device connected</value>
+  </data>
+  <data name="ConnectedMany" xml:space="preserve">
+    <value>{count} devices connected</value>
+  </data>
+  <data name="EmptyTitle" xml:space="preserve">
+    <value>No paired devices yet</value>
+  </data>
+  <data name="EmptyBody" xml:space="preserve">
+    <value>Pair your phone in Windows Bluetooth settings, then refresh this list.</value>
+  </data>
+  <data name="FilteredTitle" xml:space="preserve">
+    <value>No devices connected</value>
+  </data>
+  <data name="FilteredBody" xml:space="preserve">
+    <value>Switch to all devices and connect your phone.</value>
+  </data>
+  <data name="PairingHelp" xml:space="preserve">
+    <value>Can't find your phone? Pair it in Windows Bluetooth settings first.</value>
+  </data>
+  <data name="BluetoothSettings" xml:space="preserve">
+    <value>Windows Bluetooth settings</value>
+  </data>
+  <data name="KeepRunning" xml:space="preserve">
+    <value>Keep running in the system tray</value>
+  </data>
+  <data name="ConnectionStartup" xml:space="preserve">
+    <value>Connection &amp; startup</value>
+  </data>
+  <data name="AutoReconnect" xml:space="preserve">
+    <value>Reconnect on launch</value>
+  </data>
+  <data name="AutoReconnectDescription" xml:space="preserve">
+    <value>Reconnect previously connected devices</value>
+  </data>
+  <data name="RunAtStartup" xml:space="preserve">
+    <value>Launch at startup</value>
+  </data>
+  <data name="StartupDescription" xml:space="preserve">
+    <value>Run in the system tray when you sign in</value>
+  </data>
+  <data name="CloseBehavior" xml:space="preserve">
+    <value>Keep running when closed</value>
+  </data>
+  <data name="CloseDescription" xml:space="preserve">
+    <value>Keep connections active. Exit from the tray menu.</value>
+  </data>
+  <data name="AlwaysOn" xml:space="preserve">
+    <value>Always on</value>
+  </data>
+  <data name="Notifications" xml:space="preserve">
+    <value>Notifications</value>
+  </data>
+  <data name="ConnectionNotifications" xml:space="preserve">
+    <value>Connection notifications</value>
+  </data>
+  <data name="NotificationsDescription" xml:space="preserve">
+    <value>Show Windows notifications when devices connect or disconnect</value>
+  </data>
+  <data name="NotificationsUnavailable" xml:space="preserve">
+    <value>Windows notifications are unavailable. Connections remain active.</value>
+  </data>
+  <data name="Personalization" xml:space="preserve">
+    <value>Personalization</value>
+  </data>
+  <data name="Theme" xml:space="preserve">
+    <value>App theme</value>
+  </data>
+  <data name="ThemeDescription" xml:space="preserve">
+    <value>Use a consistent appearance across the app and tray panel</value>
+  </data>
+  <data name="Language" xml:space="preserve">
+    <value>Language</value>
+  </data>
+  <data name="LanguageDescription" xml:space="preserve">
+    <value>Choose your display language</value>
+  </data>
+  <data name="System" xml:space="preserve">
+    <value>Use system setting</value>
+  </data>
+  <data name="Light" xml:space="preserve">
+    <value>Light</value>
+  </data>
+  <data name="Dark" xml:space="preserve">
+    <value>Dark</value>
+  </data>
+  <data name="Chinese" xml:space="preserve">
+    <value>简体中文</value>
+  </data>
+  <data name="English" xml:space="preserve">
+    <value>English</value>
+  </data>
+  <data name="DesignedForWindows" xml:space="preserve">
+    <value>Designed for Windows</value>
+  </data>
+  <data name="NativeAudio" xml:space="preserve">
+    <value>Powered by native Windows Bluetooth audio</value>
+  </data>
+  <data name="Independent" xml:space="preserve">
+    <value>Independent connections</value>
+  </data>
+  <data name="IndependentDescription" xml:space="preserve">
+    <value>A failed connection does not interrupt other devices</value>
+  </data>
+  <data name="HowToListen" xml:space="preserve">
+    <value>How to listen</value>
+  </data>
+  <data name="ListenDescription" xml:space="preserve">
+    <value>Once connected, play music, podcasts or videos on your phone. Audio plays through your default PC audio device.</value>
+  </data>
+  <data name="Version" xml:space="preserve">
+    <value>Version 1.0.0</value>
+  </data>
+  <data name="OpenWindow" xml:space="preserve">
+    <value>Open device window</value>
+  </data>
+  <data name="Exit" xml:space="preserve">
+    <value>Exit AudioBule</value>
+  </data>
+  <data name="ExitTitle" xml:space="preserve">
+    <value>Exit AudioBule?</value>
+  </data>
+  <data name="ExitBody" xml:space="preserve">
+    <value>Exiting disconnects all devices. Close the window to keep connections running in the tray.</value>
+  </data>
+  <data name="ExitAction" xml:space="preserve">
+    <value>Exit</value>
+  </data>
+  <data name="Stopping" xml:space="preserve">
+    <value>Finishing connection operations and exiting…</value>
+  </data>
+  <data name="ToggleNavigation" xml:space="preserve">
+    <value>Toggle navigation pane</value>
+  </data>
+  <data name="More" xml:space="preserve">
+    <value>Open tray menu</value>
+  </data>
+  <data name="Minimize" xml:space="preserve">
+    <value>Minimize to tray</value>
+  </data>
+  <data name="RefreshFailed" xml:space="preserve">
+    <value>Could not refresh devices. Please try again.</value>
+  </data>
+  <data name="SettingsFailed" xml:space="preserve">
+    <value>Could not save preferences. Check access to the settings folder.</value>
+  </data>
+  <data name="OperationFailed" xml:space="preserve">
+    <value>The device operation failed. Please try again.</value>
+  </data>
+  <data name="BluetoothSettingsFailed" xml:space="preserve">
+    <value>Could not open Bluetooth settings. Open them from Windows Settings.</value>
+  </data>
+  <data name="StartupFailed" xml:space="preserve">
+    <value>Could not change startup behavior. Check Windows startup app settings.</value>
+  </data>
+  <data name="StartupDisabled" xml:space="preserve">
+    <value>Startup is disabled by Windows. Enable AudioBule in Windows startup app settings.</value>
+  </data>
+  <data name="UnsupportedTitle" xml:space="preserve">
+    <value>Unsupported Windows version</value>
+  </data>
+  <data name="UnsupportedBody" xml:space="preserve">
+    <value>AudioBule requires Windows 10 version 2004 or later.</value>
+  </data>
+  <data name="ErrorUnsupported" xml:space="preserve">
+    <value>This device does not support Bluetooth audio reception.</value>
+  </data>
+  <data name="ErrorTimeout" xml:space="preserve">
+    <value>Connection timed out. Keep your phone nearby and Bluetooth on.</value>
+  </data>
+  <data name="ErrorDenied" xml:space="preserve">
+    <value>Windows denied the connection. Check the device in Bluetooth settings.</value>
+  </data>
+  <data name="ErrorMissing" xml:space="preserve">
+    <value>The device is unavailable. Refresh the device list.</value>
+  </data>
+  <data name="ErrorOtherAudio" xml:space="preserve">
+    <value>Disconnect other Bluetooth audio devices on your phone, such as headphones or your car, then retry.</value>
+  </data>
+  <data name="ErrorUnknown" xml:space="preserve">
+    <value>Connection failed. Check your phone's Bluetooth status and retry.</value>
+  </data>
+  <data name="NotificationConnected" xml:space="preserve">
+    <value>Device connected</value>
+  </data>
+  <data name="NotificationDisconnected" xml:space="preserve">
+    <value>Device disconnected</value>
+  </data>
+  <data name="OfflineTitle" xml:space="preserve">
+    <value>Bluetooth is unavailable</value>
+  </data>
+  <data name="OfflineBody" xml:space="preserve">
+    <value>Enable Bluetooth in Windows settings or check your adapter.</value>
+  </data>
+  <data name="ViewAll" xml:space="preserve">
+    <value>View all devices</value>
+  </data>
+</root>

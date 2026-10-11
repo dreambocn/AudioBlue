@@ -1,81 +1,57 @@
-# Builds the tray icon resources.
-#
-# Architecture: the SVG is the single source of truth (assets/icons/bluetooth.svg,
-# from Tabler Icons, MIT). The runtime does NOT render SVG -- Direct2D SVG
-# support requires a hardware D3D11 device (Direct2D does not support WARP),
-# which fails on machines without a usable GPU and blocks for 30+ seconds while
-# creating the hardware device. That is a bad trade for a static 32x32 tray icon.
-#
-# So the SVG is rasterized once at build time into multi-resolution .ico files,
-# and at runtime we only LoadImage + CreateIconFromResourceEx. The design stays
-# vector (changing colour or size means editing the SVG), while the runtime has
-# no D3D/Direct2D dependency and starts fast.
-#
-# NOTE: this file is intentionally ASCII-only. PowerShell 5.1 reads BOM-less
-# .ps1 files as ANSI, which corrupts non-ASCII comments and can break parsing.
-#
-# Usage:
-#   powershell -ExecutionPolicy Bypass -File assets\icons\Build-Icons.ps1
-param(
-    [string]$Magick = 'magick'
-)
-
+﻿param([string]$Magick = 'magick')
 $ErrorActionPreference = 'Stop'
-
-$iconDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$outDir = Join-Path $iconDir 'generated'
-New-Item -ItemType Directory -Force $outDir | Out-Null
-
-$sourceSvg = Join-Path $iconDir 'bluetooth.svg'
-if (-not (Test-Path $sourceSvg)) {
-    throw "source SVG not found: $sourceSvg"
-}
-
-# Two themes: light glyph for a dark taskbar, dark glyph for a light taskbar.
-# These hex values must stay in sync with the constants in IconFactory.cpp.
-$themes = @(
-    @{ Name = 'dark';  Color = '#F5F5F5' },
-    @{ Name = 'light'; Color = '#202020' }
-)
-
-# Tray sizes. 16 matters most (small icon area); 32 is used in the large area.
-$sizes = @(16, 24, 32, 48)
-
-foreach ($theme in $themes) {
-    $svgText = Get-Content $sourceSvg -Raw
-    $svgText = $svgText -replace 'stroke="currentColor"', ('stroke="' + $theme.Color + '"')
-    # Tabler's 24x24 viewBox leaves a lot of padding: the bluetooth rune spans
-    # only x 7..17, y 4..20 (~10x16 of the 24x24 box). At a 16px tray slot that
-    # renders as a faint ~7px smudge, so scale it about the glyph centre to fill
-    # the icon area.
-    $svgText = $svgText -replace '<path d="([^"]+)"\s*/>', '<g transform="translate(12,12) scale(1.3) translate(-12,-12)"><path d="$1" /></g>'
-
-    $themeSvg = Join-Path $outDir ('bluetooth-' + $theme.Name + '.svg')
-    [System.IO.File]::WriteAllText($themeSvg, $svgText, (New-Object System.Text.UTF8Encoding($false)))
-
-    $icoPath = Join-Path $iconDir ('tray-' + $theme.Name + '.ico')
-
-    # Render each size separately, then combine. The "-define icon:N=" form is
-    # unreliable across ImageMagick builds -- it silently produced a single
-    # 24x24 entry here -- whereas passing several images to one .ico output is
-    # the documented, portable way.
-    $pngs = @()
-    foreach ($size in $sizes) {
-        $png = Join-Path $outDir ('bluetooth-' + $theme.Name + '-' + $size + '.png')
-        & $Magick $themeSvg -background none -resize ($size.ToString() + 'x' + $size.ToString()) $png
-        if ($LASTEXITCODE -ne 0) {
-            throw ('ImageMagick failed for ' + $theme.Name + ' at ' + $size)
-        }
-        $pngs += $png
+$iconDirectory = $PSScriptRoot
+$generated = Join-Path $iconDirectory 'generated'
+$null = New-Item -ItemType Directory -Path $generated -Force
+# 矢量源在构建时转换，不让托盘启动依赖 GPU。
+foreach ($theme in 'light', 'dark') {
+    $images = @()
+    foreach ($size in 16, 24, 32, 48) {
+        $image = Join-Path $generated "tray-$theme-$size.png"
+        & $Magick -background none -density 384 (Join-Path $iconDirectory "tray-$theme.svg") -resize "${size}x${size}" $image
+        if ($LASTEXITCODE -ne 0) { throw '托盘图标生成失败。' }
+        $images += $image
     }
-
-    & $Magick $pngs -define 'icon:auto-resize=16,24,32,48' $icoPath
-    if ($LASTEXITCODE -ne 0) {
-        throw ('ImageMagick failed writing ' + $icoPath)
-    }
-
-    $generated = Get-Item $icoPath
-    Write-Host ('{0,-6} {1,-24} {2} bytes' -f $theme.Name, $generated.Name, $generated.Length)
+    & $Magick $images (Join-Path $iconDirectory "tray-$theme.ico")
+    if ($LASTEXITCODE -ne 0) { throw '托盘 ICO 合成失败。' }
 }
+$images = @()
+foreach ($size in 16, 24, 32, 48, 64, 128, 256) {
+    $image = Join-Path $generated "app-$size.png"
+    & $Magick -background none -density 384 (Join-Path $iconDirectory 'app.svg') -resize "${size}x${size}" $image
+    if ($LASTEXITCODE -ne 0) { throw '应用图标生成失败。' }
+    $images += $image
+}
+& $Magick $images (Join-Path $iconDirectory 'app.ico')
+if ($LASTEXITCODE -ne 0) { throw '应用 ICO 合成失败。' }
+$appAssets = Join-Path $PSScriptRoot '..\..\AudioBule.App\Assets'
+$null = New-Item -ItemType Directory -Path $appAssets -Force
+Copy-Item -LiteralPath (Join-Path $generated 'app-256.png') -Destination (Join-Path $appAssets 'AppIcon.png')
+Copy-Item -LiteralPath (Join-Path $iconDirectory 'app.ico') -Destination (Join-Path $appAssets 'AppIcon.ico')
+Write-Output '应用和托盘图标已生成。'
+# 静态库和最终可执行文件共享这组嵌入资源。
+$coreIcons = Join-Path $PSScriptRoot '..\..\AudioBule.Core\icons'
+Copy-Item (Join-Path $iconDirectory 'app.ico') $coreIcons
+Copy-Item (Join-Path $iconDirectory 'tray-dark.ico') $coreIcons
+Copy-Item (Join-Path $iconDirectory 'tray-light.ico') $coreIcons
 
-Write-Host 'done'
+# 连接徽标烘焙进资源，与托盘颜色一起匹配系统任务栏主题。
+foreach ($theme in 'light', 'dark') {
+    $background = if ($theme -eq 'dark') { '#202020' } else { '#F3F3F3' }
+    $foreground = if ($theme -eq 'dark') { '#8BD68B' } else { '#0F7B0F' }
+    $svg = [IO.File]::ReadAllText((Join-Path $iconDirectory "tray-$theme.svg"))
+    $svg = $svg.Replace('</svg>', "<circle cx=`"16`" cy=`"16`" r=`"3.2`" fill=`"$background`"/><circle cx=`"16`" cy=`"16`" r=`"2.2`" fill=`"$foreground`"/></svg>")
+    $source = Join-Path $generated "tray-$theme-connected.svg"
+    [IO.File]::WriteAllText($source, $svg, [Text.UTF8Encoding]::new($false))
+    $images = @()
+    foreach ($size in 16, 24, 32, 48) {
+        $image = Join-Path $generated "tray-$theme-connected-$size.png"
+        & $Magick -background none -density 384 $source -resize "${size}x${size}" $image
+        if ($LASTEXITCODE -ne 0) { throw '连接徽标生成失败。' }
+        $images += $image
+    }
+    $icon = Join-Path $iconDirectory "tray-$theme-connected.ico"
+    & $Magick $images $icon
+    if ($LASTEXITCODE -ne 0) { throw '连接图标合成失败。' }
+    Copy-Item -LiteralPath $icon -Destination $coreIcons
+}

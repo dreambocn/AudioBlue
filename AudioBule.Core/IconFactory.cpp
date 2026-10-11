@@ -6,7 +6,7 @@ namespace AudioBule::Core
 
 namespace {
 
-// 托盘图标的 SVG 设计源是 assets/icons/bluetooth.svg（Tabler Icons, MIT）。
+// 托盘图标的 SVG 设计源是 assets/icons/tray-light.svg 和 tray-dark.svg。
 // 由 assets/icons/Build-Icons.ps1 用 ImageMagick 在构建期光栅化成
 // 多分辨率 .ico，并作为 RCDATA 资源嵌进 exe。
 //
@@ -23,13 +23,13 @@ constexpr COLORREF kLightThemeColor = RGB(0x20, 0x20, 0x20);
 
 } // namespace
 
-TrayIcon CreateTrayIcon(bool darkTheme)
+TrayIcon CreateTrayIcon(bool darkTheme, bool connected)
 {
     // 深色任务栏上要画浅色图形，反之亦然
     const COLORREF color = darkTheme ? kDarkThemeColor : kLightThemeColor;
 
     HRSRC resource = ::FindResourceW(nullptr,
-        MAKEINTRESOURCEW(darkTheme ? 201 : 202), RT_RCDATA);
+        MAKEINTRESOURCEW(connected ? (darkTheme ? 203 : 204) : (darkTheme ? 201 : 202)), RT_RCDATA);
     if (resource == nullptr)
     {
         return TrayIcon{};
@@ -57,11 +57,10 @@ TrayIcon CreateTrayIcon(bool darkTheme)
         return TrayIcon{};
     }
 
-    std::wstring filePath(tempPath, length);
-    filePath += L"AudioBule_tray_";
-    filePath += darkTheme ? L"dark" : L"light";
-    filePath += L".ico";
-
+    // 随机文件名隔离多个实例及并行图标创建，避免互相覆盖。
+    wchar_t temporaryFile[MAX_PATH]{};
+    if (!::GetTempFileNameW(tempPath, L"ABT", 0, temporaryFile)) return TrayIcon{};
+    std::wstring filePath(temporaryFile);
     bool wrote = false;
     {
         // ⚠️ 不能用 FILE_FLAG_DELETE_ON_CLOSE：CloseHandle 会当场把文件删掉，
@@ -71,13 +70,14 @@ TrayIcon CreateTrayIcon(bool darkTheme)
         if (file != INVALID_HANDLE_VALUE)
         {
             DWORD written = 0;
-            wrote = ::WriteFile(file, bytes, static_cast<DWORD>(size), &written, nullptr) != 0;
+            wrote = ::WriteFile(file, bytes, static_cast<DWORD>(size), &written, nullptr) != 0 && written == size;
             ::CloseHandle(file);
         }
     }
 
     if (!wrote)
     {
+        ::DeleteFileW(filePath.c_str());
         return TrayIcon{};
     }
 

@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms</value>
+  </resheader>
+  <data name="Devices" xml:space="preserve">
+    <value>设备</value>
+  </data>
+  <data name="Settings" xml:space="preserve">
+    <value>设置</value>
+  </data>
+  <data name="About" xml:space="preserve">
+    <value>关于 AudioBule</value>
+  </data>
+  <data name="DeviceDescription" xml:space="preserve">
+    <value>管理已配对设备的蓝牙音频连接。</value>
+  </data>
+  <data name="SettingsDescription" xml:space="preserve">
+    <value>让连接按你的习惯工作。</value>
+  </data>
+  <data name="AboutDescription" xml:space="preserve">
+    <value>蓝牙音频连接管家</value>
+  </data>
+  <data name="AddDevice" xml:space="preserve">
+    <value>添加设备</value>
+  </data>
+  <data name="Refresh" xml:space="preserve">
+    <value>刷新</value>
+  </data>
+  <data name="Refreshing" xml:space="preserve">
+    <value>正在刷新设备…</value>
+  </data>
+  <data name="AllDevices" xml:space="preserve">
+    <value>全部设备</value>
+  </data>
+  <data name="ConnectedDevices" xml:space="preserve">
+    <value>已连接</value>
+  </data>
+  <data name="Connected" xml:space="preserve">
+    <value>已连接</value>
+  </data>
+  <data name="Disconnected" xml:space="preserve">
+    <value>未连接</value>
+  </data>
+  <data name="Connecting" xml:space="preserve">
+    <value>连接中</value>
+  </data>
+  <data name="Processing" xml:space="preserve">
+    <value>正在处理…</value>
+  </data>
+  <data name="Failed" xml:space="preserve">
+    <value>连接失败</value>
+  </data>
+  <data name="Connect" xml:space="preserve">
+    <value>连接</value>
+  </data>
+  <data name="Disconnect" xml:space="preserve">
+    <value>断开</value>
+  </data>
+  <data name="Retry" xml:space="preserve">
+    <value>重试</value>
+  </data>
+  <data name="Cancel" xml:space="preserve">
+    <value>取消</value>
+  </data>
+  <data name="On" xml:space="preserve">
+    <value>开</value>
+  </data>
+  <data name="Off" xml:space="preserve">
+    <value>关</value>
+  </data>
+  <data name="ConnectedOne" xml:space="preserve">
+    <value>{count} 台设备已连接</value>
+  </data>
+  <data name="ConnectedMany" xml:space="preserve">
+    <value>{count} 台设备已连接</value>
+  </data>
+  <data name="EmptyTitle" xml:space="preserve">
+    <value>还没有可连接的设备</value>
+  </data>
+  <data name="EmptyBody" xml:space="preserve">
+    <value>先在 Windows 蓝牙设置中配对手机，再回来刷新列表。</value>
+  </data>
+  <data name="FilteredTitle" xml:space="preserve">
+    <value>还没有已连接的设备</value>
+  </data>
+  <data name="FilteredBody" xml:space="preserve">
+    <value>切换到全部设备，选择手机开始连接。</value>
+  </data>
+  <data name="PairingHelp" xml:space="preserve">
+    <value>找不到手机？先在 Windows 蓝牙设置中完成配对。</value>
+  </data>
+  <data name="BluetoothSettings" xml:space="preserve">
+    <value>Windows 蓝牙设置</value>
+  </data>
+  <data name="KeepRunning" xml:space="preserve">
+    <value>关闭窗口后继续在托盘运行</value>
+  </data>
+  <data name="ConnectionStartup" xml:space="preserve">
+    <value>连接与启动</value>
+  </data>
+  <data name="AutoReconnect" xml:space="preserve">
+    <value>启动时自动重连</value>
+  </data>
+  <data name="AutoReconnectDescription" xml:space="preserve">
+    <value>重新连接上次连接过的设备</value>
+  </data>
+  <data name="RunAtStartup" xml:space="preserve">
+    <value>开机启动</value>
+  </data>
+  <data name="StartupDescription" xml:space="preserve">
+    <value>登录 Windows 后在系统托盘中运行</value>
+  </data>
+  <data name="CloseBehavior" xml:space="preserve">
+    <value>关闭窗口后继续运行</value>
+  </data>
+  <data name="CloseDescription" xml:space="preserve">
+    <value>在托盘中保留连接，可从右键菜单退出</value>
+  </data>
+  <data name="AlwaysOn" xml:space="preserve">
+    <value>始终开启</value>
+  </data>
+  <data name="Notifications" xml:space="preserve">
+    <value>通知</value>
+  </data>
+  <data name="ConnectionNotifications" xml:space="preserve">
+    <value>连接状态通知</value>
+  </data>
+  <data name="NotificationsDescription" xml:space="preserve">
+    <value>设备连接成功或断开时显示 Windows 通知</value>
+  </data>
+  <data name="NotificationsUnavailable" xml:space="preserve">
+    <value>Windows 通知暂不可用；连接功能继续运行。</value>
+  </data>
+  <data name="Personalization" xml:space="preserve">
+    <value>个性化</value>
+  </data>
+  <data name="Theme" xml:space="preserve">
+    <value>应用主题</value>
+  </data>
+  <data name="ThemeDescription" xml:space="preserve">
+    <value>为主窗口与托盘面板使用一致的外观</value>
+  </data>
+  <data name="Language" xml:space="preserve">
+    <value>语言</value>
+  </data>
+  <data name="LanguageDescription" xml:space="preserve">
+    <value>选择应用显示语言</value>
+  </data>
+  <data name="System" xml:space="preserve">
+    <value>跟随系统</value>
+  </data>
+  <data name="Light" xml:space="preserve">
+    <value>浅色</value>
+  </data>
+  <data name="Dark" xml:space="preserve">
+    <value>深色</value>
+  </data>
+  <data name="Chinese" xml:space="preserve">
+    <value>简体中文</value>
+  </data>
+  <data name="English" xml:space="preserve">
+    <value>English</value>
+  </data>
+  <data name="DesignedForWindows" xml:space="preserve">
+    <value>为 Windows 而设计</value>
+  </data>
+  <data name="NativeAudio" xml:space="preserve">
+    <value>使用 Windows 原生蓝牙音频接收能力</value>
+  </data>
+  <data name="Independent" xml:space="preserve">
+    <value>连接各自独立</value>
+  </data>
+  <data name="IndependentDescription" xml:space="preserve">
+    <value>一台设备的连接失败不会中断其他设备</value>
+  </data>
+  <data name="HowToListen" xml:space="preserve">
+    <value>如何收听</value>
+  </data>
+  <data name="ListenDescription" xml:space="preserve">
+    <value>连接后在手机播放音乐、播客或视频。声音通过电脑的默认音频设备播放。</value>
+  </data>
+  <data name="Version" xml:space="preserve">
+    <value>版本 1.0.0</value>
+  </data>
+  <data name="OpenWindow" xml:space="preserve">
+    <value>打开设备窗口</value>
+  </data>
+  <data name="Exit" xml:space="preserve">
+    <value>退出 AudioBule</value>
+  </data>
+  <data name="ExitTitle" xml:space="preserve">
+    <value>退出 AudioBule？</value>
+  </data>
+  <data name="ExitBody" xml:space="preserve">
+    <value>退出后所有设备的音频连接都会断开。关闭窗口可以保持连接并继续在托盘运行。</value>
+  </data>
+  <data name="ExitAction" xml:space="preserve">
+    <value>退出</value>
+  </data>
+  <data name="Stopping" xml:space="preserve">
+    <value>正在完成连接操作并退出…</value>
+  </data>
+  <data name="ToggleNavigation" xml:space="preserve">
+    <value>切换导航栏</value>
+  </data>
+  <data name="More" xml:space="preserve">
+    <value>打开托盘菜单</value>
+  </data>
+  <data name="Minimize" xml:space="preserve">
+    <value>最小化到托盘</value>
+  </data>
+  <data name="RefreshFailed" xml:space="preserve">
+    <value>刷新设备失败，请稍后重试。</value>
+  </data>
+  <data name="SettingsFailed" xml:space="preserve">
+    <value>配置保存失败，请检查配置目录的写入权限。</value>
+  </data>
+  <data name="OperationFailed" xml:space="preserve">
+    <value>设备操作失败，请稍后重试。</value>
+  </data>
+  <data name="BluetoothSettingsFailed" xml:space="preserve">
+    <value>无法打开蓝牙设置，请从 Windows 设置手动打开。</value>
+  </data>
+  <data name="StartupFailed" xml:space="preserve">
+    <value>无法更改开机启动。请检查 Windows 启动应用设置。</value>
+  </data>
+  <data name="StartupDisabled" xml:space="preserve">
+    <value>开机启动已被 Windows 禁用，请在系统启动应用设置中重新启用。</value>
+  </data>
+  <data name="UnsupportedTitle" xml:space="preserve">
+    <value>系统版本不支持</value>
+  </data>
+  <data name="UnsupportedBody" xml:space="preserve">
+    <value>AudioBule 需要 Windows 10 2004 或更高版本。</value>
+  </data>
+  <data name="ErrorUnsupported" xml:space="preserve">
+    <value>此设备不支持蓝牙音频接收。</value>
+  </data>
+  <data name="ErrorTimeout" xml:space="preserve">
+    <value>连接请求超时。请确认手机在附近且蓝牙已开启。</value>
+  </data>
+  <data name="ErrorDenied" xml:space="preserve">
+    <value>连接被系统拒绝。请在 Windows 蓝牙设置中检查设备状态。</value>
+  </data>
+  <data name="ErrorMissing" xml:space="preserve">
+    <value>设备已不可用。请刷新设备列表。</value>
+  </data>
+  <data name="ErrorOtherAudio" xml:space="preserve">
+    <value>请先断开手机已连接的其它蓝牙音频设备（耳机或车机），再重试。</value>
+  </data>
+  <data name="ErrorUnknown" xml:space="preserve">
+    <value>连接失败，请检查手机蓝牙状态后重试。</value>
+  </data>
+  <data name="NotificationConnected" xml:space="preserve">
+    <value>连接已建立</value>
+  </data>
+  <data name="NotificationDisconnected" xml:space="preserve">
+    <value>连接已断开</value>
+  </data>
+  <data name="OfflineTitle" xml:space="preserve">
+    <value>蓝牙暂不可用</value>
+  </data>
+  <data name="OfflineBody" xml:space="preserve">
+    <value>请开启系统蓝牙，或检查蓝牙适配器是否可用。</value>
+  </data>
+  <data name="ViewAll" xml:space="preserve">
+    <value>查看全部设备</value>
+  </data>
+</root>

@@ -21,8 +21,8 @@ class TrayIconService
 public:
     struct Callbacks
     {
-        std::function<void()> onToggled;
-        std::function<void(POINT)> onContextMenu;
+        std::function<void(POINT, bool)> onToggled;
+        std::function<void(POINT, bool)> onContextMenu;
         std::function<void()> onThemeShouldRefresh;
     };
 
@@ -33,7 +33,7 @@ public:
     TrayIconService& operator=(TrayIconService const&) = delete;
 
     bool WaitUntilReady(unsigned timeoutMs = 5000);
-    void UpdateIcon(bool darkTheme);
+    void UpdateIcon(bool darkTheme, bool connected = false);
     void UpdateTooltip(std::wstring text);
     void RestoreFocus();
 
@@ -71,5 +71,6 @@ private:
     Core::TrayIcon m_icon{};
     bool m_added = false;
     bool m_version4 = false;
+    bool m_darkTheme = false, m_connected = false;
 };
 }

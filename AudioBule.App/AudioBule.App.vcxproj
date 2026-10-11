@@ -103,9 +103,8 @@
   <PropertyGroup>
     <IntDir>$(ProjectDir)obj\</IntDir>
     <OutDir>$(ProjectDir)bin\</OutDir>
-    <!-- Unpackaged. StartupTask and AppNotification toast need MSIX and belong
-         to the follow-up plan. -->
-    <WindowsPackageType>None</WindowsPackageType>
+    <!-- 直接运行的桌面版本；系统集成同时适配 MSIX 身份。 -->
+    <WindowsPackageType>None</WindowsPackageType><DefaultLanguage>zh-CN</DefaultLanguage>
     <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
   </PropertyGroup>
   <ItemDefinitionGroup>
@@ -128,7 +127,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>shell32.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>shell32.lib;advapi32.lib;comctl32.lib;dwmapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <!-- Static CRT, matching Core exactly. A mismatch yields LNK2038. -->
@@ -156,6 +155,10 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="DesktopIntegration.h" />
+    <ClInclude Include="QuickPanel.h" />
+    <ClInclude Include="DevicePresenter.h" />
+    <ClInclude Include="UiText.h" />
     <ClInclude Include="TrayIconService.h" />
     <ClInclude Include="TrayMenuBuilder.h" />
     <ClInclude Include="App.xaml.h">
@@ -168,6 +171,10 @@
   <!-- No SubType=Designer: the template omits it for WinUI XAML. -->
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml" />
+    <PRIResource Include="Strings\zh-CN\Resources.resw" />
+    <PRIResource Include="Strings\en-US\Resources.resw" />
+    <Content Include="Assets\AppIcon.png"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Assets\AppIcon.ico"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Page Include="MainWindow.xaml" />
     <!-- MainWindow.xaml.g.h 里的 MainWindowT 继承自 implementation::MainWindow_base，
          而它只能由 MIDL 编译 MainWindow.idl 产生。删掉本项会报 C2039。
@@ -183,6 +190,10 @@
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="TrayIconService.cpp" />
+    <ClCompile Include="DesktopIntegration.cpp" />
+    <ClCompile Include="QuickPanel.cpp" />
+    <ClCompile Include="DevicePresenter.cpp" />
+    <ClCompile Include="UiText.cpp" />
     <ClCompile Include="TrayMenuBuilder.cpp" />
     <ClCompile Include="App.xaml.cpp">
       <DependentUpon>App.xaml</DependentUpon>

@@ -3,11 +3,14 @@ param(
     [string]$OutputDirectory = (Join-Path $PSScriptRoot 'AppPackages'),
     [string]$Magick = 'D:\Applications\Scoop\apps\imagemagick\current\magick.exe',
     [string]$CertificateThumbprint,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [string]$BinaryDirectory
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$bin = if ($BinaryDirectory) { [IO.Path]::GetFullPath($BinaryDirectory) } else { Join-Path $repo 'AudioBule.App\bin' }
+if ($BinaryDirectory -and -not $SkipBuild) { throw '指定独立构建目录时，请先编译该目录，再使用 -SkipBuild 打包。' }
 $msbuild = 'D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe'
 $sdkBin = 'D:\Windows Kits\10\bin\10.0.26100.0\x64'
 $makeappx = Join-Path $sdkBin 'makeappx.exe'
@@ -21,7 +24,6 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { throw '解决方案构建失败。' }
 }
 
-$bin = Join-Path $repo 'AudioBule.App\bin'
 $exe = Join-Path $bin 'AudioBule.exe'
 if (-not (Test-Path -LiteralPath $exe)) { throw '构建未生成 AudioBule.exe。' }
 # 跳过构建时验证上一轮配置，避免把 Debug 当成 Release 打包。
@@ -36,7 +38,7 @@ $staging = Join-Path $output ('staging-' + [Guid]::NewGuid().ToString('N'))
 $null = New-Item -ItemType Directory -Path $staging
 try {
     # 明确选择运行文件，排除调试符号、库、链接中间产物及过期元数据。
-    $extensions = '.exe', '.dll', '.pri', '.xbf', '.winmd'
+    $extensions = '.exe', '.dll', '.pri', '.xbf', '.winmd', '.png', '.ico'
     Get-ChildItem -LiteralPath $bin -File -Recurse |
         Where-Object { $_.Extension -in $extensions -and $_.Name -ne 'AudioBule.winmd' } |
         ForEach-Object {
@@ -53,8 +55,8 @@ try {
     }
     $manifest.Save((Join-Path $staging 'AppxManifest.xml'))
     $assets = Join-Path $staging 'Assets'
-    $null = New-Item -ItemType Directory -Path $assets
-    $svg = [IO.File]::ReadAllText((Join-Path $repo 'assets\icons\bluetooth.svg')).Replace('currentColor', '#F5F5F5')
+    $null = New-Item -ItemType Directory -Path $assets -Force
+    $svg = [IO.File]::ReadAllText((Join-Path $repo 'assets\icons\app.svg'))
     $svgPath = Join-Path $staging 'logo.svg'
     [IO.File]::WriteAllText($svgPath, $svg, [Text.UTF8Encoding]::new($false))
     foreach ($logo in @(
@@ -62,9 +64,9 @@ try {
         @{ Name = 'Square44x44Logo.png'; Size = 44 },
         @{ Name = 'Square150x150Logo.png'; Size = 150 }
     )) {
-        $glyphSize = [int]($logo.Size * 0.68)
+        $glyphSize = $logo.Size
         & $Magick -background none -density 600 $svgPath -resize "${glyphSize}x${glyphSize}" `
-            -gravity center -background '#206AC4' -extent "$($logo.Size)x$($logo.Size)" (Join-Path $assets $logo.Name)
+            -gravity center -background none -extent "$($logo.Size)x$($logo.Size)" (Join-Path $assets $logo.Name)
         if ($LASTEXITCODE -ne 0) { throw "生成图标失败：$($logo.Name)" }
     }
     Remove-Item -LiteralPath $svgPath
