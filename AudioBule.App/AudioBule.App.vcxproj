@@ -40,10 +40,11 @@
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <WindowsTargetPlatformMinVersion>10.0.19041.0</WindowsTargetPlatformMinVersion>
     <UseWinUI>true</UseWinUI>
-    <!-- 必须是 CppWinRT。留空时它回落到 $(Language) = "C++"，即 C++/CX 模式，
-         XAML 编译器会去找 CX 风格的 "Windows.metadata" 引用并报
-           XamlCompiler error WMC1007: Cannot resolve 'Windows.metadata'.
-         CppWinRT 模式改用 winmd 元数据引用。 -->
+    <!-- 必须是 CppWinRT。留空会回落到 $(Language) = "C++"（C++/CX 模式），
+         此时 XAML 编译器**不会**为我们的类型生成 C++/WinRT 版的类型信息：
+         Generated Files\XamlTypeInfo.Impl.g.cpp 里不会出现任何 AudioBule 类型，
+         XAML 运行时解析不到 MainWindow 就会无限递归，表现为启动即栈溢出
+         (0xC00000FD)，且崩溃点在 make<MainWindow>()。 -->
     <XamlLanguage>CppWinRT</XamlLanguage>
     <WinUISDKReferences>false</WinUISDKReferences>
     <EnableDefaultCssItems>false</EnableDefaultCssItems>
@@ -151,15 +152,22 @@
     <ClInclude Include="App.xaml.h">
       <DependentUpon>App.xaml</DependentUpon>
     </ClInclude>
-    </ItemGroup>
+    <ClInclude Include="MainWindow.xaml.h">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </ClInclude>
+  </ItemGroup>
   <!-- No SubType=Designer: the template omits it for WinUI XAML. -->
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml" />
-    <!-- 刻意没有任何 <Page>：XAML 页面需要 MIDL 编译 IDL 才能得到
-         MainWindow_base，而闭合 Microsoft.UI.Xaml.Window 的依赖需要
-         Microsoft.UI.Composition / Windowing / Dispatching 的 winmd，
-         这些只随已安装的 Windows App SDK 运行时（MSIX）分发，本机没有。
-         因此窗口用 C++ 代码构造，见 App.xaml.cpp。 -->
+    <Page Include="MainWindow.xaml" />
+    <!-- MainWindow.xaml.g.h 里的 MainWindowT 继承自 implementation::MainWindow_base，
+         而它只能由 MIDL 编译 MainWindow.idl 产生。删掉本项会报 C2039。
+         这里**不需要**任何 AdditionalOptions / AdditionalMetadataDirectories：
+         所需的 winmd 引用由 WinUI 的 .targets 以 <Reference> 注入。 -->
+    <Midl Include="MainWindow.idl">
+      <SubType>Code</SubType>
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Midl>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -167,6 +175,9 @@
     </ClCompile>
     <ClCompile Include="App.xaml.cpp">
       <DependentUpon>App.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="MainWindow.xaml.cpp">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
     </ClCompile>
     <!-- The CppWinRT-generated module glue must be compiled explicitly. -->
     <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />

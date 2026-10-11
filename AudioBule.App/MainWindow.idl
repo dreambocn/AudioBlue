@@ -1,0 +1,19 @@
+namespace AudioBule.App
+{
+    // MainWindow 继承 Microsoft.UI.Xaml.Window，XAML 编译器生成的
+    // MainWindowT 需要这里的 MainWindow_base —— 它由 MIDL 编译本文件产生。
+    // 删掉本文件会得到：
+    //   "MainWindow_base" 不是 "winrt::AudioBule::App::implementation" 的成员
+    //
+    // 成员列表不能为空：runtimeclass 一旦为空，MIDL 会报
+    //   MIDL5053: empty runtime class cannot have the [composable] or
+    //             [activatable] attribute
+    // （Window 基类会被视为 composable。）
+    [default_interface]
+    runtimeclass MainWindow : Microsoft.UI.Xaml.Window
+    {
+        MainWindow();
+
+        Int32 Placeholder;
+    }
+}

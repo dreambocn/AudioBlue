@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  只有 ApplicationDefinition，没有 <Page>。
-
-  XAML 页面需要 MIDL 编译同名 .idl 才能得到 MainWindow_base，而闭合
-  Microsoft.UI.Xaml.Window 的依赖要 Microsoft.UI.Composition / Windowing /
-  Dispatching 的 winmd —— 这些只随已安装的 Windows App SDK 运行时（MSIX）
-  分发，本机没有安装，MIDL 会一直报 MIDL2011。
-
-  App 本身不需要 IDL（Application 由 XAML 工具链直接生成基类），
-  所以只保留 App.xaml 是可行的；窗口用 C++ 代码构造，见 App.xaml.cpp。
--->
 <Application
     x:Class="AudioBule.App.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- WinUI 控件的默认样式资源。缺了它控件会渲染不出来。
+                     注意：未打包应用里加载这份主题字典是已知会导致启动崩溃的
+                     来源（0xC00000FD），Task 8 之前先不加回来。 -->
+                <!-- <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" /> -->
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
 </Application>
