@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -51,14 +51,16 @@
       <ConformanceMode>true</ConformanceMode>
       <TreatWarningAsError>true</TreatWarningAsError>
       <LanguageStandard>stdcpplatest</LanguageStandard>
-      <!-- Core 是 /MT（静态 CRT）。必须设在这里（ClCompile），不是 Link ——
-           设成 /MD 会与 Core 的 /MT 冲突，链接期报 LNK2038。 -->
+      <!-- Core is /MT (static CRT). Must be set under ClCompile, NOT Link.
+           Setting /MD here conflicts with Core's /MT and the linker reports LNK2038. -->
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <!-- C++/WinRT projection headers are UTF-8 without BOM; this machine's code
+           page is 936 (GBK), so without /utf-8 cl emits C4819, which /WX makes fatal. -->
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <!-- 与 ClCompile/Link 的 /MT 保持一致 -->
+      <!-- Matches ClCompile/Link /MT above. -->
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </Link>
   </ItemDefinitionGroup>
@@ -66,18 +68,20 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="SimpleEvent.test.cpp" />
     <ClCompile Include="StringUtil.test.cpp" />
+    <ClCompile Include="Settings.test.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <!-- GoogleTest 1.17.0 vendored under third_party/. The NuGet package
+         (googletest 1.8.3) does NOT compile under v145: it uses std::tr1::tuple,
+         which was removed, failing with C3083: "tr1".
+         gtest_main.cc is intentionally NOT compiled: main.cpp below defines our
+         own entry point that initializes the WinRT apartment, which Core's
+         PathIO/JsonObject calls require. -->
     <ClCompile Include="$(GoogleTestRoot)src\gtest-all.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <AdditionalIncludeDirectories>$(GoogleTestRoot);$(GoogleTestRoot)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <!-- GoogleTest 自身头文件会触发 C4251（std::string 未导出）等
-           DLL 边界警告。这些不是本项目的代码问题，不应视为错误。 -->
-      <TreatWarningAsError>false</TreatWarningAsError>
-    </ClCompile>
-    <ClCompile Include="$(GoogleTestRoot)src\gtest_main.cc">
-      <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <AdditionalIncludeDirectories>$(GoogleTestRoot);$(GoogleTestRoot)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- GoogleTest's own headers trigger C4251 (undll-interface std::string)
+           and similar DLL-boundary warnings. Those are not defects in our code. -->
       <TreatWarningAsError>false</TreatWarningAsError>
     </ClCompile>
   </ItemGroup>
