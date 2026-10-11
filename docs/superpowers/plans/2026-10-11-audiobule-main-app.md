@@ -4911,8 +4911,18 @@ void App::ApplyTheme()
 
 void App::ShowDeviceWindow()
 {
-    auto window = m_window.as<Window>();
-    window.Activate();
+    // 托盘图标的作用是「切换」：窗口已显示就隐藏，否则显示。
+    // AppWindow::IsVisible 让用户连点两次图标的行为符合直觉。
+    auto appWindow = m_window.as<Window>().AppWindow();
+
+    if (appWindow.IsVisible())
+    {
+        appWindow.Hide();
+        return;
+    }
+
+    m_window.as<Window>().Activate();
+    appWindow.SetFocus();
 }
 
 void App::HandleTrayCommand(int command)
@@ -5067,19 +5077,24 @@ git commit -m "feat: wire tray callbacks, context menu, and theme-aware icons"
 
 #include "ConnectionEntry.h"
 
-#include <winrt/Microsoft.UI.Xaml.h>
 #include <winrt/Microsoft.UI.Xaml.Data.h>
+#include <winrt/Windows.Foundation.h>
 
 namespace AudioBule::App
 {
 
 // 每行设备。实现 INotifyPropertyChanged 供 x:Bind 的 OneWay 模式使用。
-class DeviceItemViewModel :
-    public winrt::Microsoft::UI::Xaml::Data::INotifyPropertyChanged,
-    public winrt::implements<DeviceItemViewModel,
-        winrt::Microsoft::UI::Xaml::Data::INotifyPropertyChanged>
+//
+// **必须**通过 winrt::make 创建（不是 shared_ptr）：x:Bind 需要一个真正的
+// WinRT 对象，winrt::implements 派生的类自带 IInspectable 实现，
+// 装箱进 IVector<IInspectable> 后引用计数由 WinRT 管理。
+// 若用 shared_ptr 管理，boxed 对象与 shared_ptr 的生命周期会脱钩，
+// PropertyChanged 事件随之失效（表现为 UI 不刷新）。
+struct DeviceItemViewModel
+    : winrt::implements<DeviceItemViewModel,
+          winrt::Microsoft::UI::Xaml::Data::INotifyPropertyChanged,
+          winrt::Windows::Foundation::IInspectable>
 {
-public:
     explicit DeviceItemViewModel(Core::ConnectionEntry entry);
 
     winrt::hstring DeviceId() const;
@@ -5102,6 +5117,7 @@ public:
     // 从 ConnectionManager 推送新状态。值不变时不发通知。
     void Update(Core::ConnectionEntry entry);
 
+    // INotifyPropertyChanged
     winrt::event<winrt::Microsoft::UI::Xaml::Data::PropertyChangedEventArgs> PropertyChanged();
 
 private:
@@ -5131,6 +5147,7 @@ namespace AudioBule::App
 DeviceItemViewModel::DeviceItemViewModel(Core::ConnectionEntry entry)
     : m_entry(std::move(entry))
 {
+    // 刻意不调用 InitializeComponent —— ViewModel 不是 XAML 元素
 }
 
 winrt::hstring DeviceItemViewModel::DeviceId() const
@@ -5368,12 +5385,18 @@ private:
 
     void RebuildList();
     void UpdateSingle(Core::ConnectionEntry const& entry);
-    DeviceItemViewModel* FindViewModel(std::wstring const& deviceId);
+    DeviceItemViewModel FindViewModel(std::wstring const& deviceId);
 
     Core::ConnectionManager* m_manager = nullptr;
 
-    std::vector<std::shared_ptr<DeviceItemViewModel>> m_items;
-    std::unordered_map<std::wstring, std::shared_ptr<DeviceItemViewModel>> m_itemsById;
+    // ViewModel 由 WinRT 引用计数管理（winrt::make 创建），不用 shared_ptr。
+    // 集合存 IVector<IInspectable>，供 ListView 的 ItemsSource 直接使用。
+    winrt::Windows::Foundation::Collections::IVector<winrt::Windows::Foundation::IInspectable>
+        m_items { nullptr };
+
+    // 查找用：deviceId → ViewModel 强引用，避免被 WinRT 回收后
+    // UpdateSingle 找不到对象而全量重建
+    std::unordered_map<std::wstring, DeviceItemViewModel> m_itemsById;
 
     Core::SimpleEvent<Core::ConnectionEntry>::Handler m_entryChangedHandler;
     Core::SimpleEvent<>::Handler m_entriesChangedHandler;
@@ -5409,6 +5432,8 @@ struct MainWindow : MainWindowT<MainWindow, implementation::MainWindow>
 #endif
 
 #include <shellapi.h>
+
+#include <winrt/Windows.Foundation.Collections.h>
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -5451,10 +5476,10 @@ void MainWindow::Attach(ConnectionManager* manager)
     RebuildList();
 }
 
-DeviceItemViewModel* MainWindow::FindViewModel(std::wstring const& deviceId)
+DeviceItemViewModel MainWindow::FindViewModel(std::wstring const& deviceId)
 {
     auto it = m_itemsById.find(deviceId);
-    return it == m_itemsById.end() ? nullptr : it->second.get();
+    return it == m_itemsById.end() ? nullptr : it->second;
 }
 
 void MainWindow::RebuildList()
@@ -5467,12 +5492,12 @@ void MainWindow::RebuildList()
     auto snapshot = m_manager->Snapshot();
 
     // 复用已有 ViewModel：重建 x:Bind 绑定会让选中态和滚动位置丢失
-    std::vector<std::shared_ptr<DeviceItemViewModel>> rebuilt;
-    std::unordered_map<std::wstring, std::shared_ptr<DeviceItemViewModel>> rebuiltById;
+    auto vector = winrt::single_thread_vector<IInspectable>();
+    std::unordered_map<std::wstring, DeviceItemViewModel> rebuiltById;
 
     for (auto const& entry : snapshot)
     {
-        std::shared_ptr<DeviceItemViewModel> item;
+        DeviceItemViewModel item = nullptr;
         auto it = m_itemsById.find(entry.deviceId);
         if (it != m_itemsById.end())
         {
@@ -5481,26 +5506,25 @@ void MainWindow::RebuildList()
         }
         else
         {
-            item = std::make_shared<DeviceItemViewModel>(entry);
+            item = winrt::make<DeviceItemViewModel>(entry);
         }
-        rebuilt.push_back(item);
+        vector.Append(winrt::box_value(item));
         rebuiltById[entry.deviceId] = item;
     }
 
-    m_items = std::move(rebuilt);
+    m_items = vector;
     m_itemsById = std::move(rebuiltById);
 
-    // ViewSource 需要一个 WinRT 集合，用 ObservableVector 自带的 IInspectable 包装
-    DeviceList().ItemsSource(m_items.size() == 0 ? nullptr : ToVector(m_items));
+    DeviceList().ItemsSource(m_items);
 
-    bool empty = m_items.empty();
+    bool empty = m_items.Size() == 0;
     EmptyState().Visibility(empty ? Visibility::Visible : Visibility::Collapsed);
     DeviceList().Visibility(empty ? Visibility::Collapsed : Visibility::Visible);
 }
 
 void MainWindow::UpdateSingle(ConnectionEntry const& entry)
 {
-    auto* existing = FindViewModel(entry.deviceId);
+    auto existing = FindViewModel(entry.deviceId);
     if (existing != nullptr)
     {
         existing->Update(entry);
@@ -5562,63 +5586,101 @@ void MainWindow::OnBluetoothSettingsClick(IInspectable const&, RoutedEventArgs c
 } // namespace winrt::AudioBule::App::implementation
 ```
 
-> 上面的 `ToVector(m_items)` 是占位写法 —— WinUI 3 没有现成的
-> `shared_ptr` → WinRT 集合转换。**实现方式**：在 `DeviceItemViewModel.h`
-> 里加一个显式装箱：
-> ```cpp
-> inline IInspectable Box(DeviceItemViewModel* item)
-> {
->     return box_value(item, take_ownership_from_abi);
-> }
-> ```
-> 然后 `DeviceList().ItemsSource(...)` 传入
-> `single_thread_vector<IInspectable>({ Box(...) })`。
-> 具体写法在执行时按编译器报错调整 —— 关键点是
-> **`CommandParameter` 必须装箱成 `IInspectable` 才能在 x:Bind 下拿到原对象**。
+> **为什么 ViewModel 用 `winrt::make` 而不是 `std::make_shared`**：
+> `ListView::ItemsSource` 与 `Button::CommandParameter` 走的是 WinRT 的
+> `IInspectable` 装箱路径。用 `shared_ptr` 管理会出现两个问题：
+> 1. `box_value(item.get(), take_ownership_from_abi)` 会让 WinRT 侧
+>    对同一对象 `delete`，而 `shared_ptr` 也会析构 —— **双重释放**。
+> 2. 即使侥幸没崩，ViewModel 的生命周期与 `shared_ptr` 脱钩，
+>    `PropertyChanged` 订阅者可能已随 x:Bind 绑定一起释放，表现为**界面不刷新**。
+>
+> `winrt::make<DeviceItemViewModel>` 让 WinRT 引用计数成为唯一的所有者，
+> 装箱与解箱（`try_as<DeviceItemViewModel>()`）都指向同一个对象。
 
 - [ ] **Step 6: 改 App 的窗口处理**
 
-`App.xaml.cpp` 的 `OnLaunched` 里，把 `m_window.as<Window>().Close();` 换成：
+Task 9 的 `App::OnLaunched` 里有这一行：
 
 ```cpp
-    // 启动时不显示设备列表窗口，但窗口实例保留在后台。
-    // 用 Close() 会销毁窗口；这里改用隐藏 —— WinUI 3 窗口默认就是
-    // 首次 Activate 前不可见，因此只需不调用 Activate 即可。
+    // 启动时不显示设备列表窗口 —— 这是托盘应用，弹出窗口会很突兀。
+    m_window.as<Window>().Close();
 ```
 
-即：**删掉那一行 Close() 调用**，其余不动。
+**删除这一整段（含注释）。** `Close()` 会销毁窗口，而 Task 10 的窗口需要
+常驻（托盘点击时要能再次 `Activate`）。WinUI 3 的 `Window` 在首次
+`Activate()` 之前本来就不可见，所以「不显示」的诉求只需要**不调用
+`Activate()`**，不需要 `Close()`。
 
-再在 `ShowDeviceWindow` 里确保是「显示」而不是「重建」：
+替换为：
+
+```cpp
+    // 启动时不显示设备列表窗口 —— 这是托盘应用，弹出窗口会很突兀。
+    // 不调用 Activate() 即可：WinUI 3 的窗口在首次 Activate 前不可见。
+    // **不要**调用 Close() —— 那会销毁窗口，托盘点击时将无法再显示它。
+    m_window.as<MainWindow>()->Attach(&m_manager);
+```
+
+Task 7 的 `App::App` 构造函数里已有 `m_window = Window().as<MainWindow>()`，
+这里补上 `Attach(&m_manager)` 把状态管理器交给窗口。
+
+`ShowDeviceWindow` 改成「切换」语义 —— 用户连点两次托盘图标应该有明确反应：
 
 ```cpp
 void App::ShowDeviceWindow()
 {
-    auto window = m_window.as<Window>();
-    window.Activate();
+    // 托盘图标的作用是「切换」：窗口已显示就隐藏，否则显示。
+    auto appWindow = m_window.as<Window>().AppWindow();
+
+    if (appWindow.IsVisible())
+    {
+        appWindow.Hide();
+        return;
+    }
+
+    m_window.as<Window>().Activate();
+    appWindow.SetFocus();
 }
 ```
 
-Task 7 的 `App::App` 构造函数里已经 `m_window = Window().as<MainWindow>()`，
-再在 `OnLaunched` 里调用一次 `Attach(&m_manager)`。
-
 - [ ] **Step 7: 处理「点 X 只隐藏」（Review Focus 第 4 条）**
 
-在 `MainWindow::MainWindow` 的 `Closed` 回调里改为**重新显示**窗口而不是销毁它 ——
-WinUI 3 的 `Window` 一旦 `Close` 就不可重用。正确做法是拦截关闭：
+在 `MainWindow::MainWindow` 里把 Task 7 留下的 `Closed` 空回调换成
+**取消关闭**，并显式隐藏窗口：
 
 ```cpp
-    // 点 X 时改为隐藏而非销毁，托盘应用必须这样。
-    // AppWindow 的 Close 事件在窗口销毁前触发，可以在这里 Cancel 掉。
-    AppWindow().Closing([](AppWindow const&, AppWindowCancelEventArgs const& args)
+MainWindow::MainWindow() noexcept
+{
+    InitializeComponent();
+
+    // 点 X 时只隐藏，程序继续在托盘运行。
+    // Review Focus 第 4 条：写成"关闭即退出"会让用户以为程序挂了。
+    AppWindow().Closing([this](AppWindow const&,
+                               Microsoft::UI::Xaml::AppWindowCancelEventArgs const& args)
     {
-        args.Cancel(true);   // 阻止关闭
-        // 隐藏由 App 的托盘逻辑接管：点托盘图标重新 Activate 即可
+        args.Cancel(true);      // 阻止窗口销毁
+        HideToTray();          // 改为隐藏到托盘
     });
+}
+
+void MainWindow::HideToTray()
+{
+    // AppWindow 是 WinUI 3 的窗口抽象。Hide() 让窗口消失但不销毁，
+    // 之后仍可由 App 的 Activate() 重新显示。
+    AppWindow().Hide();
+}
 ```
 
-> 若 `AppWindow().Closing` 在当前 Windows App SDK 版本上不可用，
-> 退路是：不在 XAML 里设关闭行为，改用 `ExtendsContentIntoTitleBar` +
-> 自绘标题栏，自行提供隐藏按钮。本任务先试标准做法。
+并在 `MainWindow.xaml.h` 声明：
+
+```cpp
+    // 隐藏到托盘。由 App 在窗口关闭被取消后调用。
+    void HideToTray();
+```
+
+> `AppWindow()` 在 `Window` 上可用（Windows App SDK 1.4+），
+> 但需要 `#include <winrt/Microsoft.UI.Xaml.Window.h>`。
+> 若当前版本没有 `AppWindow()`，退路是 `Microsoft::UI::Windowing::AppWindow::GetFromWindowId(...)`，
+> 或直接用 `AppWindow().Hide()` 的等价 API `WindowNative::getWindowHandle` + `ShowWindow(SW_HIDE)`。
 
 - [ ] **Step 8: 在 `AudioBule.App.vcxproj` 登记新文件**
 
