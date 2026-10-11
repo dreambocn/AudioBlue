@@ -6,7 +6,7 @@
 
 **Architecture:** 两个工程。`AudioBule.Core` 是无 UI 依赖的静态库，封装设备枚举、连接状态机、配置读写、图标生成；其唯一的外部依赖 `AudioPlaybackConnection` 通过 `IAudioDeviceProvider` 接口注入，因此状态机可用自研的轻量测试框架离线单测。`AudioBule.App` 是 WinUI 3 壳，只做呈现与平台集成：托盘线程（独立 STA + message-only HWND）经 `DispatcherQueue` 把事件 post 回 UI 线程，UI 一律通过 `ConnectionManager` 读状态，不直接触碰 WinRT 连接对象。
 
-**Tech Stack:** C++17（`/std:c++latest`）/ C++/WinRT（Windows SDK 投影头 + `Microsoft.Windows.CppWinRT` 3.0.260520.1）/ WIL 1.0.260126.7 / Windows App SDK 2.2.0 + WinUI 2.2.1 / MSVC 工具集 **v145** / GDI（图标生成）。
+**Tech Stack:** C++17（`/std:c++latest`）/ C++/WinRT（Windows SDK 投影头 + `Microsoft.Windows.CppWinRT` 3.0.260520.1）/ WIL 1.0.260126.7 / Windows App SDK 2.2.0 + WinUI 2.2.1 / MSVC 工具集 **v145** / **GoogleTest 1.17.0**（源码内置于 `third_party/googletest`）/ **Direct2D SVG 渲染**（托盘图标）。
 
 **Spec:** `docs/superpowers/specs/2026-10-10-audiobule-design.md`
 
@@ -16,13 +16,14 @@
 
 ## 本计划与 Spec 的偏差（执行前须知）
 
-以下三处**有意偏离** spec，理由如下，不接受"照 spec 写"的指令：
+以下几处**有意偏离** spec，理由如下：
 
 | 项 | Spec | 本计划 | 理由 |
 | --- | --- | --- | --- |
-| 单元测试框架 | "普通单元测试框架" | 自研 `TestHarness.h`（约 90 行，控制台 exe，退出码 0/1） | 本机 NuGet 缓存中**没有** MSTest / Catch2 / GoogleTest / xUnit 任何一项。引入需要联网，与"离线可还原"的既有约束冲突。自研 harness 满足全部真实需求：独立可跑的测试用例、失败即非零退出码、输出可读 |
-| 图标生成 | `SVG → Direct2D CreateSvgDocument → CreateIconIndirect` | GDI 直接绘制到 32bpp DIB + 1bpp mask，再 `CreateIconIndirect` | SVG 需要在仓库里放二进制/文本资产并在运行时解析，且引入 Direct2D 依赖链（`ID2D1DeviceContext5`、`IWICBitmap` 等约 200 行胶水）。托盘图标是 16~32px 的静态小图，GDI 绘制足够。图标**外观**在 spec 中未定义，因此无功能损失。若后续要换 SVG，只改 `IconFactory.cpp` 内部，不影响调用方 |
-| `VolumeController` | 文件结构中列出，`ConnectionEntry` 含音量字段 | **完全不存在** | 音量 Spike 已给出否定结论（见 spike 报告）：A2DP Sink 不为蓝牙设备建独立渲染端点，且设备侧无端点关联字段。`ConnectionEntry` 不含音量字段 |
+| 测试框架 | "普通单元测试框架" | **GoogleTest 1.17.0**，源码内置于 `third_party/googletest/` | **已实测**：NuGet 上的 `googletest` 1.8.3 **无法在 v145 编译**（用了已被移除的 `std::tr1::tuple`，报 `C3083: "tr1"`）。改用 GoogleTest **1.17.0 源码**，把 `gtest-all.cc` + `gtest_main.cc` 直接编进测试工程 —— 已实测编译通过并正确运行。源码内置在 `third_party/`，构建时不联网、不依赖绝对路径 |
+| 图标 | `SVG → Direct2D CreateSvgDocument → CreateIconIndirect` | **按 spec 原样实现**，SVG 取自 [Tabler Icons](https://tabler.io)（MIT） | 已核实 Tabler `bluetooth.svg` 的路径 `M7 8l10 8l-5 4l0 -16l5 4l-10 8` 即标准蓝牙符文。Direct2D **不是** WinUI 依赖，不违反 Core 层「不引用 WinUI 头」的分层约束 |
+| NuGet 包位置 | — | **`D:\NuGetPackages`**（非 C 盘） | 按要求，包不装在 C 盘 |
+| `VolumeController` | 文件结构中列出，`ConnectionEntry` 含音量字段 | **完全不存在** | 音量 Spike 已给出否定结论（见 spike 报告）：A2DP Sink 不为蓝牙设备建独立渲染端点，且设备侧无端点关联字段 |
 
 **"独立线程 + message-only HWND" 是本项目最关键的技术点**，spec §3.4 已定为独立阶段（阶段 2），本计划的 Task 8 专攻它，不与其它任务混在一起。
 
