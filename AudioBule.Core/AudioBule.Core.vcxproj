@@ -76,6 +76,7 @@
     <ClInclude Include="Messages.h" />
     <ClInclude Include="IAudioDeviceProvider.h" />
     <ClInclude Include="ConnectionManager.h" />
+    <ClInclude Include="WinRtDeviceProvider.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -85,6 +86,7 @@
     <ClCompile Include="Settings.cpp" />
     <ClCompile Include="Messages.cpp" />
     <ClCompile Include="ConnectionManager.cpp" />
+    <ClCompile Include="WinRtDeviceProvider.cpp" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.ImplementationLibrary" Version="1.0.260126.7" />

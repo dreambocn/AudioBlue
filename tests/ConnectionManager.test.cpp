@@ -2,6 +2,7 @@
 
 #include "ConnectionManager.h"
 #include "Messages.h"
+#include "WinRtDeviceProvider.h"
 
 #include <atomic>
 #include <future>
@@ -551,4 +552,40 @@ TEST(ConnectionManager, DestructionWaitsForInFlightWork)
 
     provider.ConnectionLost.Raise(L"devA");
     manager.reset();   // 不得崩溃、不得挂起
+}
+
+// ---- 真实 provider 的冒烟测试 ----
+// 只验证「在真实系统上不会崩、能枚举」，不断言具体设备 ——
+// 测试机上不一定有可连接的蓝牙设备。真正需要设备的行为
+// 由 Task 11 的手动验证清单覆盖。
+
+TEST(WinRtDeviceProvider, IsSupportedOnDeveloperMachine)
+{
+    WinRtDeviceProvider provider;
+    EXPECT_TRUE(provider.IsSupported());   // 开发机是 Windows 11，必支持
+}
+
+TEST(WinRtDeviceProvider, EnumerateDoesNotCrash)
+{
+    WinRtDeviceProvider provider;
+    auto devices = provider.EnumerateDevices();
+    // 不检查数量 —— 有没有配对设备取决于测试机状态
+    for (auto const& device : devices)
+    {
+        EXPECT_FALSE(device.id.empty());
+    }
+}
+
+TEST(WinRtDeviceProvider, ConnectUnknownDeviceFailsGracefully)
+{
+    WinRtDeviceProvider provider;
+    auto result = provider.Connect(L"BTHENUM\\{00000000-0000-0000-0000-000000000000}\\0000");
+    EXPECT_FALSE(result.succeeded);
+    EXPECT_TRUE(result.failure != ConnectFailure::None);
+}
+
+TEST(WinRtDeviceProvider, DisconnectUnknownDeviceIsNoOp)
+{
+    WinRtDeviceProvider provider;
+    provider.Disconnect(L"not-connected");   // 不得崩溃
 }
