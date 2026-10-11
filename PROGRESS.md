@@ -154,6 +154,70 @@ Spike 实测证明两条独立事实，各自都足以否决「每设备音量�
 17. **WinUI 3 的 `wWinMain` 第一个参数是 `WinRT initInstance`（`IInspectable*`）**，
     不是 `HINSTANCE`/`PSTR`。这是 Windows App SDK 定义的入口约定。
 
+## 主工程开工后新增的坑（均已实测）
+
+### 工具链
+
+18. **NuGet 上的 `googletest` 1.8.3 在 v145 下无法编译**。它用了已被移除的
+    `std::tr1::tuple`，报 `C3083: "tr1"`。已改用 GoogleTest **1.17.0 源码**
+    内置于 `third_party/googletest/`，把 `gtest-all.cc` 编进测试工程即可。
+    注意 `gtest-all.cc` 会 `#include` 其余 `.cc` 文件，**不能**删减 `src\` 下的文件。
+
+19. **`<RuntimeLibrary>` 必须设在 `ClCompile` 节，不是 `Link` 节。**
+    设成默认 `/MD` 会与 Core 的 `/MT` 冲突，链接期报
+    `LNK2038: MT_StaticRelease 不匹配 MD_DynamicRelease`。
+
+20. **`std::function` 没有 `operator==`**。事件退订不能按 handler 对象比较，
+    必须用 `SimpleEvent::SubscriptionId`（`Add` 返回 id，`Remove` 收 id）。
+
+21. **别用 PowerShell 的 `Get-Content`/`Set-Content` 改源码或工程文件。**
+    它们会破坏 UTF-8 无 BOM 编码（中文注释变乱码，甚至把语法改坏、
+    报 `C2447: 缺少函数标题`）。用编辑工具改，或整体重写。
+
+22. **`%zu` 与 `hstring::size_type` 等非 `size_t` 类型不匹配**（`C4477`），
+    `/WX` 升级为错误。用 `%u` + `static_cast<unsigned>`。
+
+### WinRT / Json
+
+23. **`IJsonObject` 没有任何 `Lookup` 成员**。`JsonObject` 没有工厂，
+    C++/WinRT 不为它生成投影类，只生成接口。写成 `json.Lookup(key)`
+    会在运行期抛 `0x8000000B(E_BOUNDS)` 或 `0x80004002(E_NOINTERFACE)`，
+    而且**编译能过**——极难定位。
+
+24. **`IJsonObject` 的 `GetNamed*` 在字段不存在或类型不符时会抛异常**
+    （`0x83750009`），不像 `Lookup` 返回 null。要用
+    `GetNamedBoolean(key)` / `GetNamedArray(key)`，
+    并**在每个调用点自带 try/catch** —— 这就是「LoadSettings 永不抛出」的实现处。
+
+25. **`IJsonValue` 不继承 `IPropertyValue`**。用 `try_as<IPropertyValue>()`
+    会永远失败，导致「JSON 里写了 `false` 却读成默认 `true`」这种静默错误。
+    类型判断用 `IJsonValue::ValueType()` 与 `JsonValueType` 比较。
+
+26. **`StorageFile::GetFileFromPathAsync` 在文件不存在时抛 `0x80070002`**，
+    所以它**不能用来创建**文件（配置首启时文件必然不存在，`SaveSettings` 会永远失败）。
+    正确做法：`StorageFolder::GetFolderFromPathAsync(parent)` +
+    `folder.CreateFileAsync(name, CreationCollisionOption::ReplaceExisting)`。
+
+27. **CppWinRT 生成的 `winrt/base.h` 里没有 `std::wstring` 的 `to_hstring` 重载**。
+    且 `std::wstring → std::wstring_view → param::hstring` 是两次用户定义转换，
+    隐式转换序列不允许（报「无法推导模板参数」）。
+    显式构造一次即可：`winrt::hstring p{ std::wstring_view{ path } };`
+
+28. **`hstring` 不会隐式转成 `std::wstring`**（它只有到 `wstring_view` 的转换）。
+    要 `std::wstring(hstring)` 显式构造。
+
+29. **`JsonObject::Insert` 要的是 `IJsonValue`，不是 `IInspectable`**。
+    用 `JsonValue::CreateBooleanValue()` / `CreateStringValue()`，
+    字符串数组先 `JsonArray` 再 `Append`。
+
+30. **测试工程需要自己初始化 WinRT apartment**。Core 用了 `PathIO`/`JsonObject`
+    等静态 API，测试入口必须 `winrt::init_apartment(multi_threaded)`
+    （多线程，因为 `ConnectionManager` 会起后台线程跑连接）。
+    因此**不用 `gtest_main.cc` 的默认 `main`**，自定义入口。
+
+31. **NuGet 包目录设为 `D:\NuGetPackages`（非 C 盘）**，构建前需
+    `$env:NUGET_PACKAGES = "D:\NuGetPackages"`。
+
 ---
 
 ## 设备兼容性观察
