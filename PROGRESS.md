@@ -17,7 +17,7 @@
 | 设计规格（spec） | ✅ 完成并批准 | `docs/superpowers/specs/2026-10-10-audiobule-design.md` |
 | 环境准备 | ✅ 完成 | 见下文「环境事实」 |
 | 计划 0：音量 Spike | ✅ 执行完毕 | `docs/superpowers/spikes/2026-10-10-volume-spike-results.md` |
-| 计划一：主工程 | ⬜ 未编写 | 待编写 |
+| 计划一：主工程 | ✅ 计划已编写，待执行 | `docs/superpowers/plans/2026-10-11-audiobule-main-app.md`（12 个 Task） |
 | 计划二：增强功能 | ⬜ 未编写 | 待编写 |
 
 ---
@@ -76,8 +76,9 @@ Spike 实测证明两条独立事实，各自都足以否决「每设备音量�
 ### 三个会让人白忙的环境坑
 
 1. **`<PlatformToolset>` 必须写 `v145`**。`v180` 是 MSBuild 目录名与工程版本号，
-   写进去会报 `MSB8020 找不到 v180 的生成工具`。判断依据是
-   `MSBuild\Microsoft\VC\v180\PlatformToolsets\x64\PlatformToolsets\` 下的目录名。
+   写进去会报 `MSB8020 找不到 v180 的生成工具`。实际工具集目录是
+   `MSBuild\Microsoft\VC\v180\Platforms\x64\PlatformToolsets\v145`
+   （**是 `Platforms\x64\PlatformToolsets`，不是 `PlatformToolsets\x64\PlatformToolsets`**）。
 2. **`<WindowsTargetPlatformVersion>` 必须显式写 `10.0.26100.0`**。
    留 `10.0` 会去找默认路径 `C:\Program Files (x86)\Windows Kits\10` 而找不到。
 3. **必须先 `-t:Restore`**，否则报 `无法打开包括文件: "wil/common.h"`。
@@ -134,6 +135,25 @@ Spike 实测证明两条独立事实，各自都足以否决「每设备音量�
 12. **`IMMDevice::GetId` 返回 CoTaskMem 分配的字符串**，需手工
     `CoTaskMemFree`，不能直接用 `wil::unique_hz`。
 
+13. **`AudioPlaybackConnectionState` 只有 `Closed=0` 与 `Opened=1`，没有中间态。**
+    `tools/volume-spike/Step2_Connect.cpp:91` 里的 `newState == 2` 判断**永远不成立**，
+    是 spike 遗留的死代码。主工程不要照抄。「连接中」是 AudioBule 自己的
+    `ConnectionState::Connecting`，由 `ConnectionManager` 在 `OpenAsync` 返回前维持。
+    枚举定义在 `winrt/impl/windows.media.audio.0.h`。
+
+14. **WinRT 的 `PathIO` / `StorageFile` / `FileIO` / `JsonObject::Parse`
+    参数全是 `hstring`（UTF-16），没有一个收 `char const*`。**
+
+15. **`winrt::box_value` 对 `array_view<hstring const>` 没有 `reference_traits`
+    特化**，会编译失败。字符串数组必须走
+    `PropertyValue::CreateStringArray(std::vector<winrt::hstring>)`。
+
+16. **本机 NuGet 缓存中没有任何单元测试框架**（无 MSTest / Catch2 / GoogleTest）。
+    主工程测试用自研的 `tests/TestHarness.h`（约 90 行控制台 exe）。
+
+17. **WinUI 3 的 `wWinMain` 第一个参数是 `WinRT initInstance`（`IInspectable*`）**，
+    不是 `HINSTANCE`/`PSTR`。这是 Windows App SDK 定义的入口约定。
+
 ---
 
 ## 设备兼容性观察
@@ -153,11 +173,30 @@ Spike 实测证明两条独立事实，各自都足以否决「每设备音量�
 
 ## 尚未编写的计划
 
-### 计划一：主工程（建议下一步写）
+### 计划一：主工程（计划已写完，待执行）
+
+**计划文件**：`docs/superpowers/plans/2026-10-11-audiobule-main-app.md`
 
 范围：工程骨架 + `AudioBule.Core` + `AudioBule.App` + 托盘服务 + 设备列表窗口 + 连接
 
-对应 spec §7 的阶段 0~3，预期产出**可用的应用**。需要落实的关键点：
+对应 spec §7 的阶段 0~3，预期产出**可用的应用**。Task 划分：
+
+| Task | 内容 |
+| --- | --- |
+| 1 | 解决方案骨架 + `Directory.Build.props` + 自研测试框架 |
+| 2 | `SimpleEvent` + `StringUtil` |
+| 3 | `Settings` JSON 持久化 |
+| 4 | `ConnectionManager` 状态机 + `IAudioDeviceProvider` 抽象 |
+| 5 | `WinRtDeviceProvider` 生产实现 |
+| 6 | `IconFactory` 托盘图标 |
+| 7 | WinUI 3 App 骨架（**风险最高**，含排查表） |
+| 8 | `TrayIconService`（**最关键**：独立线程 + DispatcherQueue） |
+| 9 | 托盘接线：主题图标、右键菜单、explorer 重启恢复 |
+| 10 | 设备列表窗口 |
+| 11 | 端到端接线 + 22 项手动验证清单 |
+| 12 | MSIX 打包 |
+
+需要落实的关键点：
 
 - `AudioBule.sln` + 双工程（Core 静态库 / App WinUI 3 壳）
 - `Directory.Build.props` 统一编译设置（含 `/utf-8`、工具集、SDK 版本）
@@ -201,6 +240,21 @@ Spike 实测证明两条独立事实，各自都足以否决「每设备音量�
 
 ## 提交历史
 
+计划一编写过程（`docs/superpowers/plans/2026-10-11-audiobule-main-app.md`）：
+```
+e1db843 docs: fix plan self-review findings
+ee6492f docs: add plan tasks 10-12
+185a327 docs: add plan task 9
+19a10e9 docs: add plan task 8
+204a733 docs: add plan task 7
+8d70b1c docs: add plan task 6
+3af1058 docs: add plan task 5
+c06f43c docs: add plan task 4
+d880b21 docs: add plan tasks 2-3
+86a1ac8 docs: add main project implementation plan
+```
+
+主工程开工前：
 ```
 38ad793 fix: self-verify audio flow via peak meter; confirm volume control infeasible
 c0a3c2e docs: add volume control spike results (negative: not feasible)
