@@ -10,6 +10,11 @@
          Restore 脚本 Packaging/Restore.ps1 会自动设置。 -->
     <RestorePackagesPath Condition="'$(NUGET_PACKAGES)' != ''">$(NUGET_PACKAGES)</RestorePackagesPath>
 
+    <!-- 供工程引用包内文件（winmd 等）时使用的绝对包根。RestorePackagesPath
+         只在 NUGET_PACKAGES 环境变量存在时才赋值，直接引用它会让 MIDL 收到
+         相对路径并报 "argument illegal for switch /metadata_dir"。 -->
+    <AudioBuleNuGetRoot Condition="'$(AudioBuleNuGetRoot)' == ''">D:\NuGetPackages</AudioBuleNuGetRoot>
+
     <!-- 必须显式写版本号：留 10.0 会去找 C:\Program Files (x86)\Windows Kits\10，
          而本机 SDK 装在 D:\Windows Kits\10 -->
     <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
@@ -25,5 +30,11 @@
          （C 语言头目录），投影头在同级的 cppwinrt\winrt\ 下，必须显式补。
          路径硬编码是因为 Directory.Build.props 导入时 $(WindowsSdkDir) 尚未定义。 -->
     <CppWinRTProjectionIncludePath>D:\Windows Kits\10\Include\10.0.26100.0\cppwinrt\winrt</CppWinRTProjectionIncludePath>
+    <!-- WIL（Windows Implementation Library）头路径。
+         Microsoft.Windows.ImplementationLibrary 的 .targets 只在**直接引用它的
+         工程**里注入 include 目录；本仓库 Core / tests / App 都直接引用了它，
+         但依赖它导入顺序，删掉 obj\ 重新 restore 后就可能丢。这里显式写死，
+         与 CppWinRTProjectionIncludePath 同理。 -->
+    <WilIncludePath>$(AudioBuleNuGetRoot)\microsoft.windows.implementationlibrary\1.0.260126.7\include</WilIncludePath>
   </PropertyGroup>
 </Project>

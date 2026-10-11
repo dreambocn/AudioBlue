@@ -6,7 +6,7 @@
 
 ## 一句话状态
 
-**设计规格已完成并批准；音量控制 Spike 已执行完毕并得出否定结论；主工程尚未开始。**
+**设计规格已完成并批准；音量控制 Spike 已执行完毕并得出否定结论；主工程 Task 1–7 已完成并实测通过（Core 67 用例 + WinUI 3 壳可编译出 exe）。**
 
 ---
 
@@ -30,28 +30,130 @@
 | 4 | `ConnectionManager` 状态机 + `IAudioDeviceProvider` | ✅ 实测通过 |
 | 5 | `WinRtDeviceProvider` 生产实现 | ✅ 实测通过 |
 | 6 | 托盘图标（SVG → 构建期转 .ico） | ✅ 实测通过 |
-| 7 | WinUI 3 App 骨架 | ⬜ 未开始 |
+| 7 | WinUI 3 App 骨架 | ✅ 实测通过（Debug + Release 干净构建出 exe） |
 | 8 | `TrayIconService`（独立线程 + DispatcherQueue） | ⬜ 未开始 |
 | 9 | 托盘接线：主题图标、右键菜单、explorer 重启恢复 | ⬜ 未开始 |
 | 10 | 设备列表窗口 | ⬜ 未开始 |
 | 11 | 端到端接线 + 手动验证清单 | ⬜ 未开始 |
 | 12 | MSIX 打包 | ⬜ 未开始 |
 
-**构建与测试**（Debug 与 Release 均已验证）：
+**构建与测试**（Debug 与 Release 均已从干净目录验证）：
 
 ```powershell
 $env:NUGET_PACKAGES = "D:\NuGetPackages"   # 包不装在 C 盘
 & "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
-    AudioBule.sln -t:Restore -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
-& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
-    AudioBule.sln -t:Rebuild -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
+    AudioBule.sln -restore -t:Rebuild -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
 & ".\tests\bin\AudioBule.Core.Tests.exe"
 ```
 
-当前 **67 个用例全过**（`AudioBule.Core` 与 `tests` 两个工程；
-`AudioBule.App` 尚不能编译，见下节）。
+`-restore` 不能省：`Rebuild` 不隐含还原。产出 `AudioBule.exe`，
+Core 的 **67 个用例全过**。
 
-### ⚠️ WinUI 3 工程阻塞（Task 7，进行中，未解决）
+### ✅ WinUI 3 工程已可编译（Task 7 完成）
+
+`AudioBule.sln` 在 **Debug 与 Release 都能从完全干净的目录一次构建通过**，
+产出 `AudioBule.App\bin\AudioBule.exe`；Core 的 67 个用例两个配置下全绿。
+
+验证方式（务必照做，否则会被增量构建骗）：
+
+```powershell
+$env:NUGET_PACKAGES = "D:\NuGetPackages"
+Remove-Item "AudioBule.App\obj","AudioBule.App\Generated Files","AudioBule.Core\obj","tests\obj" -Recurse -Force
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -restore -t:Rebuild -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
+& ".\tests\bin\AudioBule.Core.Tests.exe"
+```
+
+必须带 `-restore`：`Rebuild` **不隐含还原**，删掉 `obj\` 后若不还原，
+`wil/common.h` 之类的路径就找不到（曾经因此误判过一次）。
+
+#### 阻塞的完整根因链（缺任何一环都过不去）
+
+1. **`Directory.Build.props` 在 vcxproj 的 Globals 之后才被导入**
+   （经 `Microsoft.Cpp.Default.props` → `Microsoft.Common.props`）。它把
+   `WindowsTargetPlatformVersion` 钉成 `10.0.26100.0`，覆盖掉 WinUI 需要的
+   `10.0`，于是 `TargetPlatformMoniker` 变成 `UAP,Version=10.0.26100.0`。
+   修法：在 `AudioBule.App.vcxproj` 里 `Microsoft.Cpp.Default.props` **之后**
+   再写一次 `<WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>`。
+
+2. **NuGet 对 C++ 工程用的 TFM 是 `native,Version=v0.0`**（见
+   `obj\project.assets.json` 的 `projectFileDependencyGroups`），
+   **不是** `UAP,Version=v10.0`，也不是裸的 `native`。
+
+3. **`ApplicationType=Windows Store` 必须保留** —— 去掉它，WinUI 的 XAML 工具链
+   就不激活，会退回 .NET Framework 的 `Microsoft.Xaml.targets`，不生成
+   `*.xaml.g.h`。但保留它，UAP target 会把 `_NuGetTargetFallbackMoniker`
+   设成 `UAP,Version=v10.0`。
+
+4. 修法写在 **`Directory.Build.targets`**（它在 `Microsoft.Common.targets` 末尾
+   导入，即所有 UAP target 跑完之后才生效；写在 vcxproj 里会被覆盖）：
+   清空 `_NuGetTargetFallbackMoniker`，并把 `NuGetTargetMoniker` 设为
+   `native,Version=v0.0`。再在 vcxproj 里补
+   `<RuntimeIdentifiers>win10-x64</RuntimeIdentifiers>`（UAP 的
+   `TargetPlatformIdentifier` 会让 NuGet 推导 RID 为 win10-x64）。
+
+5. **`<XamlLanguage>CppWinRT</XamlLanguage>` 必须显式写。** 留空会回落到
+   `$(Language)` = `C++`，即 C++/CX 模式，XAML 编译器会去找 CX 风格的
+   `Windows.metadata` 引用，报
+   `XamlCompiler error WMC1007: Cannot resolve 'Windows.metadata'`。
+   这一条曾被**过期的生成文件**掩盖 —— 之前看到的「能编译」其实是增量构建
+   跳过了 XAML 编译器。
+
+#### 为什么没有 XAML 页面（与官方模板的差异，有意为之）
+
+官方模板每个 XAML 页面都配一个同名 `.idl`，由 MIDL 编译出
+`MainWindow_base`（XAML 生成的 `MainWindowT` 从它派生）。
+本机做不到，原因是**依赖闭合不全**：
+
+`MainWindow.idl` 继承 `Microsoft.UI.Xaml.Window`，MIDL 必须解析它的全部成员类型，
+需要 `Microsoft.UI.Composition` / `Microsoft.UI.Windowing` /
+`Microsoft.UI.Dispatching` 的 winmd。这三个 winmd **不在任何本地 NuGet 包里**
+（`microsoft.windowsappsdk.winui\metadata\` 只有 `Microsoft.UI.Xaml.winmd`
+和 `Microsoft.UI.Text.winmd`），只随**已安装的 Windows App SDK 运行时（MSIX）**
+分发，而本机没装。`D:\Windows Kits\10\UnionMetadata` 下也只有
+`Windows.winmd`，没有这些。
+
+试过并排除的 MIDL 方案：
+- `AdditionalMetadataDirectories` 指向 winui 包的 `metadata\` → 它是**替换**默认的
+  `/metadata_dir`（Windows 基础契约），`IInspectable` 等类型随即解析失败；
+  且路径**结尾不能带反斜杠**，否则 MIDL 报 `MIDL1012: argument illegal for switch`。
+- `AdditionalOptions` 传 `/reference ...Microsoft.UI.Xaml.winmd` → 需同时加 `/nomidl`，
+  且 `$(NuGetPackageRoot)` 在该处尚未定义（要用 `$(AudioBuleNuGetRoot)`）。
+
+因此当前 `AudioBule.App` **只有 `App.xaml`（ApplicationDefinition），没有任何 `<Page>`**，
+窗口用 C++ 代码构造（见 `App.xaml.cpp` 的 `OnLaunched`）。App 本身不需要 IDL，
+所以这条路是通的。设备列表界面改用代码构造控件，不走 XAML。
+
+#### MIDL 相关的连带修正
+
+- `MainWindow.xaml.h` 必须 `#include "MainWindow.g.h"`（MIDL + C++/WinRT 产物，
+  它先定义 `implementation::MainWindow_base`，末尾再自行 include
+  `MainWindow.xaml.g.h`）。直接包含 `.xaml.g.h` 会跳过 base 定义。
+- `$(ProjectDir)$(GeneratedFilesDir)` 必须显式加进 `AdditionalIncludeDirectories`，
+  XAML 编译器不会自动加。
+- `using namespace Microsoft::UI::Xaml` 有歧义（`C2872`）：Windows SDK 头里也有
+  一个全局的 `::Microsoft` 命名空间。必须写成 `winrt::Microsoft::UI::Xaml`。
+- App / 窗口的构造函数**刻意不调用 `InitializeComponent`**，WinUI 的 XAML 对象
+  不应在构造函数里初始化。
+
+#### 从 VS 官方模板抄来的必需项
+
+模板位置：
+`Common7\IDE\Extensions\zijrzcx3.thj\ProjectTemplates\VC\1033\WinUI.Desktop.CppWinRT.PackagedApp\BlankApp\ProjectTemplate.vcxproj`
+
+`<UseWinUI>true</UseWinUI>`、`<ApplicationTypeRevision>10.0</ApplicationTypeRevision>`、
+`Microsoft.Windows.SDK.BuildTools` 包、显式编译 `$(GeneratedFilesDir)module.g.cpp`。
+该模板**没有 `ProjectTypeGuids`**，也没有手写的 `main.cpp`。
+
+**换 SDK 版本与此无关**：2.2.0 与 1.8.260921001 报同样的 UAP 错，最终采用 1.8.260921001。
+
+#### 顺带修掉的既有隐患：WIL 头路径
+
+`wil/common.h` 之前靠 `Microsoft.Windows.ImplementationLibrary` 的 `.targets`
+注入 include 目录，删掉 `obj\` 重新还原后该路径会丢。现在改为在
+`Directory.Build.props` 里显式提供 `$(WilIncludePath)`，三个工程都显式引用。
+
+### 图标方案（已落地）
 
 `AudioBule.App` 目前**还不能编译**。已定位到一对互相冲突的工具链要求：
 
@@ -72,13 +174,6 @@ $env:NUGET_PACKAGES = "D:\NuGetPackages"   # 包不装在 C 盘
 在工程文件里清空 `_NuGetTargetFallbackMoniker`、在 `Directory.Build.targets` 里清空它。
 注意：清空后会从「不认 UAP」变成「不认 native」，说明该 task 的 moniker 校验与
 C++ 工程的还原框架名之间存在尚未找到的匹配方式。
-
-**下一步候选**（未验证）：
-1. 显式 import `Microsoft.UI.Xaml.Markup.Compiler.targets` 并去掉 `ApplicationType`，
-   让 XAML 工具链在纯桌面工程下也能工作（绕开 UAP 那一半）
-2. 改用 XAML Islands：原生 Win32 窗口 + `DesktopWindowXamlSource` 挂 XAML，
-   完全绕开 WinUI 3 工程的工具链（参考实现 AudioPlaybackConnector 走的就是这条路）
-3. 查 VS 2026 自带的 WinUI 3 C++ 工程模板究竟设置了什么，与本工程逐项比对
 
 - 设计源：`assets/icons/bluetooth.svg`（Tabler Icons，MIT）
 - 构建期由 `assets/icons/Build-Icons.ps1` 用 ImageMagick（装在 D 盘）转成
