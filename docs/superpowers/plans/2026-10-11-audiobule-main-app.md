@@ -4041,4 +4041,603 @@ git add AudioBule.App AudioBule.sln .gitignore AudioBule.Core/AudioBule.Core.vcx
 git commit -m "build: add WinUI 3 app skeleton that launches an empty window"
 ```
 
+---
+
+## Task 8: TrayIconService（独立线程 + DispatcherQueue 桥接）
+
+**Files:**
+- Create: `AudioBule.App/TrayIconService.h`
+- Create: `AudioBule.App/TrayIconService.cpp`
+- Modify: `AudioBule.App/AudioBule.App.vcxproj`
+
+**Interfaces:**
+- Consumes: Task 7 的 App 骨架；Task 6 的 `Core::CreateTrayIcon` / `DestroyTrayIcon`
+- Produces: `namespace AudioBule::App::TrayService` 的 `TrayIconService`
+
+**为什么这个任务独立成一个 Task：** spec §3.4 明确定它为「本项目最关键的技术点」。
+WinUI 3 的 UI 线程（STA）独占主消息循环，无法再跑一个 `GetMessageW` 泵接收
+`Shell_NotifyIcon` 回调；而 WinUI 3 本身不提供任何原生托盘 API。唯一可行的路子是
+自建线程自建窗口，再用 `DispatcherQueue` 把事件 post 回 UI 线程。
+
+**本 Task 只做「托盘 ↔ UI」的单向桥接**，不做 UI 呈现（菜单、窗口显示在 Task 9/10）。
+这样每个 Task 的可交付物都能独立验证。
+
+---
+
+- [ ] **Step 1: 创建 `AudioBule.App/TrayIconService.h`**
+
+```cpp
+#pragma once
+
+#include <windows.h>
+
+#include <atomic>
+#include <functional>
+#include <thread>
+
+namespace AudioBule::App::TrayService
+{
+
+// 托盘服务。在独立 STA 线程上创建 message-only 窗口并运行消息循环，
+// 通过回调把用户交互通知回 UI 线程。
+//
+// 线程约定：
+//  - 构造在 UI 线程调用；析构也在 UI 线程调用。
+//  - 所有回调（Callbacks 里的 lambda）都在 **UI 线程**执行 —— 由
+//    DispatcherQueue.TryEnqueue post 过去，托盘线程从不直接触碰 XAML。
+//  - 更新图标/提示文字的调用可以在任意线程，内部会 post 到托盘线程。
+class TrayIconService
+{
+public:
+    struct Callbacks
+    {
+        // 托盘图标被单击（含键盘 NIN_KEYSELECT）
+        std::function<void()> onToggled;
+
+        // 用户在图标上点了右键。参数为光标的屏幕坐标（物理像素）。
+        std::function<void(POINT)> onContextMenu;
+
+        // 系统主题/个性化设置变了。UI 层收到后读 UISettings 并调 UpdateIcon。
+        std::function<void()> onThemeShouldRefresh;
+    };
+
+    // uiQueue 必须是 UI 线程的 DispatcherQueue（在 UI 线程上取得的）。
+    // 返回 false 表示托盘线程启动失败（此时不会创建图标）。
+    explicit TrayIconService(winrt::Windows::UI::Dispatching::DispatcherQueue const& uiQueue,
+        Callbacks callbacks);
+    ~TrayIconService();
+
+    TrayIconService(TrayIconService const&) = delete;
+    TrayIconService& operator=(TrayIconService const&) = delete;
+
+    // 按系统主题切换图标。darkTheme=true → 深色任务栏。
+    void UpdateIcon(bool darkTheme);
+
+    // 更新悬停提示文字。
+    void UpdateTooltip(std::wstring text);
+
+    // 阻塞直到托盘线程真正启动并完成图标创建。
+    // 调用方应在 UI 线程上短暂调用，以避免"图标还没出现用户就点了"的竞态。
+    bool WaitUntilReady(unsigned timeoutMs = 5000);
+
+private:
+    static LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
+    static DWORD WINAPI ThreadProc(LPVOID param);
+
+    void ThreadMain();
+    bool CreateMessageWindow();
+    void DestroyMessageWindow();
+    bool AddTrayIcon();
+
+    // 在托盘线程上执行。内部保证跨线程调用被 post 过去。
+    void PostToTrayThread(std::function<void()> work);
+
+    void HandleTrayCallback(WPARAM wParam, LPARAM lParam);
+
+    // --- 只在托盘线程上访问的成员 ---
+    HINSTANCE m_instance = nullptr;
+    HWND m_window = nullptr;
+    NOTIFYICONDATAW m_nid = {};
+    Core::TrayIcon m_icon = {};
+    bool m_iconAdded = false;
+    UINT m_taskbarCreatedMessage = 0;
+
+    // --- 跨线程共享 ---
+    winrt::Windows::UI::Dispatching::DispatcherQueue m_uiQueue;
+    Callbacks m_callbacks;
+    std::thread m_thread;
+    std::atomic<bool> m_ready{ false };
+    std::atomic<bool> m_stopping{ false };
+    std::mutex m_pendingMutex;
+    std::vector<std::function<void()>> m_pendingWork;
+};
+
+} // namespace AudioBule::App::TrayService
+```
+
+- [ ] **Step 2: 创建 `AudioBule.App/TrayIconService.cpp`**
+
+```cpp
+#include "pch.h"
+#include "TrayIconService.h"
+
+#include "IconFactory.h"
+
+#include <winrt/Windows.UI.Dispatching.h>
+
+using namespace winrt;
+using namespace winrt::Windows::UI::Dispatching;
+
+namespace AudioBule::App::TrayService
+{
+
+namespace
+{
+
+constexpr wchar_t kWindowClassName[] = L"AudioBuleTrayWindow";
+constexpr UINT kTrayCallbackMessage = WM_APP + 1;
+constexpr UINT kUpdateTrayMessage = WM_APP + 2;
+constexpr UINT TRAY_ICON_ID = 1;
+
+} // namespace
+
+TrayIconService::TrayIconService(DispatcherQueue const& uiQueue, Callbacks callbacks)
+    : m_uiQueue(uiQueue)
+    , m_callbacks(std::move(callbacks))
+{
+    m_thread = std::thread(&TrayIconService::ThreadProc, this);
+}
+
+TrayIconService::~TrayIconService()
+{
+    m_stopping = true;
+
+    // 唤醒托盘线程的 GetMessage。必须 PostThreadMessage 而不是设标志：
+    // GetMessage 会阻塞在消息队列空上，设标志它看不见。
+    if (m_thread.joinable())
+    {
+        ::PostThreadMessageW(m_thread.native_handle(), WM_QUIT, 0, 0);
+        m_thread.join();
+    }
+}
+
+DWORD WINAPI TrayIconService::ThreadProc(LPVOID param)
+{
+    auto* self = static_cast<TrayIconService*>(param);
+
+    // 托盘线程必须是 STA：窗口消息、OLE 交互都要求这一点
+    HRESULT hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    bool comInitialized = SUCCEEDED(hr);
+
+    self->ThreadMain();
+
+    if (comInitialized)
+    {
+        ::CoUninitialize();
+    }
+    return 0;
+}
+
+void TrayIconService::ThreadMain()
+{
+    m_instance = ::GetModuleHandleW(nullptr);
+
+    if (!CreateMessageWindow())
+    {
+        m_ready = true;   // 放行 WaitUntilReady，让调用方拿到 false 而不是死等
+        return;
+    }
+
+    m_iconAdded = AddTrayIcon();
+
+    // m_taskbarCreatedMessage 用于 explorer 重启后补回图标
+    m_taskbarCreatedMessage = ::RegisterWindowMessageW(L"TaskbarCreated");
+
+    m_ready = true;
+
+    MSG message = {};
+    while (::GetMessageW(&message, nullptr, 0, 0) > 0)
+    {
+        ::TranslateMessage(&message);
+        ::DispatchMessageW(&message);
+    }
+
+    DestroyMessageWindow();
+}
+
+bool TrayIconService::CreateMessageWindow()
+{
+    WNDCLASSEXW windowClass = {};
+    windowClass.cbSize = sizeof(WNDCLASSEXW);
+    windowClass.lpfnWndProc = &TrayIconService::WndProc;
+    windowClass.hInstance = m_instance;
+    windowClass.lpszClassName = kWindowClassName;
+
+    if (::RegisterClassExW(&windowClass) == 0)
+    {
+        // ERROR_CLASS_ALREADY_EXISTS (1410) 可接受 —— 同一进程内重建
+        if (::GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+        {
+            return false;
+        }
+    }
+
+    // HWND_MESSAGE = message-only 窗口：不出现在任务栏、不接收键盘输入、
+    // 收不到广播以外的鼠标消息。这正是托盘回调窗口想要的。
+    m_window = ::CreateWindowExW(
+        0,                        // dwExStyle
+        kWindowClassName,
+        L"AudioBule",             // lpWindowName
+        0,                        // dwStyle
+        0, 0, 0, 0,
+        HWND_MESSAGE,             // hWndParent
+        nullptr,
+        m_instance,
+        this);                    // lpParam → GWLP_USERDATA
+
+    if (m_window == nullptr)
+    {
+        return false;
+    }
+
+    ::SetWindowLongPtrW(m_window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+    return true;
+}
+
+void TrayIconService::DestroyMessageWindow()
+{
+    if (m_nid.hWnd != nullptr && m_iconAdded)
+    {
+        ::Shell_NotifyIconW(NIM_DELETE, &m_nid);
+        m_iconAdded = false;
+    }
+
+    if (m_icon.handle != nullptr)
+    {
+        Core::DestroyTrayIcon(m_icon);
+        m_icon = Core::TrayIcon{};
+    }
+
+    if (m_window != nullptr)
+    {
+        ::DestroyWindow(m_window);
+        m_window = nullptr;
+    }
+
+    if (m_taskbarCreatedMessage != 0)
+    {
+        ::UnregisterWindowMessage(m_taskbarCreatedMessage);
+        m_taskbarCreatedMessage = 0;
+    }
+}
+
+bool TrayIconService::AddTrayIcon()
+{
+    m_icon = Core::CreateTrayIcon(false);
+    if (!m_icon)
+    {
+        return false;
+    }
+
+    m_nid = {};
+    m_nid.cbSize = sizeof(NOTIFYICONDATAW);
+    m_nid.hWnd = m_window;
+    m_nid.uID = TRAY_ICON_ID;
+    m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    m_nid.uCallbackMessage = kTrayCallbackMessage;
+    m_nid.hIcon = reinterpret_cast<HICON>(m_icon.handle);
+    wcscpy_s(m_nid.szTip, L"AudioBule");
+
+    if (::Shell_NotifyIconW(NIM_ADD, &m_nid) == FALSE)
+    {
+        return false;
+    }
+
+    // 必须设置版本 4，否则收不到 NIN_SELECT / NIN_KEYSELECT。
+    // NOTIFYICON_VERSION_4 会改变 wParam/lParam 的语义，见 HandleTrayCallback。
+    m_nid.uVersion = NOTIFYICON_VERSION_4;
+    ::Shell_NotifyIconW(NIM_SETVERSION, &m_nid);
+
+    return true;
+}
+
+LRESULT CALLBACK TrayIconService::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    // TaskbarCreated 是动态注册的消息，值从 RegisterWindowMessageW 得来，
+    // 不能与任何常量比较，只能与运行时值比。
+    if (message == WM_NCCREATE)
+    {
+        auto* createStruct = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        ::SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(createStruct->lpCreateParams));
+    }
+
+    auto* self = reinterpret_cast<TrayIconService*>(::GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+    if (self == nullptr)
+    {
+        return ::DefWindowProcW(hWnd, message, wParam, lParam);
+    }
+
+    if (message == kTrayCallbackMessage)
+    {
+        self->HandleTrayCallback(wParam, lParam);
+        return TRUE;   // 返回 TRUE 才会收到 NIN_SELECT / NIN_KEYSELECT
+    }
+
+    if (message == kUpdateTrayMessage)
+    {
+        // 执行 PostToTrayThread 排队的跨线程工作
+        std::vector<std::function<void()>> work;
+        {
+            std::lock_guard<std::mutex> lock(self->m_pendingMutex);
+            work.swap(self->m_pendingWork);
+        }
+        for (auto& item : work)
+        {
+            item();
+        }
+        return 0;
+    }
+
+    if (message == WM_SETTINGCHANGE)
+    {
+        // 主题切换：让 UI 线程去读 UISettings 并决定用哪套图标。
+        // 托盘线程不碰 XAML，也不该自己去读 UI 设置。
+        auto queue = self->m_uiQueue;
+        queue.TryEnqueue([] {
+            if (self->m_callbacks.onThemeShouldRefresh)
+            {
+                self->m_callbacks.onThemeShouldRefresh();
+            }
+        });
+        return 0;
+    }
+
+    if (self->m_taskbarCreatedMessage != 0 && message == self->m_taskbarCreatedMessage)
+    {
+        // explorer 重启后所有图标都被清空，必须手动补回。
+        // Review Focus 第 5 条。
+        self->m_iconAdded = self->AddTrayIcon();
+        return 0;
+    }
+
+    if (message == WM_DESTROY)
+    {
+        ::PostQuitMessage(0);
+        return 0;
+    }
+
+    return ::DefWindowProcW(hWnd, message, wParam, lParam);
+}
+
+void TrayIconService::HandleTrayCallback(WPARAM wParam, LPARAM lParam)
+{
+    // NOTIFYICON_VERSION_4 之下：
+    //   LOWORD(lParam)  = X 坐标，HIWORD(lParam) = Y 坐标
+    //   LOWORD(wParam)  = 事件 ID，HIWORD(wParam) = 图标 ID
+    const UINT eventId = LOWORD(wParam);
+    const auto x = static_cast<LONG>(static_cast<short>(LOWORD(lParam)));
+    const auto y = static_cast<LONG>(static_cast<short>(HIWORD(lParam)));
+
+    auto queue = m_uiQueue;
+
+    switch (eventId)
+    {
+    case WM_CONTEXTMENU:
+    case WM_RBUTTONUP:
+    {
+        // 在光标处弹菜单。坐标必须原样传给 UI 层，不能在托盘线程上做 DPI 换算 ——
+        // UI 层有正确的 per-monitor DPI 上下文。
+        queue.TryEnqueue([this, x, y] {
+            if (m_callbacks.onContextMenu)
+            {
+                m_callbacks.onContextMenu(POINT{ x, y });
+            }
+        });
+        return;
+    }
+
+    case NIN_SELECT:
+    case NIN_KEYSELECT:
+    {
+        queue.TryEnqueue([this] {
+            if (m_callbacks.onToggled)
+            {
+                m_callbacks.onToggled();
+            }
+        });
+        return;
+    }
+
+    default:
+        return;
+    }
+}
+
+void TrayIconService::UpdateIcon(bool darkTheme)
+{
+    auto icon = Core::CreateTrayIcon(darkTheme);
+    if (!icon)
+    {
+        return;
+    }
+
+    PostToTrayThread([this, icon] {
+        // 新图标建好后才释放旧的，避免闪烁期间出现空图标
+        NOTIFYICONDATAW nid = m_nid;
+        nid.hIcon = reinterpret_cast<HICON>(icon.handle);
+
+        if (m_iconAdded && ::Shell_NotifyIconW(NIM_MODIFY, &nid) != FALSE)
+        {
+            Core::DestroyTrayIcon(m_icon);
+            m_icon = icon;
+            return;
+        }
+
+        // 图标还没加上（启动早期或 explorer 刚重启），先记下来，
+        // 等 AddTrayIcon 时用上
+        Core::DestroyTrayIcon(icon);
+        m_icon = icon;
+    });
+}
+
+void TrayIconService::UpdateTooltip(std::wstring text)
+{
+    PostToTrayThread([this, text = std::move(text)] {
+        // 限制长度：szTip 是 128 字符的定长数组，写超了会内存损坏
+        wcsncpy_s(m_nid.szTip, text.c_str(), _TRUNCATE);
+
+        if (m_iconAdded)
+        {
+            ::Shell_NotifyIconW(NIM_MODIFY, &m_nid);
+        }
+    });
+}
+
+void TrayIconService::PostToTrayThread(std::function<void()> work)
+{
+    if (m_stopping || m_window == nullptr)
+    {
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_pendingMutex);
+        if (m_pendingWork.size() > 64)
+        {
+            return;   // 队列爆了说明 UI 线程卡死，丢弃即可
+        }
+        m_pendingWork.push_back(std::move(work));
+    }
+
+    ::PostMessageW(m_window, kUpdateTrayMessage, 0, 0);
+}
+
+bool TrayIconService::WaitUntilReady(unsigned timeoutMs)
+{
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+
+    while (!m_ready.load())
+    {
+        if (std::chrono::steady_clock::now() >= deadline)
+        {
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    return m_window != nullptr;
+}
+
+} // namespace AudioBule::App::TrayService
+```
+
+**实现上必须注意的点：**
+
+1. **`TryEnqueue` 返回 false = UI 线程已退出。** 此时静默丢弃。
+   绝不能阻塞等待 —— UI 没了，托盘留着也没意义。
+2. **`WndProc` 返回 `TRUE`** 才能收到 `NIN_SELECT`/`NIN_KEYSELECT`。
+   惯例是返回 0，但那样收不到点击事件。
+3. **`kUpdateTrayMessage`（`WM_APP + 2`）必须真的执行队列。** 否则
+   `UpdateIcon` / `UpdateTooltip` 是死代码，本任务无法验证。
+4. **`WM_SETTINGCHANGE` 转发 `onThemeShouldRefresh`**，由 UI 层读
+   `UISettings` 决定新图标。托盘线程不碰 XAML。
+
+- [ ] **Step 3: 确认 `pch.h` 有需要的头**
+
+`TrayIconService.cpp` 用到了 `<mutex>`、`<chrono>`、`<vector>`。
+`pch.h` 已有 `<vector>`，补上：
+
+```cpp
+#include <chrono>
+#include <mutex>
+```
+
+- [ ] **Step 4: 在 `AudioBule.App.vcxproj` 登记新文件**
+
+```xml
+  <ItemGroup>
+    <ClInclude Include="TrayIconService.h" />
+  </ItemGroup>
+```
+```xml
+    <ClCompile Include="TrayIconService.cpp" />
+```
+
+- [ ] **Step 5: 编译**
+
+Run:
+
+```powershell
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -p:Configuration=Debug -p:Platform=x64 -v:minimal -nologo
+```
+
+Expected: 退出码 0。
+
+- [ ] **Step 6: 手工验证托盘线程能起来**
+
+在 `App::OnLaunched` 里临时加一段，把服务启起来并等它就绪，
+然后**不**挂任何回调，只验证不崩溃：
+
+```cpp
+void App::OnLaunched(LaunchActivatedEventArgs const& e)
+{
+    auto window = Window();
+    window.Activate();
+
+    // --- Task 8 临时验证代码，Task 9 会替换 ---
+    static TrayService::TrayIconService tray(
+        winrt::Windows::UI::Dispatching::DispatcherQueue::GetForCurrentThread(),
+        TrayService::TrayIconService::Callbacks{});
+
+    if (!tray.WaitUntilReady())
+    {
+        ::OutputDebugStringW(L"AudioBule: tray icon failed to initialize\n");
+        return;
+    }
+
+    tray.UpdateIcon(false);
+    ::OutputDebugStringW(L"AudioBule: tray icon initialized\n");
+}
+```
+
+同时在 `App.xaml.cpp` 顶部加：
+
+```cpp
+#include "TrayIconService.h"
+```
+
+重新编译并运行。
+
+**Expected**: 任务栏托盘区出现 AudioBule 图标；`OutputDebugString` 窗口
+（VS 里按 Ctrl+Alt+Shift+V 或用 DebugView）能看到
+`AudioBule: tray icon initialized`。窗口关闭后进程退出，托盘图标消失。
+
+- [ ] **Step 7: 验证进程能干净退出（Review Focus 第 6 条）**
+
+Run:
+
+```powershell
+& ".\AudioBule.App\bin\AudioBule.exe"
+Start-Sleep -Seconds 3
+Get-Process AudioBule -ErrorAction SilentlyContinue | Select-Object Id, Name
+# 关闭应用窗口后再次检查
+Start-Sleep -Seconds 2
+Get-Process AudioBule -ErrorAction SilentlyContinue | Select-Object Id, Name
+```
+
+Expected: 第一次有进程，关闭窗口后第二次**无输出**（进程已退出）。
+若进程残留，说明 `TrayIconService` 析构没有唤醒托盘线程 ——
+检查 `PostThreadMessageW(WM_QUIT)` 那一行。
+
+> `static` 局部变量是为了让 `TrayIconService` 在 `OnLaunched` 返回后继续存活。
+> 若不加 `static`，服务会在 `OnLaunched` 结束时析构，托盘图标立刻消失。
+
+- [ ] **Step 8: 提交**
+
+```bash
+git add AudioBule.App
+git commit -m "feat: add tray icon service on dedicated thread with dispatcher bridge"
+```
+
 <!-- APPEND-MARKER -->
