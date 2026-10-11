@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>AudioBule · WinUI 3 设计预览</title>
+  <link rel="icon" type="image/svg+xml" href="icons/app.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- 评审工具栏独立于产品窗口，便于切换不同设计场景。 -->
+  <header class="review-header">
+    <a class="review-brand" href="#window" aria-label="AudioBule 设计预览"><img src="icons/app.svg" alt="" width="32" height="32"><span>AudioBule <small>DESIGN PREVIEW</small></span></a>
+    <nav class="review-tabs" aria-label="设计视图">
+      <button class="selected" data-view="window" aria-current="page">主窗口</button>
+      <button data-view="tray">系统托盘</button>
+      <button data-view="identity">图标与规范</button>
+    </nav>
+    <div class="review-actions" role="group" aria-label="语言与主题预览"><select id="preview-language" aria-label="预览语言"><option value="system">系统语言</option><option value="zh">简体中文</option><option value="en">English</option></select><select id="preview-theme" aria-label="预览主题"><option value="system">系统主题</option><option value="light">浅色</option><option value="dark">深色</option></select><button id="theme-toggle" class="theme-toggle" aria-label="切换深色主题"></button></div>
+  </header>
+  <main>
+    <div class="scene-heading"><div><span class="eyebrow" id="scene-number">01 / APPLICATION</span><h1 id="scene-title">声音在身边，连接更简单。</h1><p id="scene-description">一个安静、轻巧的蓝牙音频连接管家。</p></div><label class="scenario-control"><span>预览场景</span><select id="scenario" aria-label="预览场景"><option value="normal">日常使用</option><option value="connecting">连接中</option><option value="failed">连接失败</option><option value="empty">无已配对设备</option><option value="bluetooth-off">蓝牙不可用</option></select></label></div>
+    <section class="preview-view" id="view-window" aria-label="主窗口设计">
+      <div class="app-window" id="app-window">
+        <header class="titlebar"><div class="titlebar-start"><button class="navigation-toggle icon-button" data-action="toggle-navigation" aria-label="切换导航栏" aria-expanded="true" aria-controls="app-navigation"><span data-icon="menu"></span></button><div class="window-brand"><img src="icons/app.svg" alt="" width="16" height="16"><span>AudioBule</span></div></div><div class="caption-buttons"><button aria-label="最小化到托盘" data-action="hide-window"><span class="caption-minimize"></span></button><button aria-label="切换窗口大小" data-action="maximize"><span class="caption-maximize"></span></button><button aria-label="关闭到托盘" class="caption-close" data-action="hide-window"><span class="caption-x"></span></button></div></header>
+        <div class="app-body">
+          <aside class="navigation" id="app-navigation"><nav aria-label="应用导航"><button data-page="devices" class="nav-item active" aria-current="page" aria-label="设备"><span data-icon="devices"></span>设备<span class="nav-count" id="nav-count">2</span></button></nav><div class="nav-bottom"><button data-page="about" class="nav-item" aria-label="关于 AudioBule"><span data-icon="info"></span>关于 AudioBule</button><button data-page="settings" class="nav-item" aria-label="设置"><span data-icon="settings"></span>设置</button></div></aside>
+          <div class="content-pane">
+            <section id="page-devices" class="app-page">
+              <div class="page-heading"><div><h2>设备</h2><p>管理已配对设备的蓝牙音频连接。</p></div><button class="button primary" data-action="pair"><span data-icon="plus"></span>添加设备</button></div>
+              <div class="devices-toolbar"><div class="segmented" role="group" aria-label="筛选设备"><button class="active" data-filter="all" aria-pressed="true">全部设备 <span id="all-count">2</span></button><button data-filter="connected" aria-pressed="false">已连接 <span id="connected-count">1</span></button></div><button class="button subtle" id="refresh-button" data-action="refresh"><span data-icon="refresh"></span>刷新</button></div>
+              <div id="device-list" class="device-list" aria-label="已配对的蓝牙设备"></div>
+              <div class="help-tip"><span data-icon="info"></span><p>找不到手机？先在 <button class="text-button" data-action="pair">Windows 蓝牙设置</button> 中完成配对。</p></div>
+            </section>
+            <section id="page-settings" class="app-page" hidden>
+              <div class="page-heading"><div><h2>设置</h2><p>让连接按你的习惯工作。</p></div></div>
+              <h3 class="settings-section-title">连接与启动</h3><div class="settings-group"><div class="setting-row"><span class="setting-icon" data-icon="refresh"></span><div><h4>启动时自动重连</h4><p>重新连接上次连接过的设备</p></div><button class="switch" role="switch" aria-checked="true" data-setting="reconnect" aria-label="启动时自动重连"></button></div><div class="setting-row"><span class="setting-icon" data-icon="power"></span><div><h4>开机启动</h4><p>登录 Windows 后在系统托盘中运行</p></div><button class="switch" role="switch" aria-checked="false" data-setting="startup" aria-label="开机启动"></button></div><div class="setting-row"><span class="setting-icon" data-icon="window"></span><div><h4>关闭窗口后继续运行</h4><p>在托盘中保留连接，可从右键菜单退出</p></div><span class="setting-value">始终开启</span></div></div>
+              <h3 class="settings-section-title">通知</h3><div class="settings-group"><div class="setting-row"><span class="setting-icon" data-icon="bell"></span><div><h4>连接状态通知</h4><p>设备连接成功或断开时显示 Windows 通知</p></div><button class="switch" role="switch" aria-checked="true" data-setting="notifications" aria-label="连接状态通知"></button></div></div>
+              <h3 class="settings-section-title">个性化</h3><div class="settings-group"><div class="setting-row"><span class="setting-icon" data-icon="paint"></span><div><h4>应用主题</h4><p>为主窗口与托盘使用一致的外观</p></div><select id="app-theme" aria-label="应用主题"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div><div class="setting-row"><span class="setting-icon" data-icon="language"></span><div><h4>语言</h4><p>选择应用显示语言</p></div><select id="app-language" aria-label="语言"><option value="system">跟随系统</option><option value="zh">简体中文</option><option value="en">English</option></select></div></div>
+            </section>
+            <section id="page-about" class="app-page" hidden><div class="page-heading"><div><h2>关于</h2><p>小小的连接，让声音不受限。</p></div></div><div class="about-hero"><img src="icons/app.svg" alt="AudioBule 应用图标" width="88" height="88"><h3>AudioBule</h3><p>蓝牙音频连接管家</p><span class="version-tag">版本 1.0.0</span></div><div class="settings-group"><div class="setting-row"><span class="setting-icon" data-icon="bluetooth"></span><div><h4>为 Windows 而设计</h4><p>使用 Windows 原生蓝牙音频接收能力</p></div></div><div class="setting-row"><span class="setting-icon" data-icon="devices"></span><div><h4>连接各自独立</h4><p>一台设备的连接失败不会中断其他设备</p></div></div><div class="setting-row"><span class="setting-icon" data-icon="speaker"></span><div><h4>如何收听</h4><p>连接后，在手机上播放音乐、播客或视频。</p><p>声音将通过电脑的默认音频设备播放。</p></div></div></div><p class="about-note">在手机上选择这台电脑作为音频输出，即可开始播放。</p></section>
+            <footer class="app-footer"><span><span class="status-dot"></span><span id="footer-summary">1 台设备已连接</span></span><span data-icon="tray"></span><span>关闭窗口后继续在托盘运行</span></footer>
+          </div>
+        </div>
+      </div>
+      <div class="hidden-window-message" id="hidden-window-message" hidden><img src="icons/app.svg" alt="" width="64" height="64"><h2>AudioBule 正在托盘中运行</h2><p>设备连接继续保持。点击下方按钮重新打开窗口。</p><button class="button primary" data-action="show-window">打开设备窗口</button><button class="text-button" data-action="view-tray">查看托盘设计</button></div>
+      <div class="scene-caption"><span><i class="caption-dot"></i> 主窗口 · Mica 基底 / 内容层 / 独立设备状态</span><span>建议初始尺寸 960 × 640</span></div>
+    </section>
+    <section class="preview-view" id="view-tray" hidden aria-label="系统托盘设计">
+      <div class="desktop-scene"><div class="desktop-wallpaper"><div class="bloom bloom-one"></div><div class="bloom bloom-two"></div><div class="bloom bloom-three"></div></div><div class="desktop-note"><span>始终在身边</span><h2>一次点击，<br>回到你的连接。</h2><p>左键打开快捷面板<br>右键访问常用设置</p></div>
+        <div class="tray-flyout" id="tray-flyout"><div class="flyout-heading"><img src="icons/app.svg" alt="" width="28" height="28"><div><strong>AudioBule</strong><small id="tray-summary">1 台设备已连接</small></div><button class="icon-button" data-action="tray-more" aria-label="打开托盘菜单"><span data-icon="more"></span></button></div><div id="tray-devices" class="tray-devices"></div><button class="flyout-open" data-action="show-window"><span data-icon="window"></span>打开设备窗口<span data-icon="arrow"></span></button></div>
+        <div class="tray-context" id="tray-context" hidden role="menu" aria-label="AudioBule 托盘菜单"><div class="menu-app-name">AudioBule</div><button role="menuitem" data-action="show-window"><span data-icon="window"></span>打开设备窗口</button><button role="menuitem" data-action="pair"><span data-icon="bluetooth"></span>Windows 蓝牙设置<span data-icon="external"></span></button><div class="menu-separator"></div><button role="menuitemcheckbox" id="menu-reconnect" aria-checked="true" data-action="toggle-reconnect"><span data-icon="check"></span>启动时自动重连</button><button role="menuitemcheckbox" id="menu-startup" aria-checked="false" data-action="toggle-startup"><span class="menu-check-space"></span>开机启动</button><div class="menu-separator"></div><button role="menuitem" data-action="about"><span data-icon="info"></span>关于 AudioBule</button><button role="menuitem" data-action="exit"><span data-icon="power"></span>退出 AudioBule</button></div>
+        <div class="taskbar"><div class="taskbar-weather"><span data-icon="sun"></span><span>24°C<small>晴</small></span></div><div class="taskbar-apps" aria-hidden="true"><span class="windows-mark"><i></i><i></i><i></i><i></i></span><span data-icon="search"></span><span data-icon="window"></span><span class="folder-mark"></span><img src="icons/app.svg" alt="" width="26" height="26"></div><div class="system-tray"><span data-icon="chevron"></span><button id="tray-icon-button" class="taskbar-tray-button" aria-label="AudioBule，点击打开快捷面板，右键打开菜单" data-action="tray-toggle"><img src="icons/tray-dark.svg" alt="" width="20" height="20"><i id="tray-status-dot"></i></button><span data-icon="wifi"></span><span data-icon="speaker"></span><div class="taskbar-clock">10:24<small>2026/10/11</small></div><span class="notification-dot"></span></div></div>
+      </div><div class="scene-caption"><span><i class="caption-dot"></i> 托盘快捷面板 · Acrylic 材质 / 就地连接 / 状态同步</span><span>点击右下角图标 / 右键打开菜单</span></div>
+    </section>
+    <section class="preview-view identity-view" id="view-identity" hidden aria-label="图标与设计规范">
+      <div class="identity-top"><div class="identity-hero"><span class="eyebrow">A SMALL ICON. A CLEAR CONNECTION.</span><div class="identity-logo"><img src="icons/app.svg" alt="AudioBule 新应用图标" width="142" height="142"><div><h2>AudioBule</h2><p>蓝牙 × 声音 × 连接</p></div></div><p class="identity-description">以蓝牙符号作为识别核心，向外延伸的声波表达音频接收。应用图标保留层次，托盘图标使用清晰的单色轮廓。</p><a class="text-link" href="icons/app.svg" download="AudioBule.svg">下载 SVG 源图标 <span data-icon="download"></span></a></div><div class="identity-card icon-size-card"><h3>从开始菜单，到系统托盘</h3><div class="size-samples"><figure><img src="icons/app.svg" width="80" height="80" alt="80 像素应用图标"><figcaption>应用 · 80</figcaption></figure><figure><img src="icons/app.svg" width="48" height="48" alt="48 像素应用图标"><figcaption>任务栏 · 48</figcaption></figure><figure><img src="icons/app.svg" width="32" height="32" alt="32 像素应用图标"><figcaption>标题栏 · 32</figcaption></figure><figure><img src="icons/tray-dark.svg" width="20" height="20" alt="20 像素托盘图标"><figcaption>托盘 · 20</figcaption></figure><figure><img src="icons/tray-dark.svg" width="16" height="16" alt="16 像素托盘图标"><figcaption>托盘 · 16</figcaption></figure></div><div class="tray-variants"><div class="tray-swatch light"><img src="icons/tray-dark.svg" width="24" height="24" alt="浅色任务栏中的图标"><span>浅色任务栏</span></div><div class="tray-swatch dark"><img src="icons/tray-light.svg" width="24" height="24" alt="深色任务栏中的图标"><span>深色任务栏</span></div></div></div></div>
+      <div class="identity-grid"><div class="identity-card"><h3>克制的色彩</h3><p>蓝色用于操作焦点，状态同时用文字表达。</p><div class="palette"><div><i style="background:#0067c0"></i><strong>强调蓝</strong><small>#0067C0</small></div><div><i style="background:#0f7b0f"></i><strong>已连接</strong><small>#0F7B0F</small></div><div><i style="background:#9d5d00"></i><strong>连接中</strong><small>#9D5D00</small></div><div><i style="background:#c42b1c"></i><strong>连接失败</strong><small>#C42B1C</small></div></div></div><div class="identity-card"><h3>一个清晰的状态系统</h3><div class="state-samples"><span class="badge connected">已连接</span><span class="badge connecting">连接中</span><span class="badge disconnected">未连接</span><span class="badge failed">连接失败</span></div><p>失败留在当前设备行内，保留重试入口。连接状态不等同于正在播放。</p><div class="glyph-samples"><span data-icon="devices"></span><span data-icon="bluetooth"></span><span data-icon="refresh"></span><span data-icon="settings"></span><span data-icon="bell"></span><span data-icon="power"></span></div></div><div class="identity-card type-card"><h3>Windows 的熟悉感</h3><div class="type-specimen">Aa <span>声音</span></div><p>Segoe UI Variable / Microsoft YaHei UI</p><div class="token-list"><span>标题 <b>28 / 600</b></span><span>正文 <b>14 / 400</b></span><span>辅助信息 <b>12 / 400</b></span><span>圆角 <b>4 / 8 px</b></span></div></div></div>
+      <div class="scope-note"><span data-icon="info"></span><p>此页是交互设计示意。设备为示例数据；开机启动、通知偏好、主题与语言设置、托盘快捷面板为拟议设计。当前工程仍使用左键显示主窗口与 Win32 右键菜单。每设备音量控件已按验证结论移除。</p></div>
+    </section>
+  </main>
+  <footer class="review-footer"><span>AudioBule · Windows native, thoughtfully connected.</span><span>交互示意 · 示例设备 · 2026.10</span></footer>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <!-- 对话框只模拟系统入口，不实际改变蓝牙连接或系统设置。 -->
+  <dialog id="app-dialog"><div id="dialog-content"></div></dialog>
+  <script src="localization.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

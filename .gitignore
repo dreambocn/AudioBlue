@@ -43,3 +43,16 @@ AppPackages/
 
 # Signing certificates contain a private key -- never commit
 *.pfx
+
+# 本机验证日志、结果数据和重复截图保留在本地，只提交代表性效果图。
+/docs/native-ui/verification/
+/docs/native-ui/screenshots/*.png
+!/docs/native-ui/screenshots/alignment-devices-settings-dark-zh.png
+!/docs/native-ui/screenshots/alignment-devices-english-dark.png
+!/docs/native-ui/screenshots/alignment-devices-devices-english-dark.png
+!/docs/native-ui/screenshots/alignment-devices-tray-dark.png
+!/docs/native-ui/screenshots/alignment-devices-menu.png
+/docs/ui-preview/verification*.json
+/docs/ui-preview/preview-*.png
+!/docs/ui-preview/preview-en-dark.png
+!/docs/ui-preview/preview-icons-dark.png

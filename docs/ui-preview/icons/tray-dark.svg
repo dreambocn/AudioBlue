@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none">
+  <!-- 浅色任务栏使用深色轮廓；托盘状态由外部徽标表达。 -->
+  <path d="M7.5 2V18L13 13 3.5 5M3.5 15 13 7 7.5 2" stroke="#242424" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 6.5C17 8.4 17 11.6 15 13.5M17 4C20 7.2 20 12.8 17 16" stroke="#242424" stroke-width="1.2" stroke-linecap="round"/>
+</svg>
