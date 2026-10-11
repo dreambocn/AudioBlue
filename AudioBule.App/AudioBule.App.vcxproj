@@ -103,7 +103,10 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
-      <AdditionalIncludeDirectories>$(CppWinRTProjectionIncludePath);$(ProjectDir);$(ProjectDir)..\AudioBule.Core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- $(ProjectDir)$(GeneratedFilesDir) 必须显式加入：MainWindow.xaml.h 要
+           #include "MainWindow.g.h"（MIDL+CppWinRT 产物），它就在
+           Generated Files\ 下，且 XAML 编译器不会自动把它加进包含路径。 -->
+      <AdditionalIncludeDirectories>$(CppWinRTProjectionIncludePath);$(ProjectDir)$(GeneratedFilesDir);$(ProjectDir);$(ProjectDir)..\AudioBule.Core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level4</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
@@ -156,7 +159,6 @@
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="main.cpp" />
     <ClCompile Include="App.xaml.cpp">
       <DependentUpon>App.xaml</DependentUpon>
     </ClCompile>
@@ -165,6 +167,18 @@
     </ClCompile>
     <!-- The CppWinRT-generated module glue must be compiled explicitly. -->
     <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- MainWindow_base (which the XAML-generated MainWindow.xaml.g.h derives
+         from) is produced by MIDL compiling this IDL. Without it the build
+         fails with "MainWindow_base is not a member of
+         winrt::AudioBule::App::implementation". MIDL + CppWinRT also generate
+         the process entry point, which is why there is no hand-written
+         main.cpp here; the Visual Studio template has none either. -->
+    <Midl Include="MainWindow.idl">
+      <SubType>Code</SubType>
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Midl>
   </ItemGroup>
   <ItemGroup>
     <!-- Resources do not propagate through a static library, so the final

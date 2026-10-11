@@ -1,0 +1,11 @@
+namespace AudioBule.App
+{
+    // The generated MainWindow_base type comes from compiling this IDL with MIDL.
+    // Without it the XAML-generated MainWindow.xaml.g.h cannot resolve
+    // MainWindow_base and the build fails.
+    [default_interface]
+    runtimeclass MainWindow : Microsoft.UI.Xaml.Window
+    {
+        MainWindow();
+    }
+}
