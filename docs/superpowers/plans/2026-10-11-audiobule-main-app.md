@@ -555,10 +555,11 @@ int main()
 </Project>
 ```
 
-> **CRT 一致性是易踩的坑**：`AudioBule.Core` 的 Release 配置在 Task 9 会设
-> `/MT`（`MultiThreaded`），静态库不链接 CRT 所以自身不会报错，但测试工程若用
-> 默认 `/MD` 就会在链接期报 `LNK2038: 检测到不一致`。此处提前把测试工程也设为
-> `/MT`，与 App 工程保持一致。
+> **CRT 一致性是易踩的坑（已实测踩到）**：`RuntimeLibrary` 必须设在
+> **`ClCompile`** 节里，不是 `Link` 节。设成 `/MD` 会让测试工程与 Core 的
+> `/MT` 冲突，链接期报
+> `LNK2038: 检测到"RuntimeLibrary"的不匹配项: 值"MT_StaticRelease"不匹配值"MD_DynamicRelease"`。
+> 两处都要设：`<ClCompile><RuntimeLibrary>` 管编译，`<Link><RuntimeLibrary>` 管默认库。
 
 - [ ] **Step 10: 创建 `AudioBule.sln`**
 
@@ -664,6 +665,18 @@ git commit -m "build: scaffold solution with Core library and test harness"
 `SimpleEvent` 存在的唯一理由：`ConnectionManager` 要在**不引入任何 WinRT 类型**的前提下
 对外广播条目变更。Core 的边界要求（Global Constraints）不允许 `IInspectable` 泄漏到
 接口面，而 `winrt::event_token` 会把 WinRT 类型拖进来。
+
+> ⚠️ **已实测修正**：`Add` **必须返回订阅 id**，`Remove` 按 id 移除。
+> 最初设计成「按 handler 移除」，但 `std::function` **没有 `operator==`**
+> （C++20 也只对极少数类型提供可比较性），那种写法直接编译不过
+> `C2672/C2061`。正确形态与 `winrt::event_token` 一致：
+> ```cpp
+> using SubscriptionId = size_t;
+> SubscriptionId Add(Handler);   // 返回 id
+> void Remove(SubscriptionId);   // id 无效或重复移除时静默忽略
+> ```
+> 这一点会连带影响 `ConnectionManager`：它保存的成员类型必须是
+> `SimpleEvent<...>::SubscriptionId` 而不是 `SimpleEvent<...>::Handler`。
 
 ---
 
@@ -2375,7 +2388,7 @@ private:
 
     IAudioDeviceProvider& m_provider;
     // 存成成员以便析构时按同一对象 Remove（见 ConnectionManager.cpp 的说明）
-    SimpleEvent<std::string>::Handler m_lostHandler;
+    SimpleEvent<std::string>::SubscriptionId m_lostSubscription = 0;
 
     mutable std::mutex m_mutex;
     std::vector<ConnectionEntry> m_entries;
@@ -2405,8 +2418,8 @@ ConnectionManager::ConnectionManager(IAudioDeviceProvider& provider)
     // handler 必须存成成员：SimpleEvent::Remove 按 std::function 相等性比较，
     // 而 std::function 只在**目标类型相同且捕获相等**时才相等。重新写一个
     // 捕获相同 this、函数体不同的 lambda 是不同的闭包类型，Remove 匹配不上。
-    m_lostHandler = [this](std::wstring const& deviceId) { HandleConnectionLost(deviceId); };
-    m_provider.ConnectionLost.Add(m_lostHandler);
+    m_lostSubscription = m_provider.ConnectionLost.Add(
+        [this](std::wstring const& deviceId) { HandleConnectionLost(deviceId); });
 }
 
 ConnectionManager::~ConnectionManager()
@@ -2416,7 +2429,7 @@ ConnectionManager::~ConnectionManager()
     // 摘掉订阅：provider 通常是成员，析构顺序在本对象之后。
     // 不摘的话 provider 上会残留指向已析构 this 的 handler，
     // 之后 provider 若再 Raise 就会访问已释放内存。
-    m_provider.ConnectionLost.Remove(m_lostHandler);
+    m_provider.ConnectionLost.Remove(m_lostSubscription);
 }
 
 std::future<void> ConnectionManager::CompletedFuture()
@@ -5399,8 +5412,8 @@ private:
     // UpdateSingle 找不到对象而全量重建
     std::unordered_map<std::wstring, DeviceItemViewModel> m_itemsById;
 
-    Core::SimpleEvent<Core::ConnectionEntry>::Handler m_entryChangedHandler;
-    Core::SimpleEvent<>::Handler m_entriesChangedHandler;
+    Core::SimpleEvent<Core::ConnectionEntry>::SubscriptionId m_entrySubscription = 0;
+    Core::SimpleEvent<>::SubscriptionId m_entriesSubscription = 0;
 };
 
 } // namespace winrt::AudioBule::App::implementation
@@ -5462,17 +5475,14 @@ void MainWindow::Attach(ConnectionManager* manager)
 {
     m_manager = manager;
 
-    m_entryChangedHandler = [this](ConnectionEntry const& entry) {
+    m_entrySubscription = m_manager->EntryChanged.Add([this](ConnectionEntry const& entry) {
         // EntryChanged 由工作线程触发，必须 post 回 UI 线程
         DispatcherQueue().TryEnqueue([this, entry] { UpdateSingle(entry); });
-    };
+    });
 
-    m_entriesChangedHandler = [this] {
+    m_entriesSubscription = m_manager->EntriesChanged.Add([this] {
         DispatcherQueue().TryEnqueue([this] { RebuildList(); });
-    };
-
-    m_manager->EntryChanged.Add(m_entryChangedHandler);
-    m_manager->EntriesChanged.Add(m_entriesChangedHandler);
+    });
 
     RebuildList();
 }
