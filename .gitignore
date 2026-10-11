@@ -1,4 +1,6 @@
-# MSBuild 涓棿浜х墿涓庤緭鍑?# 鎵€鏈夎矾寰勯兘鐢?/ 寮€澶村仛鏍归敋瀹?鈥斺€?瑁?bin/ 浼氳繛甯﹀拷鐣?tools/volume-spike/bin/
+# MSBuild intermediate output and build results.
+# Every path is anchored with a leading '/' on purpose -- a bare "bin/" would
+# also swallow tools/volume-spike/bin/, which is deliberately kept.
 /x64/
 /Debug/
 /Release/
@@ -16,9 +18,14 @@
 *.ipch
 *.iobj
 
-# XAML 缂栬瘧鍣ㄤ骇鐗?/AudioBule.App/Generated Files/
+# XAML compiler output
+/AudioBule.App/Generated Files/
 
-# 鎵撳寘浜х墿
+# Icon build intermediates. The .ico files themselves ARE committed because
+# both the app and the test project embed them as RCDATA resources.
+/assets/icons/generated/
+
+# Packaging output
 AppPackages/
 *.msix
 *.msixbundle
@@ -26,4 +33,5 @@ AppPackages/
 *.appxbundle
 *.pri
 
-# 绛惧悕璇佷功鍚閽ワ紝缁濅笉鑳芥彁浜?*.pfx
+# Signing certificates contain a private key -- never commit
+*.pfx
