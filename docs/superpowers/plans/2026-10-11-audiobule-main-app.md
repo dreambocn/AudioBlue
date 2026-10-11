@@ -4640,4 +4640,403 @@ git add AudioBule.App
 git commit -m "feat: add tray icon service on dedicated thread with dispatcher bridge"
 ```
 
+---
+
+## Task 9: 托盘接线 —— 主题图标、右键菜单、explorer 重启恢复
+
+**Files:**
+- Modify: `AudioBule.App/App.xaml.h`
+- Modify: `AudioBule.App/App.xaml.cpp`
+- Create: `AudioBule.App/TrayMenuBuilder.h` / `TrayMenuBuilder.cpp`
+- Modify: `AudioBule.App/AudioBule.App.vcxproj`
+
+**Interfaces:**
+- Consumes: Task 8 的 `TrayIconService`
+- Produces: `TrayIconService::Callbacks` 的三个回调全部接线完成；窗口能响应托盘交互
+
+**本任务把 Task 8 的临时验证代码替换成真实实现。**
+
+---
+
+- [ ] **Step 1: 创建 `AudioBule.App/TrayMenuBuilder.h`**
+
+```cpp
+#pragma once
+
+#include <windows.h>
+
+namespace AudioBule::App::TrayService
+{
+
+// 托盘右键菜单项。spec §2.1 要求四项：蓝牙设置、开机自启、关于、退出。
+struct TrayMenu
+{
+    void* hMenu = nullptr;
+};
+
+// 在 screenPoint 处弹出菜单。必须是模态：菜单显示期间要吃掉输入，
+// 否则用户点击菜单外时事件会漏到下面的窗口。
+//
+// 返回用户选中的命令 ID，未选中返回 0。
+int ShowTrayMenu(HWND owner, POINT screenPoint, bool autoReconnect, bool runAtStartup);
+
+constexpr int kCmdBluetoothSettings = 1001;
+constexpr int kCmdAutoReconnect = 1002;
+constexpr int kCmdRunAtStartup = 1003;
+constexpr int kCmdAbout = 1004;
+constexpr int kCmdExit = 1005;
+
+} // namespace AudioBule::App::TrayService
+```
+
+- [ ] **Step 2: 创建 `AudioBule.App/TrayMenuBuilder.cpp`**
+
+```cpp
+#include "pch.h"
+#include "TrayMenuBuilder.h"
+
+#include <shellapi.h>
+
+namespace AudioBule::App::TrayService
+{
+
+namespace {
+
+void AppendCheckItem(HMENU menu, UINT id, wchar_t const* text, bool checked)
+{
+    MENUITEMINFOW info = {};
+    info.cbSize = sizeof(info);
+    info.fMask = MIIM_STRING | MIIM_ID | MIIM_STATE;
+    info.fState = checked ? MFS_CHECKED : MFS_UNCHECKED;
+    info.wID = id;
+    ::InsertMenuItemW(menu, ::GetMenuItemCount(menu), TRUE, &info);
+
+    // InsertMenuItemW 的 MIIM_STRING 不接受字符串指针，需另设文本
+    // （MENUITEMINFO 的 dwTypeData + MIIM_STRING 在部分系统版本上不生效，
+    //  这是 Win32 的已知坑 —— 用 SetMenuItemInfoW 补一次）
+    MENUITEMINFOW textInfo = {};
+    textInfo.cbSize = sizeof(textInfo);
+    textInfo.fMask = MIIM_STRING;
+    textInfo.dwTypeData = const_cast<LPWSTR>(text);
+    ::SetMenuItemInfoW(menu, static_cast<UINT>(-1), TRUE, &textInfo);
+}
+
+} // namespace
+
+int ShowTrayMenu(HWND owner, POINT screenPoint, bool autoReconnect, bool runAtStartup)
+{
+    HMENU menu = ::CreatePopupMenu();
+    if (menu == nullptr)
+    {
+        return 0;
+    }
+
+    AppendCheckItem(menu, kCmdBluetoothSettings, L"蓝牙设置...", false);
+    AppendCheckItem(menu, kCmdAutoReconnect, L"启动时自动重连上次设备", autoReconnect);
+    AppendCheckItem(menu, kCmdRunAtStartup, L"开机自启", runAtStartup);
+    ::InsertMenuW(menu, static_cast<UINT>(-1), TRUE, MF_SEPARATOR);
+    AppendCheckItem(menu, kCmdAbout, L"关于 AudioBule", false);
+    AppendCheckItem(menu, kCmdExit, L"退出", false);
+
+    // 右键菜单必须在显示前把焦点抢过来，否则菜单会立刻消失。
+    // 这是 shell 扩展的经典要求，不是可选项。
+    ::SetForegroundWindow(owner);
+    DWORD command = ::TrackPopupMenuEx(
+        menu,
+        TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+        screenPoint.x, screenPoint.y,
+        owner, nullptr);
+
+    ::DestroyMenu(menu);
+    return static_cast<int>(command);
+}
+
+} // namespace AudioBule::App::TrayService
+```
+
+> `TrayMenu` 结构体本任务用不上（菜单是模态的，返回命令 ID 即可），
+> 保留它是为了将来做异步菜单时有个扩展点。若编译器对未使用的结构体报警，
+> 直接删掉这个结构体。
+
+- [ ] **Step 3: 在 `AudioBule.App.vcxproj` 登记新文件**
+
+```xml
+  <ItemGroup>
+    <ClInclude Include="TrayMenuBuilder.h" />
+  </ItemGroup>
+```
+```xml
+    <ClCompile Include="TrayMenuBuilder.cpp" />
+```
+
+- [ ] **Step 4: 重写 `App.xaml.h`**
+
+```cpp
+#pragma once
+
+#include "App.xaml.g.h"
+
+#include "TrayIconService.h"
+
+#include <memory>
+
+namespace winrt::AudioBule::App::implementation
+{
+
+struct App : AppT<App>
+{
+    App() noexcept;
+
+    void OnLaunched(Windows::ApplicationModel::Activation::LaunchActivatedEventArgs const& e);
+
+private:
+    // 三者的析构顺序很重要：托盘服务最先析构（它要 PostThreadMessage 退出），
+    // 其次 provider，最后 manager（manager 在析构时会 WaitForIdle 并解绑 provider 事件）。
+    // C++ 成员按**声明逆序**析构，所以这里必须反着声明。
+    Core::ConnectionManager m_manager;
+    Core::WinRtDeviceProvider m_provider;
+    std::unique_ptr<TrayService::TrayIconService> m_tray;
+
+    Core::AppSettings m_settings;
+
+    void ShowDeviceWindow();
+    void ApplyTheme();
+    void HandleTrayCommand(int command);
+};
+
+} // namespace winrt::AudioBule::App::implementation
+```
+
+- [ ] **Step 5: 重写 `App.xaml.cpp`**
+
+```cpp
+#include "pch.h"
+
+#include "App.xaml.h"
+
+#include "MainWindow.xaml.h"
+#include "TrayMenuBuilder.h"
+
+#include <shellapi.h>
+
+#include <winrt/Windows.UI.ViewManagement.h>
+
+using namespace winrt;
+using namespace Windows::ApplicationModel::Activation;
+using namespace Windows::UI::Xaml;
+using namespace AudioBule::App::implementation;
+using namespace AudioBule::Core;
+
+namespace winrt::AudioBule::App::implementation
+{
+
+App::App() noexcept
+    : m_manager(m_provider)
+{
+    InitializeComponent();
+
+    m_settings = LoadSettings(DefaultSettingsPath());
+
+    // 记录主窗口，供托盘点击时显示/隐藏
+    m_window = Window().as<MainWindow>();
+}
+
+void App::OnLaunched(LaunchActivatedEventArgs const& e)
+{
+    // 启动时不显示设备列表窗口 —— 这是托盘应用，弹出窗口会很突兀。
+    // 窗口实例在构造函数里已经建好，这里只不 Activate。
+    m_window.as<Window>().Close();
+
+    if (!m_manager.IsSupported())
+    {
+        // 系统不支持 A2DP Sink。提示后退出，不留一个没用的托盘图标。
+        ::MessageBoxW(nullptr, L"AudioBule 需要 Windows 10 2004（build 19041）或更高版本。",
+            L"版本过低", MB_OK | MB_ICONWARNING);
+        ::ExitProcess(0);
+        return;
+    }
+
+    TrayService::TrayIconService::Callbacks callbacks;
+    callbacks.onToggled = [this] { ShowDeviceWindow(); };
+    callbacks.onContextMenu = [this](POINT point) {
+        HandleTrayCommand(TrayService::ShowTrayMenu(
+            m_tray->WindowHandle(), point,
+            m_settings.autoReconnect, m_settings.runAtStartup));
+    };
+    callbacks.onThemeShouldRefresh = [this] { ApplyTheme(); };
+
+    m_tray = std::make_unique<TrayService::TrayIconService>(
+        DispatcherQueue::GetForCurrentThread(), std::move(callbacks));
+
+    if (!m_tray->WaitUntilReady())
+    {
+        // 托盘起不来也要继续：spec §3.8「托盘图标创建失败 → 记录日志，
+        // 不崩溃；窗口仍可通过其它入口打开」
+        OutputDebugStringW(L"AudioBule: tray icon unavailable\n");
+        m_tray.reset();
+    }
+
+    ApplyTheme();
+
+    m_manager.Refresh();
+
+    if (m_settings.autoReconnect && !m_settings.lastConnectedDevices.empty())
+    {
+        m_manager.ReconnectSavedDevices(m_settings.lastConnectedDevices);
+    }
+}
+
+void App::ApplyTheme()
+{
+    if (!m_tray)
+    {
+        return;
+    }
+
+    // UISettings 的 BackgroundColor 与任务栏主题一致（Win11 起）
+    try
+    {
+        auto settings = Windows::UI::ViewManagement::UISettings();
+        auto color = settings.GetColorValue(
+            Windows::UI::ViewManagement::UIColorType::Background);
+        // 亮度低于 128 视为深色
+        bool darkTheme = color.R < 128;
+        m_tray->UpdateIcon(darkTheme);
+    }
+    catch (...)
+    {
+        m_tray->UpdateIcon(false);
+    }
+}
+
+void App::ShowDeviceWindow()
+{
+    auto window = m_window.as<Window>();
+    window.Activate();
+}
+
+void App::HandleTrayCommand(int command)
+{
+    switch (command)
+    {
+    case TrayService::kCmdBluetoothSettings:
+        // 配对入口：跳系统蓝牙设置。用 ShellExecute 而不是 explorer.exe，
+        // 后者在某些系统上会开新进程残留。
+        ::ShellExecuteW(nullptr, L"open", L"ms-settings:bluetooth", nullptr, nullptr, SW_SHOWNORMAL);
+        break;
+
+    case TrayService::kCmdAutoReconnect:
+        m_settings.autoReconnect = !m_settings.autoReconnect;
+        SaveSettings(m_settings, DefaultSettingsPath());
+        break;
+
+    case TrayService::kCmdRunAtStartup:
+        // 未打包模式下 StartupTask 不可用，计划二才实现自启。
+        // 这里只记录开关，不做实际动作。
+        m_settings.runAtStartup = !m_settings.runAtStartup;
+        SaveSettings(m_settings, DefaultSettingsPath());
+        break;
+
+    case TrayService::kCmdAbout:
+        ::MessageBoxW(m_tray ? m_tray->WindowHandle() : nullptr,
+            L"AudioBule\n蓝牙 A2DP 接收端连接管家",
+            L"关于", MB_OK | MB_INFORMATION);
+        break;
+
+    case TrayService::kCmdExit:
+        m_manager.WaitForIdle();
+        ::PostQuitMessage(0);
+        break;
+
+    default:
+        break;
+    }
+}
+
+} // namespace winrt::AudioBule::App::implementation
+```
+
+- [ ] **Step 6: 补上 App 缺失的成员与依赖**
+
+`Step 4` 的 `App.xaml.h` 用到了 `m_window`，但头文件里没声明。补上：
+
+```cpp
+    winrt::Windows::UI::Xaml::Window m_window{ nullptr };
+```
+
+`Step 5` 还用了 `TrayService::TrayIconService::WindowHandle()`，
+Task 8 没有这个方法。加上 —— 它返回 message-only 窗口的句柄，
+供 `SetForegroundWindow` 与 `MessageBox` 的父窗口使用：
+
+```cpp
+    // 供菜单/对话框作为父窗口使用。返回托盘线程上的 message-only 窗口句柄。
+    HWND WindowHandle() const { return m_window; }
+```
+
+- [ ] **Step 7: 编译**
+
+Run:
+
+```powershell
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -p:Configuration=Debug -p:Platform=x64 -v:minimal -nologo
+```
+
+Expected: 退出码 0。若报 `m_window` 未声明，说明 Step 6 没做。
+
+- [ ] **Step 8: 手工验证托盘交互**
+
+Run:
+
+```powershell
+& ".\AudioBule.App\bin\AudioBule.exe"
+```
+
+逐项确认：
+
+| 操作 | 期望 |
+| --- | --- |
+| 程序启动 | **不弹出窗口**，托盘出现图标 |
+| 左键单击托盘图标 | 窗口出现（此时是 Task 7 的占位内容） |
+| 右键单击托盘图标 | 弹出 5 项菜单（蓝牙设置 / 自动重连 / 开机自启 / 分隔线 / 关于 / 退出） |
+| 点「自动重连」再右键 | 该项显示为勾选态 |
+| 点「蓝牙设置」 | 打开系统蓝牙设置页 |
+| 点「关于」 | 弹关于对话框 |
+| 点「退出」 | 进程退出，托盘图标消失 |
+| 切深色主题后再看图标 | 图标变为浅色 |
+
+- [ ] **Step 9: 验证 explorer 重启恢复（Review Focus 第 5 条）**
+
+在托盘图标已显示的情况下，结束 explorer.exe：
+
+```powershell
+Stop-Process -Name explorer -Force
+Start-Process explorer
+Start-Sleep -Seconds 3
+```
+
+Expected: 桌面环境恢复后，AudioBule 的托盘图标**重新出现**，
+不需要重启 AudioBule。若没出现，检查 `WM_TASKBAR_CREATED` 的
+`RegisterWindowMessageW(L"TaskbarCreated")` 是否在窗口创建**之后**才调用 ——
+注册早于窗口创建会导致消息投递不到。
+
+> 本机 explorer 可能配置为"自动重启桌面"，那正好一次验证完。
+> 若已自动重启，直接看图标是否还在即可。
+
+- [ ] **Step 10: 验证图标资源不泄漏（Review Focus 相关）**
+
+反复切换系统深浅主题 10 次，然后开任务管理器 → 「详细信息」列加「GDI 对象」：
+
+Expected: GDI 对象数不持续增长。
+
+若持续增长，检查 `UpdateIcon` 里旧图标是否被 `Core::DestroyTrayIcon` 释放 ——
+只在 `NIM_MODIFY` 成功时才替换，失败路径也要释放新图标。
+
+- [ ] **Step 11: 提交**
+
+```bash
+git add AudioBule.App
+git commit -m "feat: wire tray callbacks, context menu, and theme-aware icons"
+```
+
 <!-- APPEND-MARKER -->
