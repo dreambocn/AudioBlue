@@ -53,14 +53,28 @@
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <!-- Core is /MT (static CRT). Must be set under ClCompile, NOT Link.
            Setting /MD here conflicts with Core's /MT and the linker reports LNK2038. -->
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <!-- C++/WinRT projection headers are UTF-8 without BOM; this machine's code
-           page is 936 (GBK), so without /utf-8 cl emits C4819, which /WX makes fatal. -->
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <!-- Matches ClCompile/Link /MT above. -->
+    </Link>
+  </ItemDefinitionGroup>
+  <!-- The CRT must match Core's for the current configuration. Debug uses
+       MultiThreadedDebug, Release uses MultiThreaded; a mismatch (or leaving
+       one configuration at the /MD default) yields LNK2038. -->
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+    <Link>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </Link>
   </ItemDefinitionGroup>
