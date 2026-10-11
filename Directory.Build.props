@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <PropertyGroup>
+    <AudioBuleRepoRoot>$(MSBuildThisFileDirectory)</AudioBuleRepoRoot>
+
+    <!-- NuGet 包目录：按要求装在非 C 盘。
+         构建前需设置环境变量，例如：
+           $env:NUGET_PACKAGES = "D:\NuGetPackages"
+         若未设置，NuGet 会回落到 %USERPROFILE%\.nuget\packages（C 盘）。
+         Restore 脚本 Packaging/Restore.ps1 会自动设置。 -->
+    <RestorePackagesPath Condition="'$(NUGET_PACKAGES)' != ''">$(NUGET_PACKAGES)</RestorePackagesPath>
+
+    <!-- 必须显式写版本号：留 10.0 会去找 C:\Program Files (x86)\Windows Kits\10，
+         而本机 SDK 装在 D:\Windows Kits\10 -->
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+
+    <!-- v180 是 MSBuild 目录名，v145 才是可用的工具集名 -->
+    <PlatformToolset>v145</PlatformToolset>
+
+    <!-- GoogleTest 1.17.0 源码内置路径。NuGet 上的 googletest 1.8.3 在 v145 下
+         编译失败（std::tr1::tuple 已被移除），因此改为源码内置。 -->
+    <GoogleTestRoot>$(AudioBuleRepoRoot)third_party\googletest\</GoogleTestRoot>
+
+    <!-- C++/WinRT 投影头的真实位置。MSBuild 默认注入的是 <sdk>\Include\<ver>\winrt\
+         （C 语言头目录），投影头在同级的 cppwinrt\winrt\ 下，必须显式补。
+         路径硬编码是因为 Directory.Build.props 导入时 $(WindowsSdkDir) 尚未定义。 -->
+    <CppWinRTProjectionIncludePath>D:\Windows Kits\10\Include\10.0.26100.0\cppwinrt\winrt</CppWinRTProjectionIncludePath>
+  </PropertyGroup>
+</Project>

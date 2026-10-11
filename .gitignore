@@ -1,0 +1,32 @@
+# MSBuild 中间产物与输出
+# 所有路径都用 / 开头做根锚定 —— 裸 bin/ 会连带忽略 tools/volume-spike/bin/
+/x64/
+/Debug/
+/Release/
+/AudioBule.Core/bin/
+/AudioBule.Core/obj/
+/AudioBule.App/bin/
+/AudioBule.App/obj/
+/tests/bin/
+/tests/obj/
+/.vs/
+*.user
+*.aps
+*.tlog
+*.idb
+*.ipch
+*.iobj
+
+# XAML 编译器产物
+/AudioBule.App/Generated Files/
+
+# 打包产物
+AppPackages/
+*.msix
+*.msixbundle
+*.appx
+*.appxbundle
+*.pri
+
+# 签名证书含私钥，绝不能提交
+*.pfx
