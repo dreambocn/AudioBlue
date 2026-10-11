@@ -1,5 +1,65 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<!--
+  Settings in this file are derived from the Visual Studio 2026 template
+  "WinUI (WinUI 3 in Desktop) Blank App, C++/WinRT":
+    ...\Common7\IDE\Extensions\zijrzcx3.thj\ProjectTemplates\VC\1033\
+        WinUI.Desktop.CppWinRT.PackagedApp\BlankApp\ProjectTemplate.vcxproj
+
+  Three of those settings are load-bearing and were missing when this project
+  first failed to build:
+    - UseWinUI=true          : tells the WinUI targets to use WinUI XAML tools
+                               instead of the inbox UWP ones. Without it the build
+                               picked the .NET Framework Microsoft.Xaml.targets and
+                               no *.xaml.g.h was produced.
+    - ApplicationTypeRevision : required alongside ApplicationType.
+    - Microsoft.Windows.SDK.BuildTools package reference : listed in the
+                               template's NuGetPackageInstaller parameter.
+-->
+<Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="Globals">
+    <CppWinRTOptimized>true</CppWinRTOptimized>
+    <CppWinRTRootNamespaceAutoMerge>true</CppWinRTRootNamespaceAutoMerge>
+    <MinimalCoreWin>true</MinimalCoreWin>
+    <ProjectGuid>{A1B2C3D4-0002-4E5F-9A8B-000000000002}</ProjectGuid>
+    <ProjectName>AudioBule.App</ProjectName>
+    <!-- Must match the x:Class prefix of App.xaml / MainWindow.xaml so the
+         generated winrt/AudioBule.App.h lands where main.cpp includes it. -->
+    <RootNamespace>AudioBule.App</RootNamespace>
+    <TargetName>AudioBule</TargetName>
+    <MinimumVisualStudioVersion>16.0</MinimumVisualStudioVersion>
+    <AppContainerApplication>false</AppContainerApplication>
+    <AppxPackage>false</AppxPackage>
+    <ApplicationType>Windows Store</ApplicationType>
+    <ApplicationTypeRevision>10.0</ApplicationTypeRevision>
+    <!-- "10.0" means "use the latest installed Windows SDK", resolved through the
+         UAP machinery. Do NOT pin an exact version here: pinning makes
+         ResolveNuGetPackageAssets ask for a framework the restore graph does not
+         contain ("Your project does not reference UAP,Version=v10.0 framework").
+         The exact SDK version is still pinned for Core and the tests, which are
+         plain native projects. -->
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformMinVersion>10.0.19041.0</WindowsTargetPlatformMinVersion>
+    <UseWinUI>true</UseWinUI>
+    <WinUISDKReferences>false</WinUISDKReferences>
+    <EnableDefaultCssItems>false</EnableDefaultCssItems>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <!-- TargetPlatformIdentifier is UAP here, so NuGet derives runtime identifier
+         "win10-x64". It must be declared or ResolveNuGetPackageAssets fails. -->
+    <RuntimeIdentifiers>win10-x64</RuntimeIdentifiers>
+    <RuntimeIdentifier>win10-x64</RuntimeIdentifier>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <!-- Directory.Build.props is imported by Microsoft.Cpp.Default.props, i.e.
+       AFTER the Globals group above, so its pinned 10.0.26100.0 wins over the
+       "10.0" set there. That pinned version makes TargetPlatformMoniker become
+       UAP,Version=10.0.26100.0, which ResolveNuGetPackageAssets then fails to
+       reconcile with the "native" framework NuGet restored for a C++ project:
+         "Your project does not reference "UAP,Version=v10.0" framework."
+       Re-apply the WinUI-required "10.0" (resolve the latest installed SDK)
+       after the import so it actually takes effect. -->
+  <PropertyGroup>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
       <Configuration>Debug</Configuration>
@@ -10,107 +70,87 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
-  <PropertyGroup Label="Globals">
-    <VCProjectVersion>18.0</VCProjectVersion>
-    <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{A1B2C3D4-0002-4E5F-9A8B-000000000002}</ProjectGuid>
-    <!-- Must match the x:Class prefix of App.xaml / MainWindow.xaml so the
-         generated winrt/AudioBule.App.h lands where main.cpp includes it. -->
-    <RootNamespace>AudioBule.App</RootNamespace>
-    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
-    <!-- ApplicationType and the Windows Store ProjectTypeGuid are REQUIRED for the
-         WinUI XAML toolchain to activate: without them MSBuild falls back to
-         the .NET Framework Microsoft.Xaml.targets and never generates
-         *.xaml.g.h. -->
-    <ApplicationType>Windows Store</ApplicationType>
-    <ApplicationEnvironment>windows</ApplicationEnvironment>
-    <ApplicationKind>windows</ApplicationKind>
-    <ProjectTypeGuids>{BC8A1FFA-BEE3-4634-8014-F334798102B3};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
-    <EnableMsixTooling>true</EnableMsixTooling>
-    <EnableDefaultCssItems>false</EnableDefaultCssItems>
-    <EnableDefaultPageItems>false</EnableDefaultPageItems>
-    <!--
-      NOTE: do NOT set ApplicationType=Windows Store or the Windows Store
-      ProjectTypeGuid here. Both make the UAP-aware MSBuild targets kick in and
-      set _NuGetTargetFallbackMoniker to "UAP,Version=v10.0", while NuGet
-      restores a C++/WinUI project under the "native" framework.
-      ResolveNuGetPackageAssets then asks for a framework the lock file does not
-      contain and the build fails with:
-          "Your project does not reference UAP,Version=v10.0 framework."
-      An unpackaged desktop WinUI 3 app needs neither.
-    -->
-  </PropertyGroup>
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+  <PropertyGroup Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
-    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset Condition="'$(VisualStudioVersion)' &gt;= '18.0'">v145</PlatformToolset>
+    <PlatformToolset Condition="'$(VisualStudioVersion)' &lt; '18.0'">v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
+    <DesktopCompatible>true</DesktopCompatible>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'" Label="Configuration">
+    <UseDebugLibraries>true</UseDebugLibraries>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
-    <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings" />
-  <ImportGroup Label="Shared" />
-  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+  <ImportGroup Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-  </ImportGroup>
-  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.($Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.($Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
-    <TargetName>AudioBule</TargetName>
     <IntDir>$(ProjectDir)obj\</IntDir>
     <OutDir>$(ProjectDir)bin\</OutDir>
-    <!-- Unpackaged. StartupTask and AppNotification toast require MSIX and
-         belong to the follow-up plan, not this one. -->
+    <!-- Unpackaged. StartupTask and AppNotification toast need MSIX and belong
+         to the follow-up plan. -->
     <WindowsPackageType>None</WindowsPackageType>
     <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
       <AdditionalIncludeDirectories>$(CppWinRTProjectionIncludePath);$(ProjectDir);$(ProjectDir)..\AudioBule.Core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level4</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
-      <PrecompiledHeader>Use</PrecompiledHeader>
-      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <TreatWarningAsError>true</TreatWarningAsError>
       <LanguageStandard>stdcpplatest</LanguageStandard>
-      <!-- XAML compiler output is UTF-8 without BOM; this machine's code page
-           is 936 (GBK), so without /utf-8 cl emits C4819, which /WX makes fatal. -->
-      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <!-- XAML compiler output is UTF-8 without BOM; this machine's code page is
+           936 (GBK), so without /utf-8 cl emits C4819, which /WX makes fatal. -->
+      <AdditionalOptions>/utf-8 %(AdditionalOptions) /bigobj</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
     </Link>
   </ItemDefinitionGroup>
   <!-- Static CRT, matching Core exactly. A mismatch yields LNK2038. -->
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
     </ClCompile>
     <Link>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
     </Link>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
     <ClCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
-    <ClInclude Include="targetver.h" />
-    <ClInclude Include="App.xaml.h" />
-    <ClInclude Include="MainWindow.xaml.h" />
+    <ClInclude Include="App.xaml.h">
+      <DependentUpon>App.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="MainWindow.xaml.h">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </ClInclude>
+  </ItemGroup>
+  <!-- No SubType=Designer: the template omits it for WinUI XAML. -->
+  <ItemGroup>
+    <ApplicationDefinition Include="App.xaml" />
+    <Page Include="MainWindow.xaml" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -123,14 +163,8 @@
     <ClCompile Include="MainWindow.xaml.cpp">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </ClCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <ApplicationDefinition Include="App.xaml">
-      <SubType>Designer</SubType>
-    </ApplicationDefinition>
-    <Page Include="MainWindow.xaml">
-      <SubType>Designer</SubType>
-    </Page>
+    <!-- The CppWinRT-generated module glue must be compiled explicitly. -->
+    <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
   </ItemGroup>
   <ItemGroup>
     <!-- Resources do not propagate through a static library, so the final
@@ -143,9 +177,12 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <!-- Package set taken from the template's NuGetPackageInstaller parameter. -->
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
     <PackageReference Include="Microsoft.Windows.CppWinRT" Version="3.0.260520.1" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7566" />
     <PackageReference Include="Microsoft.Windows.ImplementationLibrary" Version="1.0.260126.7" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
 </Project>
