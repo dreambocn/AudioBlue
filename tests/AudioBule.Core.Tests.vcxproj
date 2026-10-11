@@ -51,16 +51,21 @@
       <ConformanceMode>true</ConformanceMode>
       <TreatWarningAsError>true</TreatWarningAsError>
       <LanguageStandard>stdcpplatest</LanguageStandard>
+      <!-- Core 是 /MT（静态 CRT）。必须设在这里（ClCompile），不是 Link ——
+           设成 /MD 会与 Core 的 /MT 冲突，链接期报 LNK2038。 -->
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <!-- Core 是 /MT（静态 CRT），测试工程必须一致，否则链接期 LNK2038 -->
+      <!-- 与 ClCompile/Link 的 /MT 保持一致 -->
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="SimpleEvent.test.cpp" />
+    <ClCompile Include="StringUtil.test.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="$(GoogleTestRoot)src\gtest-all.cc">
