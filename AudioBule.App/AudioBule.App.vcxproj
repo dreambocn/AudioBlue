@@ -18,16 +18,14 @@
          generated winrt/AudioBule.App.h lands where main.cpp includes it. -->
     <RootNamespace>AudioBule.App</RootNamespace>
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
-    <!-- WIP / BLOCKED (see PROGRESS.md "WinUI 3 工程阻塞"):
-         ApplicationType=Windows Store and the Windows Store ProjectTypeGuid must
-         NOT be set: they make the UAP-aware targets set
-         _NuGetTargetFallbackMoniker to "UAP,Version=v10.0" while NuGet restores a
-         C++/WinUI project under the "native" framework, so ResolveNuGetPackageAssets
-         fails with "Your project does not reference ... framework".
-         But without them the WinUI XAML toolchain does not activate either, and
-         the .NET Framework Microsoft.Xaml.targets is used instead, so no
-         *.xaml.g.h is generated. Both halves are still being worked.
-    -->
+    <!-- ApplicationType and the Windows Store ProjectTypeGuid are REQUIRED for the
+         WinUI XAML toolchain to activate: without them MSBuild falls back to
+         the .NET Framework Microsoft.Xaml.targets and never generates
+         *.xaml.g.h. -->
+    <ApplicationType>Windows Store</ApplicationType>
+    <ApplicationEnvironment>windows</ApplicationEnvironment>
+    <ApplicationKind>windows</ApplicationKind>
+    <ProjectTypeGuids>{BC8A1FFA-BEE3-4634-8014-F334798102B3};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
     <EnableMsixTooling>true</EnableMsixTooling>
     <EnableDefaultCssItems>false</EnableDefaultCssItems>
     <EnableDefaultPageItems>false</EnableDefaultPageItems>
@@ -145,7 +143,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
     <PackageReference Include="Microsoft.Windows.CppWinRT" Version="3.0.260520.1" />
     <PackageReference Include="Microsoft.Windows.ImplementationLibrary" Version="1.0.260126.7" />
   </ItemGroup>

@@ -51,24 +51,34 @@ $env:NUGET_PACKAGES = "D:\NuGetPackages"   # 包不装在 C 盘
 当前 **67 个用例全过**（`AudioBule.Core` 与 `tests` 两个工程；
 `AudioBule.App` 尚不能编译，见下节）。
 
-### ⚠️ WinUI 3 工程阻塞（Task 7，进行中）
+### ⚠️ WinUI 3 工程阻塞（Task 7，进行中，未解决）
 
-`AudioBule.App` 目前**还不能编译**。已定位到一对互相冲突的工具链问题：
+`AudioBule.App` 目前**还不能编译**。已定位到一对互相冲突的工具链要求：
 
 | 设置 | 结果 |
 | --- | --- |
-| 设 `<ApplicationType>Windows Store</ApplicationType>` + Windows Store 的 `ProjectTypeGuids` | UAP 相关的 MSBuild target 会把 `_NuGetTargetFallbackMoniker` 设成 `UAP,Version=v10.0`，而 NuGet 对 C++/WinUI 工程还原出的框架是 `native`。`ResolveNuGetPackageAssets` 于是报 **「Your project does not reference ... framework」**，构建直接失败 |
-| 不设这两项 | NuGet 通过了，但 WinUI 的 XAML 工具链不激活，改用了 .NET Framework 的 `C:\Windows\Microsoft.NET\Framework\v4.0.30319\Microsoft.Xaml.targets`，于是**不生成 `*.xaml.g.h`**，`App.xaml.h` / `MainWindow.xaml.h` 找不到 |
+| 设 `<ApplicationType>Windows Store</ApplicationType>` + Windows Store 的 `ProjectTypeGuids` | UAP 相关 target 把 `_NuGetTargetFallbackMoniker` 设成 `UAP,Version=v10.0`，而 NuGet 对 C++/WinUI 工程还原出的框架是 `native`。`ResolveNuGetPackageAssets` 报 **「Your project does not reference ... framework」** |
+| 不设这两项 | NuGet 过了，但 WinUI XAML 工具链不激活，改用 .NET Framework 的 `Microsoft.Xaml.targets`，**不生成 `*.xaml.g.h`** |
 
-已知细节：
-- `XamlCompilerTaskPath` 本身是能解析到的（`D:\NuGetPackages\microsoft.windowsappsdk.winui\2.2.1\...Markup.Compiler.dll`），所以不是包缺失
-- CppWinRT 的投影头生成是**正常的**（`obj\Generated Files\winrt\` 下齐全）
-- 已验证的组合：NuGet 还原成功（包已下载到 `D:\NuGetPackages`）
+**换 SDK 版本无效**（已实测）：`Microsoft.WindowsAppSDK` **2.2.0** 与 **1.8.260921001** 报同样的 UAP 错。所以这不是版本问题，是 `ApplicationType=Windows Store` 与 C++ 工程还原结果之间的固有冲突。
 
-**下一步要试的方向**（尚未验证，不要当成结论）：
-1. 保持 `ApplicationType`，改用 `TargetFrameworks`/`TargetPlatformVersion` 的某种组合让还原也产出 UAP 框架
-2. 换 Windows App SDK 版本（2.2.0 可能对该组合支持不完整）
-3. 显式 import `Microsoft.UI.Xaml.Markup.Compiler.targets`，绕开 .NET Framework 的 XAML targets
+**已排除的可能**：
+- 不是包缺失 —— 两个版本都能成功还原并下载到 `D:\NuGetPackages`
+- `XamlCompilerTaskPath` 能正确解析到 `Microsoft.UI.Xaml.Markup.Compiler.dll`
+- CppWinRT 投影头生成正常（`obj\Generated Files\winrt\` 齐全）
+
+**试过但无效的覆盖**（记录下来以免重复）：
+`NuGetTargetMoniker=native`、`TargetFrameworks=native`、`TargetFramework=UAP,Version=v10.0`、
+在工程文件里清空 `_NuGetTargetFallbackMoniker`、在 `Directory.Build.targets` 里清空它。
+注意：清空后会从「不认 UAP」变成「不认 native」，说明该 task 的 moniker 校验与
+C++ 工程的还原框架名之间存在尚未找到的匹配方式。
+
+**下一步候选**（未验证）：
+1. 显式 import `Microsoft.UI.Xaml.Markup.Compiler.targets` 并去掉 `ApplicationType`，
+   让 XAML 工具链在纯桌面工程下也能工作（绕开 UAP 那一半）
+2. 改用 XAML Islands：原生 Win32 窗口 + `DesktopWindowXamlSource` 挂 XAML，
+   完全绕开 WinUI 3 工程的工具链（参考实现 AudioPlaybackConnector 走的就是这条路）
+3. 查 VS 2026 自带的 WinUI 3 C++ 工程模板究竟设置了什么，与本工程逐项比对
 
 - 设计源：`assets/icons/bluetooth.svg`（Tabler Icons，MIT）
 - 构建期由 `assets/icons/Build-Icons.ps1` 用 ImageMagick（装在 D 盘）转成
