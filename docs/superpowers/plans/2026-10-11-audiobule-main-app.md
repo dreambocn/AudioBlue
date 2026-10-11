@@ -3180,4 +3180,401 @@ git add AudioBule.Core tests
 git commit -m "feat: add WinRT-backed device provider for A2DP connections"
 ```
 
+---
+
+## Task 6: IconFactory（托盘图标）
+
+**Files:**
+- Create: `AudioBule.Core/IconFactory.h`
+- Create: `AudioBule.Core/IconFactory.cpp`
+- Modify: `AudioBule.Core/AudioBule.Core.vcxproj`
+- Create: `tests/IconFactory.test.cpp`
+- Modify: `tests/AudioBule.Core.Tests.vcxproj`
+
+**Interfaces:**
+- Consumes: 无（独立工具类）
+- Produces: `namespace AudioBule::Core`
+  - `struct TrayIcon { void* handle = nullptr; explicit operator bool() const { return handle != nullptr; } };`
+  - `TrayIcon CreateTrayIcon(bool darkTheme)`
+  - `void DestroyTrayIcon(TrayIcon icon)`
+
+主题判定不在这里 —— 它属于 App 层（要读 `UISettings`）。Core 只接收布尔。
+
+**为什么不用 `HICON`**：`windows.h` 把 `HICON` 定义为 `struct HICON__*`。
+若本头文件再写 `using HICON = void*;`，同一个 TU 里同时包含 `windows.h`
+和本头就会撞名（`IconFactory.cpp` 恰好两个都包含）。用一个自己的
+`TrayIcon` 包装类型彻底避开，且顺带给调用方免去 include `<windows.h>`。
+
+---
+
+- [ ] **Step 1: 写失败的测试 `tests/IconFactory.test.cpp`**
+
+```cpp
+#include "TestHarness.h"
+#include "IconFactory.h"
+
+#include <windows.h>
+
+#include <cmath>
+#include <vector>
+
+using namespace AudioBule::Core;
+
+AB_TEST(LightTrayIconIsCreatedAndNonNull)
+{
+    TrayIcon icon = CreateTrayIcon(false);
+    CHECK(static_cast<bool>(icon));
+    DestroyTrayIcon(icon);
+}
+
+AB_TEST(DarkTrayIconIsCreatedAndNonNull)
+{
+    TrayIcon icon = CreateTrayIcon(true);
+    CHECK(static_cast<bool>(icon));
+    DestroyTrayIcon(icon);
+}
+
+AB_TEST(IconHasCorrectDimensions)
+{
+    // 32x32 是本项目的图标画布尺寸。CreateIconIndirect 对尺寸不做要求，
+    // 但我们固定生成 32x32 再由系统缩放到托盘槽位。
+    TrayIcon icon = CreateTrayIcon(false);
+    CHECK(static_cast<bool>(icon));
+
+    ICONINFO info = {};
+    GetIconInfo(reinterpret_cast<HICON>(icon.handle), &info, 1);
+    if (info.hbmColor != nullptr)
+    {
+        BITMAP bitmap = {};
+        GetObjectW(info.hbmColor, sizeof(bitmap), &bitmap);
+        CHECK_EQ(bitmap.bmWidth, static_cast<LONG>(32));
+        CHECK_EQ(bitmap.bmHeight, static_cast<LONG>(32)); // 颜色位图高度 = 32（已用负值）
+        DeleteObject(info.hbmColor);
+    }
+    if (info.hbmMask != nullptr)
+    {
+        BITMAP bitmap = {};
+        GetObjectW(info.hbmMask, sizeof(bitmap), &bitmap);
+        CHECK_EQ(bitmap.bmWidth, static_cast<LONG>(32));
+        CHECK_EQ(bitmap.bmHeight, static_cast<LONG>(64)); // 掩码位图高度翻倍
+        DeleteObject(info.hbmMask);
+    }
+
+    DestroyTrayIcon(icon);
+}
+
+AB_TEST(LightAndDarkIconsDiffer)
+{
+    // 深浅两套必须真的不一样 —— 否则主题自适应是假的
+    TrayIcon light = CreateTrayIcon(false);
+    TrayIcon dark = CreateTrayIcon(true);
+    CHECK(static_cast<bool>(light));
+    CHECK(static_cast<bool>(dark));
+
+    ICONINFO lightInfo = {};
+    ICONINFO darkInfo = {};
+    GetIconInfo(reinterpret_cast<HICON>(light.handle), &lightInfo, 1);
+    GetIconInfo(reinterpret_cast<HICON>(dark.handle), &darkInfo, 1);
+
+    // 逐字节比较颜色位图内容，确认图形颜色确实不同
+    bool identical = true;
+    if (lightInfo.hbmColor != nullptr && darkInfo.hbmColor != nullptr)
+    {
+        BITMAP lightBitmap = {};
+        BITMAP darkBitmap = {};
+        GetObjectW(lightInfo.hbmColor, sizeof(lightBitmap), &lightBitmap);
+        GetObjectW(darkInfo.hbmColor, sizeof(darkBitmap), &darkBitmap);
+
+        std::vector<BYTE> lightBytes(static_cast<size_t>(lightBitmap.bmWidthBytes) *
+            static_cast<size_t>(std::abs(lightBitmap.bmHeight)), 0);
+        std::vector<BYTE> darkBytes(static_cast<size_t>(darkBitmap.bmWidthBytes) *
+            static_cast<size_t>(std::abs(darkBitmap.bmHeight)), 0);
+
+        HDC dc = ::CreateCompatibleDC(nullptr);
+        HGDIOBJ oldBitmap = ::SelectObject(dc, lightInfo.hbmColor);
+        ::GetDIBits(dc, lightInfo.hbmColor, 0, lightBitmap.bmHeight, lightBytes.data(), nullptr, DIB_RGB_COLORS);
+        ::SelectObject(dc, oldBitmap);
+        ::SelectObject(dc, darkInfo.hbmColor);
+        ::GetDIBits(dc, darkInfo.hbmColor, 0, darkBitmap.bmHeight, darkBytes.data(), nullptr, DIB_RGB_COLORS);
+        ::SelectObject(dc, oldBitmap);
+        ::DeleteDC(dc);
+
+        identical = lightBytes == darkBytes;
+    }
+    CHECK(!identical);
+
+    for (HBITMAP handle : { lightInfo.hbmColor, lightInfo.hbmMask,
+             darkInfo.hbmColor, darkInfo.hbmMask })
+    {
+        if (handle != nullptr)
+        {
+            DeleteObject(handle);
+        }
+    }
+
+    DestroyTrayIcon(light);
+    DestroyTrayIcon(dark);
+}
+
+AB_TEST(CreatingManyIconsDoesNotLeak)
+{
+    // GDI 对象泄漏在托盘图标反复切换主题时会累积成用户可见的问题。
+    // 这里只验证"反复创建不崩"，真正的泄漏检测在手动验证清单里
+    // （Task 9 Step 7：反复切换主题后看任务管理器 GDI 对象数）。
+    for (int i = 0; i < 200; ++i)
+    {
+        TrayIcon icon = CreateTrayIcon((i % 2) == 0);
+        CHECK(static_cast<bool>(icon));
+        DestroyTrayIcon(icon);
+    }
+}
+
+AB_TEST(DestroyTrayIconToleratesNull)
+{
+    DestroyTrayIcon(TrayIcon{});   // 不得崩溃
+}
+```
+
+- [ ] **Step 2: 运行测试，确认失败**
+
+Run:
+
+```powershell
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
+```
+
+Expected: **失败**，`无法打开包括文件: "IconFactory.h"`。
+
+- [ ] **Step 3: 创建 `AudioBule.Core/IconFactory.h`**
+
+```cpp
+#pragma once
+
+namespace AudioBule::Core
+{
+
+// 托盘图标句柄。刻意不用 windows.h 的 HICON（它是 struct HICON__*），
+// 以免调用方为了用本文件而被迫包含 windows.h。
+struct TrayIcon
+{
+    void* handle = nullptr;
+
+    explicit operator bool() const { return handle != nullptr; }
+};
+
+// 生成 32x32 托盘图标。
+//   darkTheme = false → 浅色任务栏：画深色图形
+//   darkTheme = true  → 深色任务栏：画浅色图形
+// 调用方**必须**用 DestroyTrayIcon 释放，否则 GDI 对象泄漏。
+TrayIcon CreateTrayIcon(bool darkTheme);
+
+void DestroyTrayIcon(TrayIcon icon);
+
+} // namespace AudioBule::Core
+```
+
+- [ ] **Step 4: 创建 `AudioBule.Core/IconFactory.cpp`**
+
+```cpp
+#include "pch.h"
+#include "IconFactory.h"
+
+namespace AudioBule::Core
+{
+
+namespace {
+
+constexpr int kIconSize = 32;
+
+// 画一个"蓝牙耳机"轮廓：外圈圆弧 + 中心实心点。
+// 用 GDI 而非 SVG 渲染：见计划开头的「偏差」一节。
+void DrawGlyph(HWND /*unused*/, HDC dc, COLORREF color)
+{
+    HPEN pen = ::CreatePen(PS_SOLID, 3, color);
+    HGDIOBJ oldPen = ::SelectObject(dc, pen);
+    HGDIOBJ oldBrush = ::SelectObject(dc, ::GetStockObject(NULL_BRUSH));
+
+    // 中心圆点
+    ::Ellipse(dc, kIconSize / 2 - 5, kIconSize / 2 - 5, kIconSize / 2 + 5, kIconSize / 2 + 5);
+
+    // 左上到右下的一道斜线（头戴式耳机的头梁）
+    ::MoveToEx(dc, 8, kIconSize - 9, nullptr);
+    ::LineTo(dc, kIconSize / 2, 9);
+
+    // 左下到右上的一道斜线（另一侧头梁）
+    ::MoveToEx(dc, kIconSize - 9, kIconSize - 9, nullptr);
+    ::LineTo(dc, kIconSize / 2, 9);
+
+    ::SelectObject(dc, oldPen);
+    ::SelectObject(dc, oldBrush);
+    ::DeleteObject(pen);
+}
+
+} // namespace
+
+TrayIcon CreateTrayIcon(bool darkTheme)
+{
+    // 深色任务栏上要画浅色图形，反之亦然
+    const COLORREF color = darkTheme ? RGB(0xF5, 0xF5, 0xF5) : RGB(0x20, 0x20, 0x20);
+
+    // CreateIconIndirect 需要：
+    //   - 32bpp 颜色位图，尺寸 32x32
+    //   - 1bpp 单色掩码位图，尺寸同样是 32x32，但**高度是宽度的两倍**（XOR + AND 各一份）
+    std::vector<BYTE> colorBits(static_cast<size_t>(kIconSize) * kIconSize * 4, 0);
+    std::vector<BYTE> maskBits(static_cast<size_t>(kIconSize) * kIconSize / 8, 0);
+
+    BITMAPINFO colorInfo = {};
+    colorInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    colorInfo.bmiHeader.biWidth = kIconSize;
+    // 负高度表示自上而下扫描
+    colorInfo.bmiHeader.biHeight = -kIconSize;
+    colorInfo.bmiHeader.biPlanes = 1;
+    colorInfo.bmiHeader.biBitCount = 32;
+    colorInfo.bmiHeader.biCompression = BI_RGB;
+
+    void* colorBitsPtr = nullptr;
+    HDC screen = ::GetDC(nullptr);
+    HBITMAP colorBitmap = ::CreateDIBSection(
+        screen, &colorInfo, DIB_RGB_COLORS, &colorBitsPtr, nullptr, 0);
+    if (screen != nullptr)
+    {
+        ::ReleaseDC(nullptr, screen);
+    }
+
+    if (colorBitmap == nullptr || colorBitsPtr == nullptr)
+    {
+        if (colorBitmap != nullptr)
+        {
+            ::DeleteObject(colorBitmap);
+        }
+        return TrayIcon{};
+    }
+
+    std::memcpy(colorBitsPtr, colorBits.data(), colorBits.size());
+
+    BITMAPINFO maskInfo = {};
+    maskInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    maskInfo.bmiHeader.biWidth = kIconSize;
+    // 高度翻倍：上半是 XOR（颜色不透明处），下半是 AND（透明掩码）
+    maskInfo.bmiHeader.biHeight = kIconSize * 2;
+    maskInfo.bmiHeader.biPlanes = 1;
+    maskInfo.bmiHeader.biBitCount = 1;
+    maskInfo.bmiHeader.biCompression = BI_RGB;
+
+    void* maskBitsPtr = nullptr;
+    HBITMAP maskBitmap = ::CreateDIBSection(
+        nullptr, &maskInfo, DIB_RGB_COLORS, &maskBitsPtr, nullptr, 0);
+    if (maskBitmap == nullptr || maskBitsPtr == nullptr)
+    {
+        if (maskBitmap != nullptr)
+        {
+            ::DeleteObject(maskBitmap);
+        }
+        ::DeleteObject(colorBitmap);
+        return TrayIcon{};
+    }
+
+    std::memcpy(maskBitsPtr, maskBits.data(), maskBits.size());
+
+    // 把图形画进颜色位图，同时算出 1bpp 掩码
+    HDC colorDc = ::CreateCompatibleDC(nullptr);
+    HGDIOBJ oldColorBitmap = ::SelectObject(colorDc, colorBitmap);
+    DrawGlyph(nullptr, colorDc, color);
+
+    HDC maskDc = ::CreateCompatibleDC(nullptr);
+    HGDIOBJ oldMaskBitmap = ::SelectObject(maskDc, maskBitmap);
+    DrawGlyph(nullptr, maskDc, RGB(255, 255, 255));
+
+    ::SelectObject(colorDc, oldColorBitmap);
+    ::SelectObject(maskDc, oldMaskBitmap);
+    ::DeleteDC(colorDc);
+    ::DeleteDC(maskDc);
+
+    ICONINFO iconInfo = {};
+    iconInfo.fIcon = TRUE;
+    iconInfo.hbmColor = colorBitmap;
+    iconInfo.hbmMask = maskBitmap;
+
+    HICON icon = ::CreateIconIndirect(&iconInfo);
+
+    // 位图已交给图标，调用方持有的是图标本身，这里释放中间产物
+    ::DeleteObject(colorBitmap);
+    ::DeleteObject(maskBitmap);
+
+    return TrayIcon{ reinterpret_cast<void*>(icon) };
+}
+
+void DestroyTrayIcon(TrayIcon icon)
+{
+    if (icon.handle != nullptr)
+    {
+        ::DestroyIcon(reinterpret_cast<HICON>(icon.handle));
+    }
+}
+
+} // namespace AudioBule::Core
+```
+
+> 需要 `<cstring>` 提供 `std::memcpy`；`pch.h` 当前没有包含它。
+> 在文件顶部加 `#include <cstring>` 与 `#include <vector>`。
+>
+> `CreateTrayIcon` 成功后立即 `DeleteObject` 两个位图是**正确**的 ——
+> `CreateIconIndirect` 会复制位图内容。留着它们才是泄漏。
+
+- [ ] **Step 5: 在 `AudioBule.Core.vcxproj` 登记新文件**
+
+```xml
+  <ItemGroup>
+    <ClInclude Include="IconFactory.h" />
+  </ItemGroup>
+```
+```xml
+    <ClCompile Include="IconFactory.cpp" />
+```
+
+- [ ] **Step 6: 在测试工程登记 `tests/IconFactory.test.cpp`**
+
+```xml
+    <ClCompile Include="IconFactory.test.cpp" />
+```
+
+> 测试文件用到了 `GetIconInfo` / `GetObjectW` / `DeleteObject` / `BITMAP`，
+> 已在文件内 include `<windows.h>`。`std::wstring` 之类不需要额外头。
+
+- [ ] **Step 7: 编译并运行测试**
+
+Run:
+
+```powershell
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
+& ".\tests\bin\AudioBule.Core.Tests.exe"
+```
+
+Expected: 全部通过。若 `IconHasCorrectDimensions` 失败并报宽度不是 32，
+检查 `biHeight` 是否误写成正值（负值 = 自上而下，正值 = 自下而上，
+两种都合法，但与 `CopyMemory` 的写入顺序必须一致）。
+
+- [ ] **Step 8: 提交**
+
+```bash
+git add AudioBule.Core tests
+git commit -m "feat: add GDI-based tray icon factory with light and dark variants"
+```
+
+---
+
+## Core 层完成
+
+至此 spec §7 阶段 1（Core + 抽象 + 测试）完成。运行测试确认全绿：
+
+```powershell
+& ".\tests\bin\AudioBule.Core.Tests.exe"
+```
+
+用例总数应为 **54**：1（框架冒烟）+ 7（StringUtil）+ 8（Settings）+
+26（ConnectionManager）+ 3（WinRtDeviceProvider 冒烟）+ 6（IconFactory）。
+执行时 `RunAll` 打印的 `Running N test(s)` 与 `N passed, 0 failed` 中的 N 必须相等。
+
 <!-- APPEND-MARKER -->
