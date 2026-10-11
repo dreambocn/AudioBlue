@@ -5039,4 +5039,1052 @@ git add AudioBule.App
 git commit -m "feat: wire tray callbacks, context menu, and theme-aware icons"
 ```
 
-<!-- APPEND-MARKER -->
+---
+
+## Task 10: 设备列表窗口
+
+**Files:**
+- Create: `AudioBule.App/DeviceItemViewModel.h` / `DeviceItemViewModel.cpp`
+- Modify: `AudioBule.App/MainWindow.xaml`
+- Modify: `AudioBule.App/MainWindow.xaml.h`
+- Modify: `AudioBule.App/MainWindow.xaml.cpp`
+- Modify: `AudioBule.App/App.xaml.h` / `App.xaml.cpp`（窗口改为持有、不再启动即关）
+- Modify: `AudioBule.App/AudioBule.App.vcxproj`
+
+**Interfaces:**
+- Consumes: Task 4 的 `ConnectionManager` 事件；Task 9 的托盘接线
+- Produces: 可显示设备列表、逐设备连接/断开、失败重试、隐藏到托盘
+
+**App 层绝不直接触碰 `AudioPlaybackConnection`**（spec §3.2）——
+所有状态都从 `Core::ConnectionEntry` 读。
+
+---
+
+- [ ] **Step 1: 创建 `AudioBule.App/DeviceItemViewModel.h`**
+
+```cpp
+#pragma once
+
+#include "ConnectionEntry.h"
+
+#include <winrt/Microsoft.UI.Xaml.h>
+#include <winrt/Microsoft.UI.Xaml.Data.h>
+
+namespace AudioBule::App
+{
+
+// 每行设备。实现 INotifyPropertyChanged 供 x:Bind 的 OneWay 模式使用。
+class DeviceItemViewModel :
+    public winrt::Microsoft::UI::Xaml::Data::INotifyPropertyChanged,
+    public winrt::implements<DeviceItemViewModel,
+        winrt::Microsoft::UI::Xaml::Data::INotifyPropertyChanged>
+{
+public:
+    explicit DeviceItemViewModel(Core::ConnectionEntry entry);
+
+    winrt::hstring DeviceId() const;
+    winrt::hstring DisplayName() const;
+    winrt::hstring StatusText() const;
+    winrt::hstring ErrorText() const;
+
+    bool IsConnected() const;
+    bool IsConnecting() const;
+    bool IsFailed() const;
+    bool IsDisconnected() const;
+
+    // 按钮可用性
+    bool CanConnect() const;
+    bool CanDisconnect() const;
+
+    Core::ConnectionState State() const;
+    Core::ConnectionEntry const& Entry() const;
+
+    // 从 ConnectionManager 推送新状态。值不变时不发通知。
+    void Update(Core::ConnectionEntry entry);
+
+    winrt::event<winrt::Microsoft::UI::Xaml::Data::PropertyChangedEventArgs> PropertyChanged();
+
+private:
+    void RaisePropertyChanged(winrt::hstring_view name);
+
+    Core::ConnectionEntry m_entry;
+    winrt::event<winrt::Microsoft::UI::Xaml::Data::PropertyChangedEventArgs> m_propertyChanged;
+};
+
+} // namespace AudioBule::App
+```
+
+- [ ] **Step 2: 创建 `AudioBule.App/DeviceItemViewModel.cpp`**
+
+```cpp
+#include "pch.h"
+#include "DeviceItemViewModel.h"
+
+using namespace winrt;
+using namespace Microsoft::UI::Xaml::Data;
+using namespace AudioBule::App;
+using namespace AudioBule::Core;
+
+namespace AudioBule::App
+{
+
+DeviceItemViewModel::DeviceItemViewModel(Core::ConnectionEntry entry)
+    : m_entry(std::move(entry))
+{
+}
+
+winrt::hstring DeviceItemViewModel::DeviceId() const
+{
+    return winrt::to_hstring(m_entry.deviceId);
+}
+
+winrt::hstring DeviceItemViewModel::DisplayName() const
+{
+    return winrt::to_hstring(m_entry.displayName);
+}
+
+winrt::hstring DeviceItemViewModel::StatusText() const
+{
+    switch (m_entry.state)
+    {
+    case ConnectionState::Connected:
+        return L"已连接";
+    case ConnectionState::Connecting:
+        return L"连接中…";
+    case ConnectionState::Failed:
+        return L"连接失败";
+    case ConnectionState::Disconnected:
+    default:
+        return L"未连接";
+    }
+}
+
+winrt::hstring DeviceItemViewModel::ErrorText() const
+{
+    return winrt::to_hstring(m_entry.errorMessage);
+}
+
+bool DeviceItemViewModel::IsConnected() const
+{
+    return m_entry.state == ConnectionState::Connected;
+}
+
+bool DeviceItemViewModel::IsConnecting() const
+{
+    return m_entry.state == ConnectionState::Connecting;
+}
+
+bool DeviceItemViewModel::IsFailed() const
+{
+    return m_entry.state == ConnectionState::Failed;
+}
+
+bool DeviceItemViewModel::IsDisconnected() const
+{
+    return m_entry.state == ConnectionState::Disconnected;
+}
+
+bool DeviceItemViewModel::CanConnect() const
+{
+    // 连接中与已连接时禁用，避免重复触发
+    return m_entry.state == ConnectionState::Disconnected || m_entry.state == ConnectionState::Failed;
+}
+
+bool DeviceItemViewModel::CanDisconnect() const
+{
+    return m_entry.state == ConnectionState::Connected;
+}
+
+ConnectionState DeviceItemViewModel::State() const
+{
+    return m_entry.state;
+}
+
+ConnectionEntry const& DeviceItemViewModel::Entry() const
+{
+    return m_entry;
+}
+
+void DeviceItemViewModel::Update(ConnectionEntry entry)
+{
+    if (entry.deviceId == m_entry.deviceId &&
+        entry.state == m_entry.state &&
+        entry.displayName == m_entry.displayName &&
+        entry.errorMessage == m_entry.errorMessage)
+    {
+        return;   // 无变化，不发通知
+    }
+
+    m_entry = std::move(entry);
+
+    // 一次状态迁移会改多个属性，分开发通知比发 5 次省事且效果相同
+    RaisePropertyChanged(L"StatusText");
+    RaisePropertyChanged(L"ErrorText");
+    RaisePropertyChanged(L"IsConnected");
+    RaisePropertyChanged(L"IsConnecting");
+    RaisePropertyChanged(L"IsFailed");
+    RaisePropertyChanged(L"IsDisconnected");
+    RaisePropertyChanged(L"CanConnect");
+    RaisePropertyChanged(L"CanDisconnect");
+    RaisePropertyChanged(L"DisplayName");
+}
+
+event<PropertyChangedEventArgs> DeviceItemViewModel::PropertyChanged()
+{
+    return m_propertyChanged;
+}
+
+void DeviceItemViewModel::RaisePropertyChanged(hstring_view name)
+{
+    m_propertyChanged(nullptr, PropertyChangedEventArgs{ hstring{ name } });
+}
+
+} // namespace AudioBule::App
+```
+
+- [ ] **Step 3: 改写 `MainWindow.xaml`**
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="AudioBule.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:viewModels="using:AudioBule.App"
+    Title="AudioBule">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 标题栏操作区 -->
+        <CommandBar Grid.Row="0" DefaultLabelPosition="Right" HorizontalAlignment="Right">
+            <AppBarButton x:Name="RefreshButton" Icon="Refresh" Label="刷新" Click="OnRefreshClick" />
+            <AppBarButton x:Name="BluetoothSettingsButton" Icon="Bluetooth" Label="添加设备"
+                          Click="OnBluetoothSettingsClick" />
+        </CommandBar>
+
+        <!-- 设备列表 -->
+        <ListView x:Name="DeviceList" Grid.Row="1" SelectionMode="None">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="viewModels:DeviceItemViewModel">
+                    <Grid Padding="12" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="{x:Bind DisplayName()}" FontSize="16" />
+                            <TextBlock Text="{x:Bind StatusText()}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <!-- 失败时才显示错误文案 -->
+                            <TextBlock Text="{x:Bind ErrorText()}"
+                                       Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                       TextWrapping="Wrap"
+                                       Visibility="{x:Bind IsFailed()}" />
+                        </StackPanel>
+
+                        <Button Grid.Column="1"
+                                Content="连接"
+                                CommandParameter="{x:Bind}"
+                                Click="OnConnectClick"
+                                Visibility="{x:Bind IsDisconnected()}" />
+                        <Button Grid.Column="1"
+                                Content="重试"
+                                CommandParameter="{x:Bind}"
+                                Click="OnConnectClick"
+                                Visibility="{x:Bind IsFailed()}" />
+                        <ProgressRing Grid.Column="1" IsIndeterminate="True"
+                                      Width="24" Height="24"
+                                      Visibility="{x:Bind IsConnecting()}" />
+
+                        <Button Grid.Column="2"
+                                Content="断开"
+                                CommandParameter="{x:Bind}"
+                                Click="OnDisconnectClick"
+                                Visibility="{x:Bind IsConnected()}" />
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <!-- 空列表引导 -->
+        <StackPanel x:Name="EmptyState" Grid.Row="1"
+                    VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Spacing="8" Visibility="Collapsed">
+            <TextBlock Text="没有找到已配对的蓝牙设备" HorizontalAlignment="Center" />
+            <Button Content="打开蓝牙设置" Click="OnBluetoothSettingsClick"
+                    HorizontalAlignment="Center" />
+        </StackPanel>
+
+        <!-- 状态栏 -->
+        <TextBlock x:Name="StatusBar" Grid.Row="2" Padding="12,6"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+    </Grid>
+</Window>
+```
+
+> `x:Bind` 到方法（`{x:Bind DisplayName()}`）需要在 `MainWindow.xaml.h`
+> 里能访问到 `DeviceItemViewModel`。用 `x:DataType` 声明了类型后，
+> 编译器会在生成的代码里做类型检查 —— 若类型不对会**编译期**报错，这是好事。
+
+- [ ] **Step 4: 改写 `MainWindow.xaml.h`**
+
+```cpp
+#pragma once
+
+#include "MainWindow.xaml.g.h"
+
+#include "Core/ConnectionManager.h"
+
+#include <winrt/Microsoft.UI.Xaml.Controls.Primitives.h>
+
+#include <memory>
+#include <unordered_map>
+#include <vector>
+
+namespace winrt::AudioBule::App::implementation
+{
+
+struct MainWindow : MainWindowT<MainWindow>
+{
+    MainWindow() noexcept;
+
+    // 由 App 在构造后注入。窗口自己不创建 ConnectionManager，
+    // 保证「唯一状态源」是 App 持有的那一个。
+    void Attach(Core::ConnectionManager* manager);
+
+private:
+    // x:Name 的事件处理器
+    void OnRefreshClick(IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& args);
+    void OnConnectClick(IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& args);
+    void OnDisconnectClick(IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& args);
+    void OnBluetoothSettingsClick(IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& args);
+
+    void RebuildList();
+    void UpdateSingle(Core::ConnectionEntry const& entry);
+    DeviceItemViewModel* FindViewModel(std::wstring const& deviceId);
+
+    Core::ConnectionManager* m_manager = nullptr;
+
+    std::vector<std::shared_ptr<DeviceItemViewModel>> m_items;
+    std::unordered_map<std::wstring, std::shared_ptr<DeviceItemViewModel>> m_itemsById;
+
+    Core::SimpleEvent<Core::ConnectionEntry>::Handler m_entryChangedHandler;
+    Core::SimpleEvent<>::Handler m_entriesChangedHandler;
+};
+
+} // namespace winrt::AudioBule::App::implementation
+
+namespace winrt::AudioBule::App::factory_implementation
+{
+
+struct MainWindow : MainWindowT<MainWindow, implementation::MainWindow>
+{
+};
+
+} // namespace winrt::AudioBule::App::factory_implementation
+```
+
+> `DeviceItemViewModel` 与 `Core::` 前缀需要在 `MainWindow.xaml.h` 里可见 ——
+> `pch.h` 已经 include 了 `ConnectionManager.h`，它会传递带来
+> `SimpleEvent.h`。`DeviceItemViewModel.h` 需要额外 include。
+
+- [ ] **Step 5: 改写 `MainWindow.xaml.cpp`**
+
+```cpp
+#include "pch.h"
+
+#include "MainWindow.xaml.h"
+
+#include "DeviceItemViewModel.h"
+
+#if __has_include("MainWindow.g.cpp")
+#include "MainWindow.g.cpp"
+#endif
+
+#include <shellapi.h>
+
+using namespace winrt;
+using namespace Microsoft::UI::Xaml;
+using namespace Microsoft::UI::Xaml::Controls;
+using namespace AudioBule::App;
+using namespace AudioBule::App::implementation;
+using namespace AudioBule::Core;
+
+namespace winrt::AudioBule::App::implementation
+{
+
+MainWindow::MainWindow() noexcept
+{
+    InitializeComponent();
+
+    // 关闭按钮只隐藏窗口，程序继续在托盘运行。
+    // Review Focus 第 4 条：用户点 X 就退出，会让人以为程序挂了。
+    Closed([](IInspectable const&, WindowEventArgs const&)
+    {
+        // App 里会在退出时显式设置这个标志，见下方 App 的说明
+    });
+}
+
+void MainWindow::Attach(ConnectionManager* manager)
+{
+    m_manager = manager;
+
+    m_entryChangedHandler = [this](ConnectionEntry const& entry) {
+        // EntryChanged 由工作线程触发，必须 post 回 UI 线程
+        DispatcherQueue().TryEnqueue([this, entry] { UpdateSingle(entry); });
+    };
+
+    m_entriesChangedHandler = [this] {
+        DispatcherQueue().TryEnqueue([this] { RebuildList(); });
+    };
+
+    m_manager->EntryChanged.Add(m_entryChangedHandler);
+    m_manager->EntriesChanged.Add(m_entriesChangedHandler);
+
+    RebuildList();
+}
+
+DeviceItemViewModel* MainWindow::FindViewModel(std::wstring const& deviceId)
+{
+    auto it = m_itemsById.find(deviceId);
+    return it == m_itemsById.end() ? nullptr : it->second.get();
+}
+
+void MainWindow::RebuildList()
+{
+    if (m_manager == nullptr)
+    {
+        return;
+    }
+
+    auto snapshot = m_manager->Snapshot();
+
+    // 复用已有 ViewModel：重建 x:Bind 绑定会让选中态和滚动位置丢失
+    std::vector<std::shared_ptr<DeviceItemViewModel>> rebuilt;
+    std::unordered_map<std::wstring, std::shared_ptr<DeviceItemViewModel>> rebuiltById;
+
+    for (auto const& entry : snapshot)
+    {
+        std::shared_ptr<DeviceItemViewModel> item;
+        auto it = m_itemsById.find(entry.deviceId);
+        if (it != m_itemsById.end())
+        {
+            item = it->second;
+            item->Update(entry);
+        }
+        else
+        {
+            item = std::make_shared<DeviceItemViewModel>(entry);
+        }
+        rebuilt.push_back(item);
+        rebuiltById[entry.deviceId] = item;
+    }
+
+    m_items = std::move(rebuilt);
+    m_itemsById = std::move(rebuiltById);
+
+    // ViewSource 需要一个 WinRT 集合，用 ObservableVector 自带的 IInspectable 包装
+    DeviceList().ItemsSource(m_items.size() == 0 ? nullptr : ToVector(m_items));
+
+    bool empty = m_items.empty();
+    EmptyState().Visibility(empty ? Visibility::Visible : Visibility::Collapsed);
+    DeviceList().Visibility(empty ? Visibility::Collapsed : Visibility::Visible);
+}
+
+void MainWindow::UpdateSingle(ConnectionEntry const& entry)
+{
+    auto* existing = FindViewModel(entry.deviceId);
+    if (existing != nullptr)
+    {
+        existing->Update(entry);
+        return;
+    }
+
+    // 设备不在列表里（刷新时被添加的）：整体重建
+    RebuildList();
+}
+
+void MainWindow::OnRefreshClick(IInspectable const&, RoutedEventArgs const&)
+{
+    if (m_manager != nullptr)
+    {
+        m_manager->Refresh();
+    }
+}
+
+void MainWindow::OnConnectClick(IInspectable const& sender, RoutedEventArgs const&)
+{
+    auto button = sender.try_as<Button>();
+    if (!button || !m_manager)
+    {
+        return;
+    }
+
+    auto item = button.CommandParameter().try_as<DeviceItemViewModel>();
+    if (!item)
+    {
+        return;
+    }
+
+    // 不等 future：结果通过 EntryChanged 通知，避免界面卡住
+    m_manager->ConnectAsync(std::wstring(item->DeviceId()));
+}
+
+void MainWindow::OnDisconnectClick(IInspectable const& sender, RoutedEventArgs const&)
+{
+    auto button = sender.try_as<Button>();
+    if (!button || !m_manager)
+    {
+        return;
+    }
+
+    auto item = button.CommandParameter().try_as<DeviceItemViewModel>();
+    if (!item)
+    {
+        return;
+    }
+
+    m_manager->DisconnectAsync(std::wstring(item->DeviceId()));
+}
+
+void MainWindow::OnBluetoothSettingsClick(IInspectable const&, RoutedEventArgs const&)
+{
+    ::ShellExecuteW(nullptr, L"open", L"ms-settings:bluetooth", nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+} // namespace winrt::AudioBule::App::implementation
+```
+
+> 上面的 `ToVector(m_items)` 是占位写法 —— WinUI 3 没有现成的
+> `shared_ptr` → WinRT 集合转换。**实现方式**：在 `DeviceItemViewModel.h`
+> 里加一个显式装箱：
+> ```cpp
+> inline IInspectable Box(DeviceItemViewModel* item)
+> {
+>     return box_value(item, take_ownership_from_abi);
+> }
+> ```
+> 然后 `DeviceList().ItemsSource(...)` 传入
+> `single_thread_vector<IInspectable>({ Box(...) })`。
+> 具体写法在执行时按编译器报错调整 —— 关键点是
+> **`CommandParameter` 必须装箱成 `IInspectable` 才能在 x:Bind 下拿到原对象**。
+
+- [ ] **Step 6: 改 App 的窗口处理**
+
+`App.xaml.cpp` 的 `OnLaunched` 里，把 `m_window.as<Window>().Close();` 换成：
+
+```cpp
+    // 启动时不显示设备列表窗口，但窗口实例保留在后台。
+    // 用 Close() 会销毁窗口；这里改用隐藏 —— WinUI 3 窗口默认就是
+    // 首次 Activate 前不可见，因此只需不调用 Activate 即可。
+```
+
+即：**删掉那一行 Close() 调用**，其余不动。
+
+再在 `ShowDeviceWindow` 里确保是「显示」而不是「重建」：
+
+```cpp
+void App::ShowDeviceWindow()
+{
+    auto window = m_window.as<Window>();
+    window.Activate();
+}
+```
+
+Task 7 的 `App::App` 构造函数里已经 `m_window = Window().as<MainWindow>()`，
+再在 `OnLaunched` 里调用一次 `Attach(&m_manager)`。
+
+- [ ] **Step 7: 处理「点 X 只隐藏」（Review Focus 第 4 条）**
+
+在 `MainWindow::MainWindow` 的 `Closed` 回调里改为**重新显示**窗口而不是销毁它 ——
+WinUI 3 的 `Window` 一旦 `Close` 就不可重用。正确做法是拦截关闭：
+
+```cpp
+    // 点 X 时改为隐藏而非销毁，托盘应用必须这样。
+    // AppWindow 的 Close 事件在窗口销毁前触发，可以在这里 Cancel 掉。
+    AppWindow().Closing([](AppWindow const&, AppWindowCancelEventArgs const& args)
+    {
+        args.Cancel(true);   // 阻止关闭
+        // 隐藏由 App 的托盘逻辑接管：点托盘图标重新 Activate 即可
+    });
+```
+
+> 若 `AppWindow().Closing` 在当前 Windows App SDK 版本上不可用，
+> 退路是：不在 XAML 里设关闭行为，改用 `ExtendsContentIntoTitleBar` +
+> 自绘标题栏，自行提供隐藏按钮。本任务先试标准做法。
+
+- [ ] **Step 8: 在 `AudioBule.App.vcxproj` 登记新文件**
+
+```xml
+  <ItemGroup>
+    <ClInclude Include="DeviceItemViewModel.h" />
+  </ItemGroup>
+```
+```xml
+    <ClCompile Include="DeviceItemViewModel.cpp" />
+```
+
+- [ ] **Step 9: 编译**
+
+Run:
+
+```powershell
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -p:Configuration=Debug -p:Platform=x64 -v:minimal -nologo
+```
+
+Expected: 退出码 0。**这一轮很可能有编译错误** —— `x:Bind` 生成的代码
+对 ViewModel 类型要求严格。逐个按报错修，不要跳着改。
+
+- [ ] **Step 10: 提交**
+
+```bash
+git add AudioBule.App
+git commit -m "feat: add device list window with per-device connect controls"
+```
+
+---
+
+## Task 11: 端到端接线与手动验证
+
+**Files:**
+- Modify: `AudioBule.App/App.xaml.cpp`（退出时保存配置）
+- Modify: `AudioBule.Core/ConnectionManager.h` / `.cpp`（暴露当前已连接设备）
+- Modify: `tests/ConnectionManager.test.cpp`
+
+**Interfaces:**
+- Consumes: Task 4/5/10 的全部产出
+- Produces: 可用的应用；spec §6 的「App 层手动验证清单」全部可执行
+
+---
+
+- [ ] **Step 1: 写失败的测试 —— 已连接设备列表**
+
+追加到 `tests/ConnectionManager.test.cpp`：
+
+```cpp
+AB_TEST(ConnectedDeviceIdsReflectsCurrentState)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"A" }, { L"devB", L"B" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    manager.ConnectAsync(L"devA").get();
+
+    auto connected = manager.ConnectedDeviceIds();
+    CHECK_EQ(connected.size(), static_cast<size_t>(1));
+    CHECK(connected[0] == L"devA");
+}
+
+AB_TEST(ConnectedDeviceIdsExcludesFailedAndConnecting)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"A" }, { L"devB", L"B" } };
+    provider.SetConnectResult(L"devB", MakeFailure(ConnectFailure::DeniedBySystem));
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    manager.ConnectAsync(L"devA").get();
+    manager.ConnectAsync(L"devB").get();
+
+    auto connected = manager.ConnectedDeviceIds();
+    CHECK_EQ(connected.size(), static_cast<size_t>(1));
+    CHECK(connected[0] == L"devA");
+}
+
+AB_TEST(ConnectedDeviceIdsEmptyAfterDisconnect)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"A" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+    manager.ConnectAsync(L"devA").get();
+
+    manager.DisconnectAsync(L"devA").get();
+
+    CHECK(manager.ConnectedDeviceIds().empty());
+}
+
+AB_TEST(ConnectedDeviceIdsEmptyAfterExternalLoss)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"A" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+    manager.ConnectAsync(L"devA").get();
+
+    provider.ConnectionLost.Raise(L"devA");
+
+    CHECK(manager.ConnectedDeviceIds().empty());
+}
+```
+
+- [ ] **Step 2: 运行，确认失败**
+
+Expected: 编译失败，`ConnectedDeviceIds` 不是成员。
+
+- [ ] **Step 3: 实现 `ConnectedDeviceIds`**
+
+在 `ConnectionManager.h` 的 `Snapshot()` 声明后加：
+
+```cpp
+    // 当前处于 Connected 的设备 id。退出时用它写入 Settings。
+    std::vector<std::wstring> ConnectedDeviceIds() const;
+```
+
+在 `.cpp` 中实现：
+
+```cpp
+std::vector<std::wstring> ConnectionManager::ConnectedDeviceIds() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    std::vector<std::wstring> result;
+    for (auto const& entry : m_entries)
+    {
+        if (entry.state == ConnectionState::Connected)
+        {
+            result.push_back(entry.deviceId);
+        }
+    }
+    return result;
+}
+```
+
+- [ ] **Step 4: 编译并运行测试**
+
+Expected: 全部通过。
+
+- [ ] **Step 5: 退出时保存配置**
+
+在 `App.xaml.h` 里加声明：
+
+```cpp
+    void SaveSettingsOnExit();
+```
+
+在 `App.xaml.cpp` 实现：
+
+```cpp
+void App::SaveSettingsOnExit()
+{
+    // 记录当前已连接的设备，下次启动自动重连
+    auto connected = m_manager.ConnectedDeviceIds();
+    if (!connected.empty())
+    {
+        m_settings.lastConnectedDevices = std::move(connected);
+    }
+
+    if (!SaveSettings(m_settings, DefaultSettingsPath()))
+    {
+        OutputDebugStringW(L"AudioBule: failed to save settings\n");
+    }
+}
+```
+
+在 `HandleTrayCommand` 的 `kCmdExit` 分支里，**在** `WaitForIdle()` **之前**调用：
+
+```cpp
+    case TrayService::kCmdExit:
+        m_manager.WaitForIdle();
+        SaveSettingsOnExit();
+        ::PostQuitMessage(0);
+        break;
+```
+
+- [ ] **Step 6: 完整手动验证清单**
+
+编译 Release 并运行：
+
+```powershell
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
+& ".\AudioBule.App\bin\AudioBule.exe"
+```
+
+逐项打勾，**任何一项失败都不要提交**：
+
+| # | 场景 | 期望 | 对应 Review Focus |
+| --- | --- | --- | --- |
+| 1 | 首次启动（无配置文件） | 不弹错误，静默用默认值，托盘出现 | 第 2 条 |
+| 2 | 启动时窗口 | 不自动弹出 | — |
+| 3 | 左键托盘图标 | 窗口显示 | — |
+| 4 | 点窗口 X | 窗口消失，**进程仍在**，托盘图标还在 | **第 4 条** |
+| 5 | 再点托盘图标 | 窗口重新显示 | 第 4 条 |
+| 6 | 右键托盘图标 | 菜单弹出 5 项 | — |
+| 7 | 点「退出」 | 进程消失，无残留 | — |
+| 8 | 设备列表有设备时 | 显示名称 + 状态 + 按钮 | — |
+| 9 | 点某设备「连接」 | 状态变「连接中…」→ 「已连接」 | — |
+| 10 | 已连接时点「断开」 | 状态变「未连接」 | — |
+| 11 | **手机连着别的耳机时**点「连接」 | 失败，文案提到「无法作为蓝牙音频接收端」并建议先断开手机上的其它设备 | **第 1 条** |
+| 12 | 失败后点「重试」 | 重新发起连接 | — |
+| 13 | 两台设备，一台成功一台失败 | 互不影响，各自状态独立 | — |
+| 14 | 手机走远 / 关蓝牙 | 状态自动变回「未连接」（≤5 秒） | — |
+| 15 | 点「刷新」 | 列表更新，**已连接的状态不被重置** | — |
+| 16 | 切深色/浅色主题 | 托盘图标跟随变化 | — |
+| 17 | 结束 explorer 再恢复 | 托盘图标自动回来 | **第 5 条** |
+| 18 | 无设备时 | 显示空状态引导 + 「打开蓝牙设置」 | — |
+| 19 | 点「添加设备」 | 打开系统蓝牙设置 | — |
+| 20 | 连上后正常退出，再启动 | 自动重连上次的设备 | — |
+| 21 | 托盘图标反复切主题 10 次 | GDI 对象数不持续增长 | — |
+| 22 | 重复快速点「连接」10 次 | 只建立一次连接 | — |
+
+**第 11、14、22 项是硬门槛。** 前者验证错误文案是否真的帮到用户，
+中间验证状态机与 provider 的事件接线，后者验证并发下的幂等性 ——
+这三项在自动化测试里覆盖不到，只能靠真机。
+
+- [ ] **Step 7: 提交**
+
+```bash
+git add AudioBule.Core tests AudioBule.App
+git commit -m "feat: persist connected devices on exit; complete end-to-end wiring"
+```
+
+---
+
+## Task 12: MSIX 打包
+
+**Files:**
+- Create: `assets/AudioBule.Package.appxmanifest`
+- Create: `Packaging/Publish.ps1`
+- Modify: `AudioBule.App/AudioBule.App.vcxproj`（切换到 MSIX）
+- Modify: `PROGRESS.md`
+
+**Interfaces:**
+- Consumes: Task 7~11 的完整应用
+- Produces: 可安装的 `.msix` 包
+
+---
+
+- [ ] **Step 1: 创建 MSIX 清单**
+
+`assets/AudioBule.Package.appxmanifest`：
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity Name="AudioBule"
+            Publisher="CN=AudioBule"
+            Version="1.0.0.0" />
+
+  <Properties>
+    <DisplayName>AudioBule</DisplayName>
+    <PublisherDisplayName>AudioBule</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0"
+                        MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="zh-CN" />
+  </Resources>
+
+  <Applications>
+    <Application Id="App"
+                 Executable="AudioBule.exe"
+                 EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="AudioBule"
+        Description="蓝牙 A2DP 接收端连接管家"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+        <uap:SplashScreen Image="Assets\SplashScreen.png" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- 枚举与连接蓝牙设备。缺了这两条清单校验直接失败 -->
+    <Capability Name="internetClient" />
+    <DeviceCapability Name="bluetooth" />
+  </Capabilities>
+</Package>
+```
+
+> `bluetooth` 是 `DeviceCapability`（不是 `Capability`），写错命名空间会静默失效。
+
+- [ ] **Step 2: 生成图标资产**
+
+清单引用了 4 个 PNG。用 PowerShell 现场生成，避免往仓库塞二进制：
+
+```powershell
+New-Item -ItemType Directory -Force AudioBule.App\Assets | Out-Null
+
+Add-Type -AssemblyName System.Drawing
+function New-Logo([int]$size, [string]$path) {
+    $bmp = New-Object System.Drawing.Bitmap($size, $size)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.SmoothingMode = 'AntiAlias'
+    $g.Clear([System.Drawing.Color]::FromArgb(0x20, 0x20, 0x20))
+    $pen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(0xF5,0xF5,0xF5)), ([Math]::Max(2, $size/12))
+    $g.DrawEllipse($pen, $size*0.35, $size*0.35, $size*0.3, $size*0.3)
+    $g.DrawLine($pen, $size*0.2, $size*0.8, $size*0.5, $size*0.25)
+    $g.DrawLine($pen, $size*0.8, $size*0.8, $size*0.5, $size*0.25)
+    $g.Dispose()
+    $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp.Dispose()
+}
+
+New-Logo 44  "AudioBule.App\Assets\Square44x44Logo.png"
+New-Logo 150 "AudioBule.App\Assets\Square150x150Logo.png"
+New-Logo 310 "AudioBule.App\Assets\Wide310x150Logo.png"
+New-Logo 620 "AudioBule.App\Assets\SplashScreen.png"
+New-Logo 50  "AudioBule.App\Assets\StoreLogo.png"
+```
+
+把 `AudioBule.App/Assets/` 加进 `.gitignore`（生成物，非源码）。
+
+- [ ] **Step 3: 切换工程到 MSIX**
+
+在 `AudioBule.App.vcxproj` 的 `Globals` 节把
+`<WindowsPackageType>None</WindowsPackageType>` 改为
+`<WindowsPackageType>MSIX</WindowsPackageType>`，并在 `UserMacros` 后加：
+
+```xml
+  <PropertyGroup>
+    <AppxManifest>$(MSBuildProjectDirectory)\..\assets\AudioBule.Package.appxmanifest</AppxManifest>
+    <AppxBundle>Never</AppxBundle>
+    <AppxBundlePlatforms>x64</AppxBundlePlatforms>
+    <PackageCertificateKeyFile>AudioBule_TemporaryKey.pfx</PackageCertificateKeyFile>
+    <AppxPackageSigningEnabled>true</AppxPackageSigningEnabled>
+    <AppxAutoIncrementPackageRevision>False</AppxAutoIncrementPackageRevision>
+    <GenerateAppxPackageOnBuild>False</GenerateAppxPackageOnBuild>
+  </PropertyGroup>
+```
+
+**签名证书**：MSIX 必须签名。用 VS 的「创建临时证书」或：
+
+```powershell
+$password = ConvertTo-SecureString -String "" -Force -AsPlainText
+& "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\makeappx.exe" /? | Out-Null
+# 生成自签名证书（.pfx），有效期 1 年
+$cert = New-SelfSignedCertificate -Subject "CN=AudioBule" -Type CodeSigningCert `
+    -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(1)
+Export-PfxCertificate -Cert $cert -FilePath "AudioBule.App\AudioBule_TemporaryKey.pfx" `
+    -Password $password
+```
+
+> 临时证书只能装在开发机上。发布到商店需要正式证书 ——
+> 那是计划二之后的事，本任务只要能在本机装上即可。
+> **务必把 `.pfx` 加进 `.gitignore`**（它带私钥，绝不能提交）。
+
+- [ ] **Step 4: 创建 `Packaging/Publish.ps1`**
+
+```powershell
+param(
+    [ValidateSet('Debug', 'Release')]
+    [string]$Configuration = 'Release'
+)
+
+$ErrorActionPreference = 'Stop'
+
+$root = Split-Path -Parent $PSScriptRoot
+$msbuild = 'D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe'
+$solution = Join-Path $root 'AudioBule.sln'
+
+# 必须先 Restore：C++/WinRT 的头路径靠 NuGet 还原注入
+& $msbuild $solution -t:Restore -p:Configuration=$Configuration -p:Platform=x64 -v:minimal -nologo
+if ($LASTEXITCODE -ne 0) { throw "restore failed" }
+
+& $msbuild $solution -p:Configuration=$Configuration -p:Platform=x64 `
+    -p:GenerateAppxPackageOnBuild=true -v:minimal -nologo
+if ($LASTEXITCODE -ne 0) { throw "build failed" }
+
+$package = Get-ChildItem (Join-Path $root 'AudioBule.App\AppPackages') -Recurse -Filter *.msix |
+    Select-Object -First 1
+
+if ($null -eq $package) { throw "no .msix produced" }
+
+Write-Host "Package: $($package.FullName)"
+```
+
+- [ ] **Step 5: 打包并安装验证**
+
+```powershell
+& .\Packaging\Publish.ps1 -Configuration Release
+```
+
+Expected: 生成 `AudioBule.App\AppPackages\Release\...\AudioBule_1.0.0.0_x64.msix`。
+
+安装：
+
+```powershell
+Add-AppxPackage -Path "<上面打印的路径>" -AllowUnsigned
+```
+
+**MSIX 下的重点回归**（未打包模式已验证过，这些是 MSIX 特有的）：
+
+| 检查项 | 期望 |
+| --- | --- |
+| 托盘图标出现 | 打包后进程在容器里，托盘仍可用 |
+| 左键/右键托盘 | 正常 |
+| 能连上蓝牙设备 | 清单里的 `bluetooth` 能力生效 |
+| 配置目录 | 写到 `%LOCALAPPDATA%\Packages\<包名>\LocalCache\`，**不是** `%LOCALAPPDATA%\AudioBule\` |
+| 卸载后重装 | 配置不残留（容器隔离） |
+
+> **配置路径在 MSIX 下会变。** 本计划的 `DefaultSettingsPath()` 写死了
+> `%LOCALAPPDATA%\AudioBule\`。MSIX 打包后该目录**仍可写**（它在包容器之外），
+> 所以功能正常，只是从「容器内」变成了「容器外的普通目录」。
+> 若要严格遵循容器隔离，改用 `ApplicationData::Current().LocalSettings()` ——
+> 但那要求 Core 引入 WinRT Storage，与「配置用 JSON 文件」的既定方案冲突。
+> **当前选择的取舍**：保持 JSON 文件路径不变，接受它不在容器内。
+> 在 `PROGRESS.md` 里记下这个决定。
+
+- [ ] **Step 6: 更新 `PROGRESS.md`**
+
+把阶段总览表的「计划一」改为已完成，并补充：
+- 最终的用例数量与测试运行方式
+- MSIX 配置路径的取舍决定
+- Task 6 Step 7 的 GDI 泄漏观察结果
+- 手动验证清单中第 11/14/22 项的实测结论
+
+- [ ] **Step 7: 提交**
+
+```bash
+git add assets Packaging AudioBule.App .gitignore PROGRESS.md
+git commit -m "build: add MSIX packaging with bluetooth capability declaration"
+```
+
+---
+
+## 完成标准
+
+本计划完成时应当具备：
+
+- [ ] `AudioBule.sln` 一次 `msbuild` 能构建出 Core、Tests、App 三个产物
+- [ ] `tests\bin\AudioBule.Core.Tests.exe` 退出码 0，覆盖状态机、配置、字符串、图标
+- [ ] 应用启动后驻留托盘，窗口可显示/隐藏
+- [ ] 设备列表支持多设备并行连接，每设备独立状态
+- [ ] 连接失败有可操作的错误文案（含 `0x8007001F` 的针对性提示）
+- [ ] 配置持久化在 `%LOCALAPPDATA%\AudioBule\settings.json`
+- [ ] 能打出可安装的 MSIX 包
+- [ ] Task 11 Step 6 的 22 项手动验证全部通过
+- [ ] **不包含**任何音量控制代码（音量 Spike 结论为不可行）
+
+## 明确不在本计划范围内
+
+| 项 | 归属 |
+| --- | --- |
+| 开机自启（`StartupTask`） | 计划二。当前仅记录配置开关 |
+| toast 通知 | 计划二。需在清单加 `windows.appNotification` 与 AUMID |
+| 中英文国际化（`.resw`） | 计划二。当前 `Messages.cpp` 返回简体中文 |
+| 音量控制 | **已否决**，见 spike 报告 |
+| 多显示器 DPI 手工换算 | 不需要 —— 用 `AppWindow` 的 DPI 感知 API |
