@@ -1,5 +1,4 @@
-# MSBuild 中间产物与输出
-# 所有路径都用 / 开头做根锚定 —— 裸 bin/ 会连带忽略 tools/volume-spike/bin/
+# MSBuild 涓棿浜х墿涓庤緭鍑?# 鎵€鏈夎矾寰勯兘鐢?/ 寮€澶村仛鏍归敋瀹?鈥斺€?瑁?bin/ 浼氳繛甯﹀拷鐣?tools/volume-spike/bin/
 /x64/
 /Debug/
 /Release/
@@ -17,10 +16,9 @@
 *.ipch
 *.iobj
 
-# XAML 编译器产物
-/AudioBule.App/Generated Files/
+# XAML 缂栬瘧鍣ㄤ骇鐗?/AudioBule.App/Generated Files/
 
-# 打包产物
+# 鎵撳寘浜х墿
 AppPackages/
 *.msix
 *.msixbundle
@@ -28,5 +26,4 @@ AppPackages/
 *.appxbundle
 *.pri
 
-# 签名证书含私钥，绝不能提交
-*.pfx
+# 绛惧悕璇佷功鍚閽ワ紝缁濅笉鑳芥彁浜?*.pfx

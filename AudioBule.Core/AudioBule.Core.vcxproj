@@ -67,6 +67,9 @@
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ResourceCompile Include="IconFactory.rc" />
+  </ItemGroup>
+  <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="SimpleEvent.h" />
@@ -77,6 +80,7 @@
     <ClInclude Include="IAudioDeviceProvider.h" />
     <ClInclude Include="ConnectionManager.h" />
     <ClInclude Include="WinRtDeviceProvider.h" />
+    <ClInclude Include="IconFactory.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -87,6 +91,7 @@
     <ClCompile Include="Messages.cpp" />
     <ClCompile Include="ConnectionManager.cpp" />
     <ClCompile Include="WinRtDeviceProvider.cpp" />
+    <ClCompile Include="IconFactory.cpp" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.ImplementationLibrary" Version="1.0.260126.7" />

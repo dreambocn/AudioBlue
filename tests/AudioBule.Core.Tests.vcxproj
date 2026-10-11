@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -70,6 +70,7 @@
     <ClCompile Include="StringUtil.test.cpp" />
     <ClCompile Include="Settings.test.cpp" />
     <ClCompile Include="ConnectionManager.test.cpp" />
+    <ClCompile Include="IconFactory.test.cpp" />
   </ItemGroup>
   <ItemGroup>
     <!-- GoogleTest 1.17.0 vendored under third_party/. The NuGet package
@@ -85,6 +86,11 @@
            and similar DLL-boundary warnings. Those are not defects in our code. -->
       <TreatWarningAsError>false</TreatWarningAsError>
     </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 资源不会经由静态库传递到 exe，必须由最终链接的可执行工程自己编译一次。
+         与 AudioBule.App 里的同一份。 -->
+    <ResourceCompile Include="..\AudioBule.Core\IconFactory.rc" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AudioBule.Core\AudioBule.Core.vcxproj">

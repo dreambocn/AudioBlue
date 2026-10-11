@@ -3,9 +3,13 @@
 #include "targetver.h"
 
 #define WIN32_LEAN_AND_MEAN
+// windows.h 的 min/max 宏会与 std::min/std::max 冲突（报 C2589 等）。
+// 一旦用了标准库容器就应当定义它。
+#define NOMINMAX
 #include <windows.h>
 #include <objbase.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
