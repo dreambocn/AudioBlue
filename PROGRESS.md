@@ -17,8 +17,47 @@
 | 设计规格（spec） | ✅ 完成并批准 | `docs/superpowers/specs/2026-10-10-audiobule-design.md` |
 | 环境准备 | ✅ 完成 | 见下文「环境事实」 |
 | 计划 0：音量 Spike | ✅ 执行完毕 | `docs/superpowers/spikes/2026-10-10-volume-spike-results.md` |
-| 计划一：主工程 | ✅ 计划已编写，待执行 | `docs/superpowers/plans/2026-10-11-audiobule-main-app.md`（12 个 Task） |
+| 计划一：主工程 | 🔨 进行中：Core 层已完成并实测通过 | `docs/superpowers/plans/2026-10-11-audiobule-main-app.md`（12 个 Task） |
 | 计划二：增强功能 | ⬜ 未编写 | 待编写 |
+
+### 计划一当前进度
+
+| Task | 内容 | 状态 |
+| --- | --- | --- |
+| 1 | 解决方案骨架 + `Directory.Build.props` + GoogleTest | ✅ 实测通过 |
+| 2 | `SimpleEvent` + `StringUtil` | ✅ 实测通过 |
+| 3 | `Settings` JSON 持久化 | ✅ 实测通过 |
+| 4 | `ConnectionManager` 状态机 + `IAudioDeviceProvider` | ✅ 实测通过 |
+| 5 | `WinRtDeviceProvider` 生产实现 | ✅ 实测通过 |
+| 6 | 托盘图标（SVG → 构建期转 .ico） | ✅ 实测通过 |
+| 7 | WinUI 3 App 骨架 | ⬜ 未开始 |
+| 8 | `TrayIconService`（独立线程 + DispatcherQueue） | ⬜ 未开始 |
+| 9 | 托盘接线：主题图标、右键菜单、explorer 重启恢复 | ⬜ 未开始 |
+| 10 | 设备列表窗口 | ⬜ 未开始 |
+| 11 | 端到端接线 + 手动验证清单 | ⬜ 未开始 |
+| 12 | MSIX 打包 | ⬜ 未开始 |
+
+**构建与测试**（Debug 与 Release 均已验证）：
+
+```powershell
+$env:NUGET_PACKAGES = "D:\NuGetPackages"   # 包不装在 C 盘
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -t:Restore -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -t:Rebuild -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
+& ".\tests\bin\AudioBule.Core.Tests.exe"
+```
+
+当前 **67 个用例全过**。
+
+### 图标方案（已定，勿改）
+
+- 设计源：`assets/icons/bluetooth.svg`（Tabler Icons，MIT）
+- 构建期由 `assets/icons/Build-Icons.ps1` 用 ImageMagick（装在 D 盘）转成
+  深/浅两套多分辨率 `.ico`（16/24/32/48），作为 RCDATA 资源嵌入 exe
+- **运行期不渲染 SVG**：Direct2D 的 SVG 支持需要硬件 D3D11 设备，
+  实测 WARP 不被 Direct2D 支持（`CreateDevice` 返回 `0x80070057`），
+  硬件设备创建在无 GPU 环境会阻塞 30 秒以上
 
 ---
 
