@@ -21,6 +21,12 @@
 # XAML compiler output
 /AudioBule.App/Generated Files/
 
+# 本地诊断日志与临时编译产物。
+/.superpowers/*.log
+/.superpowers/*.xml
+/.superpowers/*.exe
+/.superpowers/*.obj
+
 # Icon build intermediates. The .ico files themselves ARE committed because
 # both the app and the test project embed them as RCDATA resources.
 /assets/icons/generated/

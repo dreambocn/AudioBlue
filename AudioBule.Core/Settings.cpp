@@ -4,10 +4,10 @@
 
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Storage.h>
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <system_error>
 #include <vector>
 
@@ -16,7 +16,6 @@ namespace AudioBule::Core
 
 using namespace winrt::Windows::Data::Json;
 using namespace winrt::Windows::Foundation;
-using namespace winrt::Windows::Storage;
 
 namespace {
 
@@ -118,18 +117,22 @@ AppSettings LoadSettings(std::wstring const& path)
 
     try
     {
-        // 不能写 winrt::to_hstring(path) —— CppWinRT 生成的 base.h 里没有
-        // std::wstring 的 to_hstring 重载。先显式构造 hstring 再隐式传参。
-        winrt::hstring nativePath{ std::wstring_view{ path } };
-
-        auto content = PathIO::ReadTextAsync(nativePath).get();
-
+        // 同步配置接口使用文件流，避免在 WinUI STA 上调用 WinRT 异步操作的 get()。
+        std::filesystem::path target(path);
+        std::error_code ec;
+        auto length = std::filesystem::file_size(target, ec);
+        if (ec || length == 0 || length > 1024 * 1024) return settings;
+        std::ifstream file(target, std::ios::binary);
+        std::string content(static_cast<size_t>(length), '\0');
+        if (!file.read(content.data(), static_cast<std::streamsize>(content.size()))) return settings;
+        // 兼容用户用编辑器保存的 UTF-8 BOM。
+        if (content.starts_with("\xEF\xBB\xBF")) content.erase(0, 3);
         if (content.empty())
         {
             return settings; // 空文件 → 默认值
         }
 
-        auto json = JsonObject::Parse(content);
+        auto json = JsonObject::Parse(winrt::hstring(Utf8ToWide(content)));
         if (!json)
         {
             return settings;
@@ -195,17 +198,18 @@ bool SaveSettings(AppSettings const& settings, std::wstring const& path)
             return false;
         }
 
-        // 不能用 StorageFile::GetFileFromPathAsync —— 文件不存在时它抛 0x80070002，
-        // 而配置首启时文件必然不存在，那样 SaveSettings 永远失败。
-        auto folder = StorageFolder::GetFolderFromPathAsync(
-            winrt::hstring{ std::wstring_view{ parent.wstring() } }).get();
-
-        auto file = folder.CreateFileAsync(
-            winrt::hstring{ std::wstring_view{ target.filename().wstring() } },
-            CreationCollisionOption::ReplaceExisting).get();
-
-        FileIO::WriteTextAsync(file, json.Stringify()).get();
-        return true;
+        // 写同目录临时文件后原子替换，写入中断不会截断用户原来的配置。
+        auto temporary = target.wstring() + L"." + std::to_wstring(::GetCurrentProcessId()) +
+            L"." + std::to_wstring(::GetCurrentThreadId()) + L".tmp";
+        auto cleanup = wil::scope_exit([&] { ::DeleteFileW(temporary.c_str()); });
+        std::ofstream file(std::filesystem::path(temporary), std::ios::binary | std::ios::trunc);
+        auto content = WideToUtf8(std::wstring(json.Stringify()));
+        file.write(content.data(), static_cast<std::streamsize>(content.size()));
+        file.flush();
+        bool written = file.good();
+        file.close();
+        return written && !file.fail() && ::MoveFileExW(temporary.c_str(), path.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
     }
     catch (winrt::hresult_error const&)
     {

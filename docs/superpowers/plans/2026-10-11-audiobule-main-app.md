@@ -31,6 +31,14 @@
 
 ## Global Constraints
 
+> 2026-10-11 执行更新：Task 1–10 已实现；Task 11 自动冒烟通过但真实蓝牙场景待验收；
+> Task 12 已生成开发用 MSIX，签名与安装回归待验收。当前证据以仓库根目录 `PROGRESS.md`
+> 和 `docs/superpowers/spikes/2026-10-11-app-verification.md` 为准。
+> 下列示例保留原设计过程，执行中按 API 实际约定修正：托盘用 Microsoft.UI.Dispatching，
+> 版本 4 事件来自 lParam，另建隐藏窗口接收广播，窗口关闭隐藏，配置使用原子文件替换。
+> 设备行直接由快照更新控件，不引入示例中尚未定义 IDL 的 ViewModel 绑定；
+> 开机自启属于计划二，因此菜单禁用该项。打包用独立 MakeAppx 脚本并保留未打包构建能力。
+
 以下约束适用于本计划**每一个**任务：
 
 - **工具链（已实测）**：Visual Studio Community 2026，MSBuild 完整路径

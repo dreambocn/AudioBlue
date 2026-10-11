@@ -6,18 +6,37 @@
 
 ## 一句话状态
 
-**设计规格已完成并批准；音量控制 Spike 已执行完毕并得出否定结论；主工程 Task 1–7 已完成并实测通过（Core 67 用例 + WinUI 3 壳可编译出 exe）。**
+**设计规格与音量 Spike 已完成；Task 1–10 已实现；Task 11 自动验收通过、真实蓝牙场景待验收；Task 12 已生成开发用 MSIX、签名与安装回归待验收。Debug/Release 均可构建，Core 69 用例全过，应用已可实际启动。**
 
 ---
 
 ## 阶段总览
+
+本轮详细证据见 [主工程运行验证记录](docs/superpowers/spikes/2026-10-11-app-verification.md)。
+新增 `tools\app-smoke\Test-App.ps1`，隔离用户配置后验证托盘、窗口、菜单、刷新、退出与保存。
+两种配置的 Core 69 用例全部通过。20 轮模拟恢复/主题广播后 GDI 对象数 `14 → 14`。
+本机设备列表显示两台手机，本轮未主动连接手机或验证音频流。
+
+MSIX 开发包已生成于 `Packaging\AppPackages\AudioBule_1.0.0.0_x64_Release_unsigned.msix`，
+MakeAppx 完整校验通过。`Packaging\Publish.ps1` 可使用已有证书签名。
+本轮未安装包或变更证书信任；安装后的托盘、蓝牙、配置路径仍需验收。
+
+复现当前功能：
+
+```powershell
+& '.\tests\bin\AudioBule.Core.Tests.exe' --gtest_brief=1
+& '.\tools\app-smoke\Test-App.ps1'
+& '.\Packaging\Publish.ps1' -Configuration Release -SkipBuild
+```
+
+构建期间会自动执行 `tools\Check-Layering.ps1`：Core 不依赖 WinUI，App 不直接操作音频连接 API。
 
 | 阶段 | 状态 | 产出 |
 | --- | --- | --- |
 | 设计规格（spec） | ✅ 完成并批准 | `docs/superpowers/specs/2026-10-10-audiobule-design.md` |
 | 环境准备 | ✅ 完成 | 见下文「环境事实」 |
 | 计划 0：音量 Spike | ✅ 执行完毕 | `docs/superpowers/spikes/2026-10-10-volume-spike-results.md` |
-| 计划一：主工程 | 🔨 进行中：Core 层已完成并实测通过 | `docs/superpowers/plans/2026-10-11-audiobule-main-app.md`（12 个 Task） |
+| 计划一：主工程 | 🔨 主工程实现已接通，硬件与安装验收待完成 | `docs/superpowers/plans/2026-10-11-audiobule-main-app.md`（12 个 Task） |
 | 计划二：增强功能 | ⬜ 未编写 | 待编写 |
 
 ### 计划一当前进度
@@ -31,13 +50,13 @@
 | 5 | `WinRtDeviceProvider` 生产实现 | ✅ 实测通过 |
 | 6 | 托盘图标（SVG → 构建期转 .ico） | ✅ 实测通过 |
 | 7 | WinUI 3 App 骨架 | ✅ 实测通过（Debug + Release 干净构建出 exe） |
-| 8 | `TrayIconService`（独立线程 + DispatcherQueue） | ⬜ 未开始 |
-| 9 | 托盘接线：主题图标、右键菜单、explorer 重启恢复 | ⬜ 未开始 |
-| 10 | 设备列表窗口 | ⬜ 未开始 |
-| 11 | 端到端接线 + 手动验证清单 | ⬜ 未开始 |
-| 12 | MSIX 打包 | ⬜ 未开始 |
+| 8 | `TrayIconService`（独立线程 + DispatcherQueue） | ✅ 实现，启动/退出冒烟通过 |
+| 9 | 托盘接线：主题图标、右键菜单、explorer 重启恢复 | ✅ 实现，菜单/广播/GDI 自动验证通过；真实主题和 Explorer 操作待验收 |
+| 10 | 设备列表窗口 | ✅ 实现，实机枚举 2 台设备，刷新/显隐通过 |
+| 11 | 端到端接线 + 手动验证清单 | 🔨 接线与自动冒烟通过；真实连接/多设备/掉线待验收 |
+| 12 | MSIX 打包 | 🔨 开发包已产出且 MakeAppx 校验通过；签名/安装待验收 |
 
-**构建与测试**（Debug 与 Release 均已从干净目录验证）：
+**构建与测试**（Debug 与 Release 均已通过 Rebuild 与进程冒烟验证）：
 
 ```powershell
 $env:NUGET_PACKAGES = "D:\NuGetPackages"   # 包不装在 C 盘
@@ -47,12 +66,12 @@ $env:NUGET_PACKAGES = "D:\NuGetPackages"   # 包不装在 C 盘
 ```
 
 `-restore` 不能省：`Rebuild` 不隐含还原。产出 `AudioBule.exe`，
-Core 的 **67 个用例全过**。
+Core 的 **69 个用例全过**。
 
-### ✅ WinUI 3 工程已可编译（Task 7 完成）
+### ✅ WinUI 3 工程可编译且实际启动（Task 7–10）
 
-`AudioBule.sln` 在 **Debug 与 Release 都能从完全干净的目录一次构建通过**，
-产出 `AudioBule.App\bin\AudioBule.exe`；Core 的 67 个用例两个配置下全绿。
+`AudioBule.sln` 在 **Debug 与 Release 均可通过 Rebuild 构建**，
+产出 `AudioBule.App\bin\AudioBule.exe`；Core 的 69 个用例两个配置下全绿。
 
 验证方式（务必照做，否则会被增量构建骗）：
 
@@ -99,31 +118,17 @@ Remove-Item "AudioBule.App\obj","AudioBule.App\Generated Files","AudioBule.Core\
    这一条曾被**过期的生成文件**掩盖 —— 之前看到的「能编译」其实是增量构建
    跳过了 XAML 编译器。
 
-#### 为什么没有 XAML 页面（与官方模板的差异，有意为之）
+#### XAML 页面已恢复，当前仍使用官方的 IDL + Page 工具链
 
-官方模板每个 XAML 页面都配一个同名 `.idl`，由 MIDL 编译出
-`MainWindow_base`（XAML 生成的 `MainWindowT` 从它派生）。
-本机做不到，原因是**依赖闭合不全**：
+`MainWindow.idl`、`MainWindow.xaml` 与生成的 `MainWindow.g.h` 都已参与构建。
+此前关于“缺少 winmd，所以只能用代码构造窗口”的结论已被最新构建证据推翻，
+相关引用由 NuGet targets 正常注入。当前设备窗口使用 XAML 固定布局，C++ 构建设备行。
 
-`MainWindow.idl` 继承 `Microsoft.UI.Xaml.Window`，MIDL 必须解析它的全部成员类型，
-需要 `Microsoft.UI.Composition` / `Microsoft.UI.Windowing` /
-`Microsoft.UI.Dispatching` 的 winmd。这三个 winmd **不在任何本地 NuGet 包里**
-（`microsoft.windowsappsdk.winui\metadata\` 只有 `Microsoft.UI.Xaml.winmd`
-和 `Microsoft.UI.Text.winmd`），只随**已安装的 Windows App SDK 运行时（MSIX）**
-分发，而本机没装。`D:\Windows Kits\10\UnionMetadata` 下也只有
-`Windows.winmd`，没有这些。
-
-试过并排除的 MIDL 方案：
-- `AdditionalMetadataDirectories` 指向 winui 包的 `metadata\` → 它是**替换**默认的
-  `/metadata_dir`（Windows 基础契约），`IInspectable` 等类型随即解析失败；
-  且路径**结尾不能带反斜杠**，否则 MIDL 报 `MIDL1012: argument illegal for switch`。
-- `AdditionalOptions` 传 `/reference ...Microsoft.UI.Xaml.winmd` → 需同时加 `/nomidl`，
-  且 `$(NuGetPackageRoot)` 在该处尚未定义（要用 `$(AudioBuleNuGetRoot)`）。
-
-因此当前 `AudioBule.App` **只有 `App.xaml`（ApplicationDefinition），没有任何 `<Page>`**，
-窗口用 C++ 代码构造（见 `App.xaml.cpp` 的 `OnLaunched`）。App 本身不需要 IDL，
-所以这条路是通的。设备列表界面改用代码构造控件，不走 XAML。
-
+本轮定位到另一项真实启动问题：`CppWinRTAddXamlReferences` 会把输出目录全部
+`.winmd` 加入 XAML 引用。旧产物 `AudioBule.winmd` 与当前 `AudioBule.App.winmd`
+包含同一元数据提供者，造成 `OtherProviders` 引入自身、无限递归并以 `0xC00000FD` 退出。
+现在构建前明确删除旧命名产物，并用进程实际启动验证，而不是仅凭编译成功。
+`App` 与窗口的资源初始化都在构造完成后显式调用，已恢复 `XamlControlsResources`。
 #### MIDL 相关的连带修正
 
 - `MainWindow.xaml.h` 必须 `#include "MainWindow.g.h"`（MIDL + C++/WinRT 产物，
@@ -154,26 +159,6 @@ Remove-Item "AudioBule.App\obj","AudioBule.App\Generated Files","AudioBule.Core\
 `Directory.Build.props` 里显式提供 `$(WilIncludePath)`，三个工程都显式引用。
 
 ### 图标方案（已落地）
-
-`AudioBule.App` 目前**还不能编译**。已定位到一对互相冲突的工具链要求：
-
-| 设置 | 结果 |
-| --- | --- |
-| 设 `<ApplicationType>Windows Store</ApplicationType>` + Windows Store 的 `ProjectTypeGuids` | UAP 相关 target 把 `_NuGetTargetFallbackMoniker` 设成 `UAP,Version=v10.0`，而 NuGet 对 C++/WinUI 工程还原出的框架是 `native`。`ResolveNuGetPackageAssets` 报 **「Your project does not reference ... framework」** |
-| 不设这两项 | NuGet 过了，但 WinUI XAML 工具链不激活，改用 .NET Framework 的 `Microsoft.Xaml.targets`，**不生成 `*.xaml.g.h`** |
-
-**换 SDK 版本无效**（已实测）：`Microsoft.WindowsAppSDK` **2.2.0** 与 **1.8.260921001** 报同样的 UAP 错。所以这不是版本问题，是 `ApplicationType=Windows Store` 与 C++ 工程还原结果之间的固有冲突。
-
-**已排除的可能**：
-- 不是包缺失 —— 两个版本都能成功还原并下载到 `D:\NuGetPackages`
-- `XamlCompilerTaskPath` 能正确解析到 `Microsoft.UI.Xaml.Markup.Compiler.dll`
-- CppWinRT 投影头生成正常（`obj\Generated Files\winrt\` 齐全）
-
-**试过但无效的覆盖**（记录下来以免重复）：
-`NuGetTargetMoniker=native`、`TargetFrameworks=native`、`TargetFramework=UAP,Version=v10.0`、
-在工程文件里清空 `_NuGetTargetFallbackMoniker`、在 `Directory.Build.targets` 里清空它。
-注意：清空后会从「不认 UAP」变成「不认 native」，说明该 task 的 moniker 校验与
-C++ 工程的还原框架名之间存在尚未找到的匹配方式。
 
 - 设计源：`assets/icons/bluetooth.svg`（Tabler Icons，MIT）
 - 构建期由 `assets/icons/Build-Icons.ps1` 用 ImageMagick（装在 D 盘）转成
@@ -310,11 +295,9 @@ Spike 实测证明两条独立事实，各自都足以否决「每设备音量�
     特化**，会编译失败。字符串数组必须走
     `PropertyValue::CreateStringArray(std::vector<winrt::hstring>)`。
 
-16. **本机 NuGet 缓存中没有任何单元测试框架**（无 MSTest / Catch2 / GoogleTest）。
-    主工程测试用自研的 `tests/TestHarness.h`（约 90 行控制台 exe）。
+16. **主工程测试使用内置 GoogleTest 1.17.0 源码**，不使用早期计划中的自研框架。
 
-17. **WinUI 3 的 `wWinMain` 第一个参数是 `WinRT initInstance`（`IInspectable*`）**，
-    不是 `HINSTANCE`/`PSTR`。这是 Windows App SDK 定义的入口约定。
+17. **WinUI 3 的 wWinMain 由 XAML 工具链生成**；保留生成入口，不另写 main.cpp。
 
 ## 主工程开工后新增的坑（均已实测）
 
@@ -372,7 +355,7 @@ Spike 实测证明两条独立事实，各自都足以否决「每设备音量�
     用 `JsonValue::CreateBooleanValue()` / `CreateStringValue()`，
     字符串数组先 `JsonArray` 再 `Append`。
 
-30. **测试工程需要自己初始化 WinRT apartment**。Core 用了 `PathIO`/`JsonObject`
+30. **测试工程需要自己初始化 WinRT apartment**。Core 用了 `JsonObject`
     等静态 API，测试入口必须 `winrt::init_apartment(multi_threaded)`
     （多线程，因为 `ConnectionManager` 会起后台线程跑连接）。
     因此**不用 `gtest_main.cc` 的默认 `main`**，自定义入口。
@@ -397,9 +380,9 @@ Spike 实测证明两条独立事实，各自都足以否决「每设备音量�
 
 ---
 
-## 尚未编写的计划
+## 后续计划与验收
 
-### 计划一：主工程（计划已写完，待执行）
+### 计划一：主工程（实现已接通，待完成硬件与安装验收）
 
 **计划文件**：`docs/superpowers/plans/2026-10-11-audiobule-main-app.md`
 
@@ -409,7 +392,7 @@ Spike 实测证明两条独立事实，各自都足以否决「每设备音量�
 
 | Task | 内容 |
 | --- | --- |
-| 1 | 解决方案骨架 + `Directory.Build.props` + 自研测试框架 |
+| 1 | 解决方案骨架 + `Directory.Build.props` + GoogleTest |
 | 2 | `SimpleEvent` + `StringUtil` |
 | 3 | `Settings` JSON 持久化 |
 | 4 | `ConnectionManager` 状态机 + `IAudioDeviceProvider` 抽象 |

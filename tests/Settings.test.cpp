@@ -6,6 +6,9 @@
 
 #include <cstdio>
 #include <string>
+#include <future>
+#include <thread>
+#include <winrt/base.h>
 
 using namespace AudioBule::Core;
 
@@ -226,4 +229,30 @@ TEST(Settings, LoadFromEmptyPathReturnsDefaults)
 {
     auto settings = LoadSettings(L"");
     EXPECT_TRUE(settings.autoReconnect);
+}
+
+TEST(Settings, RoundTripOnStaThread)
+{
+    // WinUI 主线程为 STA；配置接口必须能直接使用，不依赖异步操作的 get()。
+    TempDir temporary;
+    auto path = temporary.FilePath();
+    std::promise<bool> result;
+    auto completed = result.get_future();
+    std::thread worker([path, result = std::move(result)]() mutable {
+        try
+        {
+            winrt::init_apartment(winrt::apartment_type::single_threaded);
+            AppSettings expected;
+            expected.autoReconnect = false;
+            expected.lastConnectedDevices = { L"测试手机" };
+            bool saved = SaveSettings(expected, path);
+            auto actual = LoadSettings(path);
+            result.set_value(saved && !actual.autoReconnect &&
+                actual.lastConnectedDevices == expected.lastConnectedDevices);
+            winrt::uninit_apartment();
+        }
+        catch (...) { result.set_exception(std::current_exception()); }
+    });
+    worker.join();
+    EXPECT_TRUE(completed.get());
 }

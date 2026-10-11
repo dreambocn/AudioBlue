@@ -6,10 +6,8 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <!-- WinUI 控件的默认样式资源。缺了它控件会渲染不出来。
-                     注意：未打包应用里加载这份主题字典是已知会导致启动崩溃的
-                     来源（0xC00000FD），Task 8 之前先不加回来。 -->
-                <!-- <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" /> -->
+                <!-- 原生控件需要默认主题资源；在 OnLaunched 中加载 App 资源。 -->
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

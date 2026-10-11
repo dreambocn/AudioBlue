@@ -12,10 +12,10 @@ struct TrayIcon
     explicit operator bool() const { return handle != nullptr; }
 };
 
-// 生成 32x32 托盘图标（SVG 经 Direct2D 渲染）。
+// 从嵌入的多尺寸 ICO 资源加载 32x32 托盘图标（SVG 在构建期转换）。
 //   darkTheme = false → 浅色任务栏：画深色图形
 //   darkTheme = true  → 深色任务栏：画浅色图形
-// 返回空 TrayIcon 表示渲染失败；调用方可继续运行，只是没有托盘图标。
+// 返回空 TrayIcon 表示资源加载失败；调用方可显示设备窗口作为备用入口。
 // 调用方**必须**用 DestroyTrayIcon 释放，否则 GDI 对象泄漏。
 TrayIcon CreateTrayIcon(bool darkTheme);
 

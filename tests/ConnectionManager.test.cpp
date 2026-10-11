@@ -16,6 +16,7 @@
 #include <vector>
 
 #include <winrt/base.h>
+#include <objbase.h>
 
 using namespace AudioBule::Core;
 
@@ -27,6 +28,8 @@ public:
     std::vector<DeviceInfo> devices;
     bool supported = true;
     bool throwOnEnumerate = false;
+    std::atomic<HRESULT> connectApartmentResult{ E_FAIL };
+    std::atomic<HRESULT> disconnectApartmentResult{ E_FAIL };
 
     void SetConnectResult(std::wstring const& deviceId, ConnectResult result)
     {
@@ -66,6 +69,9 @@ public:
 
     ConnectResult Connect(std::wstring_view deviceId) override
     {
+        APTTYPE type{};
+        APTTYPEQUALIFIER qualifier{};
+        connectApartmentResult = ::CoGetApartmentType(&type, &qualifier);
         std::wstring id(deviceId);
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -85,6 +91,9 @@ public:
 
     void Disconnect(std::wstring_view deviceId) override
     {
+        APTTYPE type{};
+        APTTYPEQUALIFIER qualifier{};
+        disconnectApartmentResult = ::CoGetApartmentType(&type, &qualifier);
         std::lock_guard<std::mutex> lock(m_mutex);
         m_disconnected.insert(std::wstring(deviceId));
     }
@@ -552,6 +561,19 @@ TEST(ConnectionManager, DestructionWaitsForInFlightWork)
 
     provider.ConnectionLost.Raise(L"devA");
     manager.reset();   // 不得崩溃、不得挂起
+}
+
+TEST(ConnectionManager, WorkerThreadsInitializeComForRealProvider)
+{
+    // 假 provider 直接检查工作线程 COM 状态，防止只在真实设备上出现初始化失败。
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+    manager.ConnectAsync(L"devA").get();
+    manager.DisconnectAsync(L"devA").get();
+    EXPECT_EQ(provider.connectApartmentResult.load(), S_OK);
+    EXPECT_EQ(provider.disconnectApartmentResult.load(), S_OK);
 }
 
 // ---- 真实 provider 的冒烟测试 ----

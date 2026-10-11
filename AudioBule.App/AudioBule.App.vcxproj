@@ -53,6 +53,10 @@
          "win10-x64". It must be declared or ResolveNuGetPackageAssets fails. -->
     <RuntimeIdentifiers>win10-x64</RuntimeIdentifiers>
     <RuntimeIdentifier>win10-x64</RuntimeIdentifier>
+    <!-- 未打包时自动加载运行时；有 MSIX 身份时使用清单依赖，不重复 bootstrap。 -->
+    <WindowsAppSDKBootstrapAutoInitializeOptions_Default>false</WindowsAppSDKBootstrapAutoInitializeOptions_Default>
+    <WindowsAppSDKBootstrapAutoInitializeOptions_OnNoMatch_ShowUI>true</WindowsAppSDKBootstrapAutoInitializeOptions_OnNoMatch_ShowUI>
+    <WindowsAppSDKBootstrapAutoInitializeOptions_OnPackageIdentity_NoOp>true</WindowsAppSDKBootstrapAutoInitializeOptions_OnPackageIdentity_NoOp>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <!-- Directory.Build.props is imported by Microsoft.Cpp.Default.props, i.e.
@@ -124,6 +128,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
+      <AdditionalDependencies>shell32.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <!-- Static CRT, matching Core exactly. A mismatch yields LNK2038. -->
@@ -131,9 +136,11 @@
     <ClCompile>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
@@ -149,6 +156,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="TrayIconService.h" />
+    <ClInclude Include="TrayMenuBuilder.h" />
     <ClInclude Include="App.xaml.h">
       <DependentUpon>App.xaml</DependentUpon>
     </ClInclude>
@@ -173,6 +182,8 @@
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="TrayIconService.cpp" />
+    <ClCompile Include="TrayMenuBuilder.cpp" />
     <ClCompile Include="App.xaml.cpp">
       <DependentUpon>App.xaml</DependentUpon>
     </ClCompile>
@@ -196,9 +207,17 @@
     <!-- Package set taken from the template's NuGetPackageInstaller parameter. -->
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
     <PackageReference Include="Microsoft.Windows.CppWinRT" Version="3.0.260520.1" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7566" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7627" />
     <PackageReference Include="Microsoft.Windows.ImplementationLibrary" Version="1.0.260126.7" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
+  <!-- C++/WinRT 将输出目录全部 winmd 加入 XAML 引用。旧命名的本工程元数据
+       会让 OtherProviders 再次包含自身，启动时无限递归并栈溢出。 -->
+  <Target Name="AudioBuleRemoveLegacyMetadata" BeforeTargets="CppWinRTAddXamlReferences">
+    <Delete Files="$(OutDir)AudioBule.winmd" Condition="'$(RootNamespace)' == 'AudioBule.App'" />
+  </Target>
+  <Target Name="AudioBuleCheckLayering" BeforeTargets="ClCompile">
+    <Exec Command="pwsh -NoProfile -File &quot;$(ProjectDir)..\tools\Check-Layering.ps1&quot;" />
+  </Target>
 </Project>

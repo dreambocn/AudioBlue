@@ -181,8 +181,12 @@ std::future<void> ConnectionManager::ConnectAsync(std::wstring_view deviceId)
     // promise 必须**移动**进 lambda。捕获引用会在本函数返回后 use-after-free。
     std::thread([this, id = std::move(id), promise = std::move(promise)]() mutable {
         ConnectResult result;
+        bool apartment = false;
         try
         {
+            // std::thread 不自动初始化 COM；真实 WinRT provider 必须在 MTA 上运行。
+            winrt::init_apartment(winrt::apartment_type::multi_threaded);
+            apartment = true;
             result = m_provider.Connect(id);
         }
         catch (winrt::hresult_error const& e)
@@ -194,14 +198,20 @@ std::future<void> ConnectionManager::ConnectAsync(std::wstring_view deviceId)
             result = ConnectResult{ false, ConnectFailure::HresultError, E_FAIL };
         }
 
-        ApplyConnectResult(id, result);
-        promise.set_value();
+        try
+        {
+            ApplyConnectResult(id, result);
+            promise.set_value();
+        }
+        catch (...) { promise.set_exception(std::current_exception()); }
+        if (apartment) winrt::uninit_apartment();
 
         {
             std::lock_guard<std::mutex> lock(m_pendingMutex);
             --m_pendingCount;
+            // 在锁内通知：计数归零后析构可能立即返回，之后不能再访问成员。
+            m_pendingDone.notify_all();
         }
-        m_pendingDone.notify_all();
     }).detach();
 
     return future;
@@ -273,8 +283,11 @@ std::future<void> ConnectionManager::DisconnectAsync(std::wstring_view deviceId)
     auto future = promise.get_future();
 
     std::thread([this, id = std::move(id), promise = std::move(promise)]() mutable {
+        bool apartment = false;
         try
         {
+            winrt::init_apartment(winrt::apartment_type::multi_threaded);
+            apartment = true;
             m_provider.Disconnect(id);
         }
         catch (...)
@@ -284,12 +297,13 @@ std::future<void> ConnectionManager::DisconnectAsync(std::wstring_view deviceId)
         }
 
         promise.set_value();
+        if (apartment) winrt::uninit_apartment();
 
         {
             std::lock_guard<std::mutex> lock(m_pendingMutex);
             --m_pendingCount;
+            m_pendingDone.notify_all();
         }
-        m_pendingDone.notify_all();
     }).detach();
 
     return future;
