@@ -72,6 +72,10 @@
     <ClInclude Include="SimpleEvent.h" />
     <ClInclude Include="StringUtil.h" />
     <ClInclude Include="Settings.h" />
+    <ClInclude Include="ConnectionEntry.h" />
+    <ClInclude Include="Messages.h" />
+    <ClInclude Include="IAudioDeviceProvider.h" />
+    <ClInclude Include="ConnectionManager.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -79,6 +83,8 @@
     </ClCompile>
     <ClCompile Include="StringUtil.cpp" />
     <ClCompile Include="Settings.cpp" />
+    <ClCompile Include="Messages.cpp" />
+    <ClCompile Include="ConnectionManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.ImplementationLibrary" Version="1.0.260126.7" />

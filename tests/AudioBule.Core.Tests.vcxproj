@@ -69,6 +69,7 @@
     <ClCompile Include="SimpleEvent.test.cpp" />
     <ClCompile Include="StringUtil.test.cpp" />
     <ClCompile Include="Settings.test.cpp" />
+    <ClCompile Include="ConnectionManager.test.cpp" />
   </ItemGroup>
   <ItemGroup>
     <!-- GoogleTest 1.17.0 vendored under third_party/. The NuGet package
