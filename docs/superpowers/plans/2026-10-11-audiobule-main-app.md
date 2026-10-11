@@ -1532,4 +1532,1285 @@ git add AudioBule.Core tests
 git commit -m "feat: add JSON settings persistence with fail-safe defaults"
 ```
 
+---
+
+## Task 4: ConnectionManager 状态机 + IAudioDeviceProvider 抽象
+
+**Files:**
+- Create: `AudioBule.Core/ConnectionEntry.h`
+- Create: `AudioBule.Core/Messages.h`
+- Create: `AudioBule.Core/Messages.cpp`
+- Create: `AudioBule.Core/IAudioDeviceProvider.h`
+- Create: `AudioBule.Core/ConnectionManager.h`
+- Create: `AudioBule.Core/ConnectionManager.cpp`
+- Modify: `AudioBule.Core/AudioBule.Core.vcxproj`
+- Create: `tests/ConnectionManager.test.cpp`
+- Modify: `tests/AudioBule.Core.Tests.vcxproj`
+
+**Interfaces:**
+- Consumes: Task 2 的 `SimpleEvent.h`、Task 3 的 `Settings.h`
+- Produces:
+  - `namespace AudioBule::Core`
+    - `enum class ConnectionState { Disconnected, Connecting, Connected, Failed }`
+    - `struct ConnectionEntry { std::wstring deviceId, displayName, errorMessage; ConnectionState state = Disconnected; }`
+    - `enum class ConnectFailure { None, DeviceNotSupported, RequestTimedOut, DeniedBySystem, GenericFailure, UnknownFailure, HresultError, DeviceNotFound }`
+    - `struct ConnectResult { bool succeeded = false; ConnectFailure failure = ConnectFailure::None; HRESULT extendedError = 0; }`
+    - `struct DeviceInfo { std::wstring id, name; }`
+    - `class IAudioDeviceProvider`（抽象基类）
+    - `class ConnectionManager`
+  - `std::wstring MessageForConnectFailure(ConnectFailure failure, HRESULT extendedError)`
+
+**`IAudioDeviceProvider` 的形状（这是全项目最关键的可测试性决策）：**
+
+```cpp
+class IAudioDeviceProvider
+{
+public:
+    virtual ~IAudioDeviceProvider() = default;
+
+    // 系统是否支持 A2DP Sink（Windows 10 2004+）
+    virtual bool IsSupported() const = 0;
+
+    // 枚举已配对的 A2DP 设备。抛异常时上层应视为空列表。
+    virtual std::vector<DeviceInfo> EnumerateDevices() = 0;
+
+    // 建立连接。**同步阻塞**直到成功或失败。
+    // 真实实现在工作线程上调用，调用方不得在 UI 线程直接调。
+    virtual ConnectResult Connect(std::wstring_view deviceId) = 0;
+
+    // 断开连接。必须是幂等的 —— 对未连接的设备调用不应报错。
+    virtual void Disconnect(std::wstring_view deviceId) = 0;
+
+    // 底层连接被系统关闭（设备走出范围、手机断开蓝牙）时触发，参数为 deviceId。
+    // ConnectionManager 在构造时订阅它。
+    SimpleEvent<std::wstring> ConnectionLost;
+};
+```
+
+**为什么 `Connect` 是同步阻塞而不是返回 future**：真实实现是
+`StartAsync().get()` + `OpenAsync().get()`，本来就阻塞。把它包装成 future
+只会把复杂度推给实现层，而 `ConnectionManager` 已经在外层做了异步化。
+`ConnectAsync` 才是对外的异步接口。
+
+---
+
+- [ ] **Step 1: 写失败的测试 `tests/ConnectionManager.test.cpp`**
+
+测试替身必须能**编程式**控制每次 `Connect` 的结果，否则测不出失败分支。
+
+```cpp
+#include "TestHarness.h"
+#include "ConnectionManager.h"
+#include "Messages.h"
+
+#include <atomic>
+#include <future>
+#include <map>
+#include <mutex>
+#include <set>
+#include <stdexcept>
+#include <thread>
+#include <vector>
+
+using namespace AudioBule::Core;
+
+namespace {
+
+class FakeDeviceProvider final : public IAudioDeviceProvider
+{
+public:
+    // 可编程的枚举结果
+    std::vector<DeviceInfo> devices;
+    bool supported = true;
+    bool throwOnEnumerate = false;
+
+    void SetConnectResult(std::wstring const& deviceId, ConnectResult result)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_connectResults[deviceId] = result;
+    }
+
+    void SetConnectThrows(std::wstring const& deviceId)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_throwingDevices.insert(deviceId);
+    }
+
+    int ConnectCount(std::wstring const& deviceId) const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto it = m_connectCounts.find(deviceId);
+        return it == m_connectCounts.end() ? 0 : it->second;
+    }
+
+    bool IsDisconnected(std::wstring const& deviceId) const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_disconnected.count(deviceId) > 0;
+    }
+
+    // --- IAudioDeviceProvider ---
+    bool IsSupported() const override { return supported; }
+
+    std::vector<DeviceInfo> EnumerateDevices() override
+    {
+        if (throwOnEnumerate)
+        {
+            throw std::runtime_error("enumerate failed");
+        }
+        return devices;
+    }
+
+    ConnectResult Connect(std::wstring_view deviceId) override
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_connectCounts[std::wstring(deviceId)]++;
+            if (m_throwingDevices.count(std::wstring(deviceId)) > 0)
+            {
+                throw winrt::hresult_error(E_FAIL, L"simulated");
+            }
+            auto it = m_connectResults.find(std::wstring(deviceId));
+            if (it != m_connectResults.end())
+            {
+                return it->second;
+            }
+        }
+        return ConnectResult{ true, ConnectFailure::None, 0 };
+    }
+
+    void Disconnect(std::wstring_view deviceId) override
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_disconnected.insert(std::wstring(deviceId));
+    }
+
+private:
+    mutable std::mutex m_mutex;
+    std::map<std::wstring, ConnectResult> m_connectResults;
+    std::map<std::wstring, int> m_connectCounts;
+    std::set<std::wstring> m_throwingDevices;
+    std::set<std::wstring> m_disconnected;
+};
+
+ConnectResult MakeSuccess()
+{
+    return ConnectResult{ true, ConnectFailure::None, 0 };
+}
+
+ConnectResult MakeFailure(ConnectFailure failure, HRESULT extended = 0)
+{
+    return ConnectResult{ false, failure, extended };
+}
+
+// 找到指定 deviceId 的条目，找不到返回 nullptr
+ConnectionEntry const* Find(ConnectionManager const& manager, std::wstring const& deviceId)
+{
+    for (auto const& entry : manager.Snapshot())
+    {
+        if (entry.deviceId == deviceId)
+        {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+ConnectionState StateOf(ConnectionManager const& manager, std::wstring const& deviceId)
+{
+    auto const* entry = Find(manager, deviceId);
+    return entry == nullptr ? ConnectionState::Disconnected : entry->state;
+}
+
+} // namespace
+
+AB_TEST(RefreshPopulatesEntriesFromProvider)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" }, { L"devB", L"手机 B" } };
+    ConnectionManager manager(provider);
+
+    manager.Refresh();
+
+    auto snapshot = manager.Snapshot();
+    CHECK_EQ(snapshot.size(), static_cast<size_t>(2));
+    CHECK(snapshot[0].deviceId == L"devA");
+    CHECK(snapshot[0].displayName == L"手机 A");
+    CHECK(snapshot[0].state == ConnectionState::Disconnected);
+}
+
+AB_TEST(UnsupportedSystemYieldsEmptyList)
+{
+    FakeDeviceProvider provider;
+    provider.supported = false;
+    ConnectionManager manager(provider);
+
+    manager.Refresh();
+    CHECK(manager.Snapshot().empty());
+}
+
+AB_TEST(EnumerateThrowingYieldsEmptyListAndDoesNotCrash)
+{
+    FakeDeviceProvider provider;
+    provider.throwOnEnumerate = true;
+    ConnectionManager manager(provider);
+
+    manager.Refresh();   // 不得抛出
+    CHECK(manager.Snapshot().empty());
+}
+
+AB_TEST(ConnectSuccessMovesEntryToConnected)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    manager.ConnectAsync(L"devA").get();
+
+    CHECK(StateOf(manager, L"devA") == ConnectionState::Connected);
+    CHECK(Find(manager, L"devA")->errorMessage.empty());
+}
+
+AB_TEST(ConnectFailureMovesEntryToFailedWithMessage)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" } };
+    provider.SetConnectResult(L"devA", MakeFailure(ConnectFailure::RequestTimedOut));
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    manager.ConnectAsync(L"devA").get();
+
+    CHECK(StateOf(manager, L"devA") == ConnectionState::Failed);
+    CHECK(!Find(manager, L"devA")->errorMessage.empty());
+}
+
+AB_TEST(ErrorGenFailureMessagePointsAtPhoneCannotBeReceiver)
+{
+    // Review Focus 第 1 条：手机正作为 A2DP 源连着耳机时，OpenAsync 失败且
+    // 扩展错误码为 0x8007001F。文案必须让用户看出"手机现在不能当接收端"，
+    // 而不是泛泛的"连接失败"。
+    auto message = MessageForConnectFailure(ConnectFailure::GenericFailure, 0x8007001Fu);
+    CHECK(!message.empty());
+    CHECK(message.find(L"0x8007001F") != std::wstring::npos);
+    CHECK(message.find(L"接收") != std::wstring::npos);
+}
+
+AB_TEST(EveryFailureKindProducesNonEmptyMessage)
+{
+    ConnectFailure const failures[] = {
+        ConnectFailure::DeviceNotSupported,
+        ConnectFailure::RequestTimedOut,
+        ConnectFailure::DeniedBySystem,
+        ConnectFailure::GenericFailure,
+        ConnectFailure::UnknownFailure,
+        ConnectFailure::HresultError,
+        ConnectFailure::DeviceNotFound,
+    };
+    for (auto failure : failures)
+    {
+        CHECK(!MessageForConnectFailure(failure, 0).empty());
+        CHECK(!MessageForConnectFailure(failure, 0x80004005u).empty());
+    }
+}
+
+AB_TEST(ConnectThrowingLeavesEntryFailedNotCrashed)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" } };
+    provider.SetConnectThrows(L"devA");
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    manager.ConnectAsync(L"devA").get();   // 不得抛出
+
+    CHECK(StateOf(manager, L"devA") == ConnectionState::Failed);
+    CHECK(!Find(manager, L"devA")->errorMessage.empty());
+}
+
+AB_TEST(ConnectUnknownDeviceAddsFailedEntry)
+{
+    // 设备列表刷新后用户手机走远了，点连接时 id 仍要得到一个可读的失败态，
+    // 而不是崩溃或静默无反应。
+    FakeDeviceProvider provider;
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    manager.ConnectAsync(L"ghost").get();
+
+    CHECK(StateOf(manager, L"ghost") == ConnectionState::Failed);
+}
+
+AB_TEST(DisconnectMovesEntryToDisconnectedAndCallsProvider)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+    manager.ConnectAsync(L"devA").get();
+    CHECK(provider.IsDisconnected(L"devA") == false);
+
+    manager.DisconnectAsync(L"devA").get();
+
+    CHECK(StateOf(manager, L"devA") == ConnectionState::Disconnected);
+    CHECK(provider.IsDisconnected(L"devA"));
+}
+
+AB_TEST(DisconnectOnDisconnectedEntryIsHarmlessNoOp)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    manager.DisconnectAsync(L"devA").get();   // 不得崩溃
+
+    CHECK(StateOf(manager, L"devA") == ConnectionState::Disconnected);
+}
+
+AB_TEST(RetryAfterFailureIsAllowedAndCanSucceed)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" } };
+    provider.SetConnectResult(L"devA", MakeFailure(ConnectFailure::RequestTimedOut));
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    manager.ConnectAsync(L"devA").get();
+    CHECK(StateOf(manager, L"devA") == ConnectionState::Failed);
+
+    // 用户点「重试」，这次设备可用
+    provider.SetConnectResult(L"devA", MakeSuccess());
+    manager.ConnectAsync(L"devA").get();
+
+    CHECK(StateOf(manager, L"devA") == ConnectionState::Connected);
+    CHECK(Find(manager, L"devA")->errorMessage.empty());
+}
+
+AB_TEST(ConnectWhileConnectedDoesNotCallProviderAgain)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    manager.ConnectAsync(L"devA").get();
+    manager.ConnectAsync(L"devA").get();
+    manager.ConnectAsync(L"devA").get();
+
+    CHECK_EQ(provider.ConnectCount(L"devA"), 1);
+    CHECK(StateOf(manager, L"devA") == ConnectionState::Connected);
+}
+
+AB_TEST(ExternalConnectionLostMovesEntryToDisconnected)
+{
+    // 设备走出范围 / 手机关蓝牙：provider 从底层 StateChanged 观察到 Closed
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+    manager.ConnectAsync(L"devA").get();
+
+    provider.ConnectionLost.Raise(L"devA");
+
+    CHECK(StateOf(manager, L"devA") == ConnectionState::Disconnected);
+}
+
+AB_TEST(ConnectionLostForUnknownDeviceIsIgnored)
+{
+    FakeDeviceProvider provider;
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    provider.ConnectionLost.Raise(L"never-seen");   // 不得崩溃
+
+    CHECK(manager.Snapshot().empty());
+}
+
+AB_TEST(RefreshPreservesConnectedState)
+{
+    // 用户在窗口开着时新插了一个设备点刷新，已连接的不能被重置。
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+    manager.ConnectAsync(L"devA").get();
+
+    provider.devices.push_back({ L"devB", L"手机 B" });
+    manager.Refresh();
+
+    CHECK(StateOf(manager, L"devA") == ConnectionState::Connected);
+    CHECK(StateOf(manager, L"devB") == ConnectionState::Disconnected);
+    CHECK_EQ(manager.Snapshot().size(), static_cast<size_t>(2));
+}
+
+AB_TEST(RefreshDropsDevicesThatDisappeared)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" }, { L"devB", L"手机 B" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    provider.devices = { { L"devA", L"手机 A" } };
+    manager.Refresh();
+
+    CHECK_EQ(manager.Snapshot().size(), static_cast<size_t>(1));
+    CHECK(Find(manager, L"devA") != nullptr);
+}
+
+AB_TEST(RefreshUpdatesDisplayName)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"旧名字" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    provider.devices = { { L"devA", L"新名字" } };
+    manager.Refresh();
+
+    CHECK(Find(manager, L"devA")->displayName == L"新名字");
+}
+
+AB_TEST(SnapshotReturnsIndependentCopy)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    auto copy = manager.Snapshot();
+    copy[0].state = ConnectionState::Failed;
+    copy[0].displayName = L"篡改";
+
+    auto fresh = manager.Snapshot();
+    CHECK(fresh[0].state == ConnectionState::Disconnected);
+    CHECK(fresh[0].displayName == L"手机 A");
+}
+
+AB_TEST(MultipleDevicesConnectIndependently)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" }, { L"devB", L"手机 B" } };
+    provider.SetConnectResult(L"devB", MakeFailure(ConnectFailure::DeniedBySystem));
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    manager.ConnectAsync(L"devA").get();
+    manager.ConnectAsync(L"devB").get();
+
+    // 一台成功一台失败，互不影响 —— spec §3.8「任何单设备失败都不影响其它设备」
+    CHECK(StateOf(manager, L"devA") == ConnectionState::Connected);
+    CHECK(StateOf(manager, L"devB") == ConnectionState::Failed);
+}
+
+AB_TEST(ConcurrentConnectsOnDifferentDevicesBothSucceed)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"A" }, { L"devB", L"B" }, { L"devC", L"C" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    std::vector<std::future<void>> futures;
+    for (auto const& device : provider.devices)
+    {
+        futures.push_back(manager.ConnectAsync(device.id));
+    }
+    for (auto& future : futures)
+    {
+        future.get();
+    }
+
+    for (auto const& device : provider.devices)
+    {
+        CHECK(StateOf(manager, device.id) == ConnectionState::Connected);
+    }
+}
+
+AB_TEST(EntryChangedFiresOnEachTransition)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    int entryChangedCount = 0;
+    int entriesChangedCount = 0;
+    std::mutex counterMutex;
+
+    manager.EntryChanged.Add([&](ConnectionEntry const&) {
+        std::lock_guard<std::mutex> lock(counterMutex);
+        ++entryChangedCount;
+    });
+    manager.EntriesChanged.Add([&] {
+        std::lock_guard<std::mutex> lock(counterMutex);
+        ++entriesChangedCount;
+    });
+
+    manager.ConnectAsync(L"devA").get();
+    manager.DisconnectAsync(L"devA").get();
+
+    // Connecting → Connected → Disconnected，三次迁移三次通知
+    CHECK_EQ(entryChangedCount, 3);
+    // 集合本身没增删（Refresh 之外的增删只有 ConnectUnknownDevice 那种）
+    CHECK_EQ(entriesChangedCount, 0);
+}
+
+AB_TEST(EntriesChangedFiresWhenCollectionGrows)
+{
+    FakeDeviceProvider provider;
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    int entriesChangedCount = 0;
+    manager.EntriesChanged.Add([&] { ++entriesChangedCount; });
+
+    provider.devices = { { L"devA", L"手机 A" } };
+    manager.Refresh();
+
+    CHECK_EQ(entriesChangedCount, 1);
+}
+
+AB_TEST(ReconnectSavedDevicesConnectsEachAndSkipsFailures)
+{
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" }, { L"devB", L"手机 B" } };
+    provider.SetConnectResult(L"devB", MakeFailure(ConnectFailure::DeviceNotFound));
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    manager.ReconnectSavedDevices({ L"devA", L"devB" });
+
+    // 同步等待两次连接完成
+    manager.WaitForIdle();
+    CHECK(StateOf(manager, L"devA") == ConnectionState::Connected);
+    CHECK(StateOf(manager, L"devB") == ConnectionState::Failed);
+}
+
+AB_TEST(EventHandlerCanCallSnapshotWithoutDeadlock)
+{
+    // Raise 在 SimpleEvent 内部会先解锁再回调，但 ConnectionManager 若在持有
+    // 自身互斥量时 Raise，这里就会死锁。用一个会重入 Snapshot 的处理器钉住。
+    FakeDeviceProvider provider;
+    provider.devices = { { L"devA", L"手机 A" } };
+    ConnectionManager manager(provider);
+    manager.Refresh();
+
+    manager.EntryChanged.Add([&](ConnectionEntry const&) {
+        auto snapshot = manager.Snapshot();
+        (void)snapshot.size();
+    });
+
+    manager.ConnectAsync(L"devA").get();   // 若死锁则测试永久挂起
+
+    CHECK(StateOf(manager, L"devA") == ConnectionState::Connected);
+}
+```
+
+> 最后一个用例（`EventHandlerCanCallSnapshotWithoutDeadlock`）在实现错误时会
+> **永久挂起**而不是失败。看到它卡住，就说明 Raise 被放在了锁内。
+
+- [ ] **Step 2: 运行测试，确认失败**
+
+Run:
+
+```powershell
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
+```
+
+Expected: **失败**，`无法打开包括文件: "ConnectionManager.h"`。
+
+- [ ] **Step 3: 创建 `AudioBule.Core/ConnectionEntry.h`**
+
+```cpp
+#pragma once
+
+#include <string>
+
+namespace AudioBule::Core
+{
+
+// 连接的四个状态。注意 Connecting 之后**只有**两个出口：
+// Connected 或 Failed。没有"取消中"——取消语义由 Disconnect 在 Disconnected
+// 状态下重建条目承担。
+enum class ConnectionState
+{
+    Disconnected,
+    Connecting,
+    Connected,
+    Failed,
+};
+
+// 连接失败的归类。真实实现在 OpenAsync 的 Status + ExtendedError 上做映射，
+// 测试实现直接指定。
+enum class ConnectFailure
+{
+    None,
+    DeviceNotSupported,   // TryCreateFromId 返回 null
+    RequestTimedOut,      // AudioPlaybackConnectionOpenResultStatus::RequestTimedOut
+    DeniedBySystem,       // AudioPlaybackConnectionOpenResultStatus::DeniedBySystem
+    GenericFailure,       // ExtendedError 落在已知可诊断的码上（如 0x8007001F）
+    UnknownFailure,       // 其余 Status
+    HresultError,         // 抛 winrt::hresult_error
+    DeviceNotFound,       // 刷新后设备消失
+};
+
+struct ConnectResult
+{
+    bool succeeded = false;
+    ConnectFailure failure = ConnectFailure::None;
+    HRESULT extendedError = 0;   // 仅失败时有意义
+};
+
+struct DeviceInfo
+{
+    std::wstring id;
+    std::wstring name;
+};
+
+struct ConnectionEntry
+{
+    std::wstring deviceId;
+    std::wstring displayName;
+    ConnectionState state = ConnectionState::Disconnected;
+
+    // 仅 state == Failed 时有效。成功连上后必须清空 —— 见
+    // ConnectSuccessMovesEntryToConnected 的断言。
+    std::wstring errorMessage;
+};
+
+} // namespace AudioBule::Core
+```
+
+> `HRESULT` 来自 `windows.h`，已由 `pch.h` 引入。
+
+- [ ] **Step 4: 创建 `AudioBule.Core/Messages.h`**
+
+```cpp
+#pragma once
+
+#include "ConnectionEntry.h"
+
+#include <string>
+
+namespace AudioBule::Core
+{
+
+// Core 层错误文案。spec §3.7 规定：Core 产出的字符串走这里，
+// App 不硬编码 Core 的错误文案。
+//
+// 当前实现返回简体中文。计划二（增强功能）会把它改成按 UI 语言查表的静态表，
+// 接口形态保持不变 —— 届时只需改这个 .cpp。
+std::wstring MessageForConnectFailure(ConnectFailure failure, HRESULT extendedError);
+
+} // namespace AudioBule::Core
+```
+
+- [ ] **Step 5: 创建 `AudioBule.Core/Messages.cpp`**
+
+```cpp
+#include "pch.h"
+#include "Messages.h"
+#include "StringUtil.h"
+
+namespace AudioBule::Core
+{
+
+std::wstring MessageForConnectFailure(ConnectFailure failure, HRESULT extendedError)
+{
+    switch (failure)
+    {
+    case ConnectFailure::DeviceNotSupported:
+        return L"此设备不支持 A2DP 音频接收";
+
+    case ConnectFailure::RequestTimedOut:
+        return L"连接请求超时。请确认设备已开机且在附近，然后重试。";
+
+    case ConnectFailure::DeniedBySystem:
+        return L"连接被系统拒绝。请在「设置 - 蓝牙和设备」中检查设备状态。";
+
+    case ConnectFailure::GenericFailure:
+        // 0x8007001F = ERROR_GEN_FAILURE。实测中这个码几乎总是同一个原因：
+        // 手机正作为 A2DP 源连着别的设备（耳机/车机），无法同时当接收端。
+        // 加上明确的操作建议，否则用户只看到"失败"无从下手。
+        if (static_cast<DWORD>(extendedError) == 0x8007001Fu)
+        {
+            return L"设备当前无法作为蓝牙音频接收端（0x8007001F）。"
+                   L"请先断开手机上已连接的其它蓝牙音频设备（如耳机、车机），再重试。";
+        }
+        return L"连接失败（" + FormatWin32Error(static_cast<DWORD>(extendedError)) + L"）。";
+
+    case ConnectFailure::UnknownFailure:
+        return L"连接失败（" + FormatWin32Error(static_cast<DWORD>(extendedError)) + L"）。";
+
+    case ConnectFailure::HresultError:
+        return L"连接时发生错误（" + FormatWin32Error(static_cast<DWORD>(extendedError)) + L"）。";
+
+    case ConnectFailure::DeviceNotFound:
+        return L"设备已不可用。点击「刷新」重新扫描。";
+
+    case ConnectFailure::None:
+    default:
+        return L"未知错误";
+    }
+}
+
+} // namespace AudioBule::Core
+```
+
+- [ ] **Step 6: 创建 `AudioBule.Core/IAudioDeviceProvider.h`**
+
+```cpp
+#pragma once
+
+#include "ConnectionEntry.h"
+#include "SimpleEvent.h"
+
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace AudioBule::Core
+{
+
+// 设备枚举与连接的抽象。存在的唯一理由是让 ConnectionManager 脱离
+// AudioPlaybackConnection 依赖，从而可单元测试（spec §6）。
+//
+// 实现约定：
+//  - Connect / Disconnect 会被 ConnectionManager 在**工作线程**上调用，
+//    不得在 UI 线程直接调用。
+//  - EnumerateDevices 允许抛异常；ConnectionManager 会吞掉并视为空列表。
+//  - 底层连接被系统关闭时，必须 Raise ConnectionLost。
+class IAudioDeviceProvider
+{
+public:
+    virtual ~IAudioDeviceProvider() = default;
+
+    virtual bool IsSupported() const = 0;
+    virtual std::vector<DeviceInfo> EnumerateDevices() = 0;
+    virtual ConnectResult Connect(std::wstring_view deviceId) = 0;
+    virtual void Disconnect(std::wstring_view deviceId) = 0;
+
+    // 参数为 deviceId。由 provider 在其 ConnectionStateChanged 观察到 Closed 时触发。
+    SimpleEvent<std::wstring> ConnectionLost;
+};
+
+} // namespace AudioBule::Core
+```
+
+- [ ] **Step 7: 创建 `AudioBule.Core/ConnectionManager.h`**
+
+```cpp
+#pragma once
+
+#include "ConnectionEntry.h"
+#include "IAudioDeviceProvider.h"
+#include "SimpleEvent.h"
+
+#include <atomic>
+#include <condition_variable>
+#include <future>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace AudioBule::Core
+{
+
+// 多设备连接状态机，全项目唯一的状态源（spec §3.3）。
+//
+// 线程模型：所有公开成员都可从任意线程调用。状态迁移在 m_mutex 保护下进行，
+// 事件在**解锁之后** Raise —— 处理器可以安全地重入 Snapshot() 或发起新操作。
+class ConnectionManager
+{
+public:
+    // provider 必须 outlive ConnectionManager
+    explicit ConnectionManager(IAudioDeviceProvider& provider);
+    ~ConnectionManager();
+
+    ConnectionManager(ConnectionManager const&) = delete;
+    ConnectionManager& operator=(ConnectionManager const&) = delete;
+
+    // 单条状态变化。参数是变化后的条目快照。
+    SimpleEvent<ConnectionEntry> EntryChanged;
+
+    // 集合增删（刷新后设备数量/身份变了）。UI 应据此重建整个列表。
+    SimpleEvent<> EntriesChanged;
+
+    // 重新扫描设备。已存在的条目保留其状态，消失的设备被移除。
+    // 系统不支持 A2DP Sink 或枚举抛异常时，得到空列表。
+    void Refresh();
+
+    // 异步发起连接。立即返回；结果通过 EntryChanged 通知。
+    // 已处于 Connecting/Connected 的设备会被忽略（幂等）。
+    // 未知设备会新增一条 Failed 条目，保证 UI 有东西可显示。
+    std::future<void> ConnectAsync(std::wstring_view deviceId);
+
+    // 异步断开。对非 Connected 条目是无害的空操作。
+    std::future<void> DisconnectAsync(std::wstring_view deviceId);
+
+    // 按顺序对每个 id 发起连接（开机自启用）。单个失败不影响其余。
+    void ReconnectSavedDevices(std::vector<std::wstring> const& deviceIds);
+
+    // 阻塞直到当前所有在途的 Connect/Disconnect 完成。仅供测试与关机流程使用。
+    void WaitForIdle();
+
+    // 返回条目列表的深拷贝，供 UI 绑定。
+    std::vector<ConnectionEntry> Snapshot() const;
+
+    bool IsSupported() const;
+
+private:
+    void ApplyConnectResult(std::wstring const& deviceId, ConnectResult const& result);
+    void HandleConnectionLost(std::wstring const& deviceId);
+    ConnectionEntry* FindLocked(std::wstring const& deviceId);
+    ConnectionEntry const* FindLocked(std::wstring const& deviceId) const;
+    ConnectionEntry CopyOrCreateLocked(std::wstring const& deviceId);
+    void RaiseEntryChanged(ConnectionEntry const& entry);
+    static std::future<void> CompletedFuture();
+
+    IAudioDeviceProvider& m_provider;
+    // 存成成员以便析构时按同一对象 Remove（见 ConnectionManager.cpp 的说明）
+    SimpleEvent<std::string>::Handler m_lostHandler;
+
+    mutable std::mutex m_mutex;
+    std::vector<ConnectionEntry> m_entries;
+
+    // 追踪在途异步操作，供 WaitForIdle 使用
+    mutable std::mutex m_pendingMutex;
+    std::condition_variable m_pendingDone;
+    size_t m_pendingCount = 0;
+};
+
+} // namespace AudioBule::Core
+```
+
+- [ ] **Step 8: 创建 `AudioBule.Core/ConnectionManager.cpp`**
+
+```cpp
+#include "pch.h"
+#include "ConnectionManager.h"
+#include "Messages.h"
+
+namespace AudioBule::Core
+{
+
+ConnectionManager::ConnectionManager(IAudioDeviceProvider& provider)
+    : m_provider(provider)
+{
+    // handler 必须存成成员：SimpleEvent::Remove 按 std::function 相等性比较，
+    // 而 std::function 只在**目标类型相同且捕获相等**时才相等。重新写一个
+    // 捕获相同 this、函数体不同的 lambda 是不同的闭包类型，Remove 匹配不上。
+    m_lostHandler = [this](std::wstring const& deviceId) { HandleConnectionLost(deviceId); };
+    m_provider.ConnectionLost.Add(m_lostHandler);
+}
+
+ConnectionManager::~ConnectionManager()
+{
+    WaitForIdle();
+
+    // 摘掉订阅：provider 通常是成员，析构顺序在本对象之后。
+    // 不摘的话 provider 上会残留指向已析构 this 的 handler，
+    // 之后 provider 若再 Raise 就会访问已释放内存。
+    m_provider.ConnectionLost.Remove(m_lostHandler);
+}
+
+std::future<void> ConnectionManager::CompletedFuture()
+{
+    std::promise<void> promise;
+    promise.set_value();
+    return promise.get_future();
+}
+
+bool ConnectionManager::IsSupported() const
+{
+    try
+    {
+        return m_provider.IsSupported();
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+ConnectionEntry* ConnectionManager::FindLocked(std::wstring const& deviceId)
+{
+    for (auto& entry : m_entries)
+    {
+        if (entry.deviceId == deviceId)
+        {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+ConnectionEntry const* ConnectionManager::FindLocked(std::wstring const& deviceId) const
+{
+    for (auto const& entry : m_entries)
+    {
+        if (entry.deviceId == deviceId)
+        {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+ConnectionEntry ConnectionManager::CopyOrCreateLocked(std::wstring const& deviceId)
+{
+    if (auto const* existing = FindLocked(deviceId))
+    {
+        return *existing;
+    }
+    ConnectionEntry entry;
+    entry.deviceId = deviceId;
+    entry.displayName = deviceId;   // 未知设备先显示 id，Refresh 后会被真名覆盖
+    return entry;
+}
+
+void ConnectionManager::RaiseEntryChanged(ConnectionEntry const& entry)
+{
+    // 刻意不在调用方持锁时执行本函数。SimpleEvent::Raise 虽会先解锁自身，
+    // 但 ConnectionManager 的 m_mutex 是非递归的 —— 若在持锁时 Raise，
+    // 处理器调用 Snapshot() 会立即死锁。
+    EntryChanged.Raise(entry);
+}
+
+void ConnectionManager::Refresh()
+{
+    std::vector<DeviceInfo> devices;
+    try
+    {
+        if (!IsSupported())
+        {
+            devices.clear();
+        }
+        else
+        {
+            devices = m_provider.EnumerateDevices();
+        }
+    }
+    catch (winrt::hresult_error const&)
+    {
+        devices.clear();
+    }
+    catch (std::exception const&)
+    {
+        devices.clear();
+    }
+
+    std::vector<ConnectionEntry> updated;
+    updated.reserve(devices.size());
+
+    bool collectionChanged = false;
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        // 保留已有条目的状态：用户开着窗口时点刷新，不能把已连上的设备打回未连接
+        for (auto const& device : devices)
+        {
+            if (auto const* existing = FindLocked(device.id))
+            {
+                ConnectionEntry entry = *existing;
+                entry.displayName = device.name.empty() ? device.id : device.name;
+                updated.push_back(std::move(entry));
+            }
+            else
+            {
+                collectionChanged = true;
+                ConnectionEntry entry;
+                entry.deviceId = device.id;
+                entry.displayName = device.name.empty() ? device.id : device.name;
+                updated.push_back(std::move(entry));
+            }
+        }
+
+        collectionChanged = collectionChanged || updated.size() != m_entries.size();
+        m_entries = std::move(updated);
+    }
+
+    if (collectionChanged)
+    {
+        EntriesChanged.Raise();
+    }
+}
+
+std::future<void> ConnectionManager::ConnectAsync(std::wstring_view deviceId)
+{
+    std::wstring id(deviceId);
+
+    ConnectionEntry snapshot;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        auto* entry = FindLocked(id);
+        if (entry != nullptr && (entry->state == ConnectionState::Connecting ||
+                                 entry->state == ConnectionState::Connected))
+        {
+            // 幂等：重复点「连接」不应产生第二次真实连接尝试
+            return CompletedFuture();
+        }
+
+        entry = FindLocked(id);
+        if (entry == nullptr)
+        {
+            // 设备已不在列表里（走远了）。仍建条目并标失败，让 UI 有东西可显示。
+            snapshot = CopyOrCreateLocked(id);
+            snapshot.state = ConnectionState::Failed;
+            snapshot.errorMessage = MessageForConnectFailure(
+                ConnectFailure::DeviceNotFound, 0);
+            m_entries.push_back(snapshot);
+        }
+        else
+        {
+            snapshot = *entry;
+            snapshot.state = ConnectionState::Connecting;
+            snapshot.errorMessage.clear();
+            *entry = snapshot;
+        }
+    }
+
+    RaiseEntryChanged(snapshot);
+
+    // 在途计数：让 WaitForIdle 能等到连接真正结束
+    {
+        std::lock_guard<std::mutex> lock(m_pendingMutex);
+        ++m_pendingCount;
+    }
+
+    auto promise = std::promise<void>();
+    auto future = promise.get_future();
+
+    // promise 必须**移动**进 lambda。捕获引用 (&promise) 会 use-after-free：
+    // 本函数紧接着返回，栈上的 promise 随即析构，而 detached 线程还没跑完。
+    std::thread([this, id = std::move(id), promise = std::move(promise)]() mutable {
+        ConnectResult result;
+        try
+        {
+            result = m_provider.Connect(id);
+        }
+        catch (winrt::hresult_error const& e)
+        {
+            result = ConnectResult{ false, ConnectFailure::HresultError, e.code() };
+        }
+        catch (std::exception const&)
+        {
+            result = ConnectResult{ false, ConnectFailure::HresultError, E_FAIL };
+        }
+
+        ApplyConnectResult(id, result);
+
+        promise.set_value();
+
+        {
+            std::lock_guard<std::mutex> lock(m_pendingMutex);
+            --m_pendingCount;
+        }
+        m_pendingDone.notify_all();
+    }).detach();
+
+    return future;
+}
+
+void ConnectionManager::ApplyConnectResult(std::wstring const& deviceId,
+    ConnectResult const& result)
+{
+    ConnectionEntry snapshot;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        auto* entry = FindLocked(deviceId);
+        if (entry == nullptr)
+        {
+            // 连接期间设备被 Refresh 掉了：静默丢弃结果
+            return;
+        }
+
+        snapshot = *entry;
+        if (result.succeeded)
+        {
+            snapshot.state = ConnectionState::Connected;
+            snapshot.errorMessage.clear();
+        }
+        else
+        {
+            snapshot.state = ConnectionState::Failed;
+            snapshot.errorMessage =
+                MessageForConnectFailure(result.failure, result.extendedError);
+        }
+        *entry = snapshot;
+    }
+
+    RaiseEntryChanged(snapshot);
+}
+
+std::future<void> ConnectionManager::DisconnectAsync(std::wstring_view deviceId)
+{
+    std::wstring id(deviceId);
+
+    ConnectionEntry snapshot;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        auto* entry = FindLocked(id);
+        if (entry == nullptr || entry->state != ConnectionState::Connected)
+        {
+            // 非 Connected 是无害空操作：按钮在 UI 上本就禁用，
+            // 且外部断开事件可能已经先行处理过
+            return CompletedFuture();
+        }
+
+        snapshot = *entry;
+        snapshot.state = ConnectionState::Disconnected;
+        snapshot.errorMessage.clear();
+        *entry = snapshot;
+    }
+
+    // 先更新状态并通知 UI，再通知 provider 真正断开 ——
+    // provider 可能阻塞，反过来会让界面卡住
+    RaiseEntryChanged(snapshot);
+
+    {
+        std::lock_guard<std::mutex> lock(m_pendingMutex);
+        ++m_pendingCount;
+    }
+
+    auto promise = std::promise<void>();
+    auto future = promise.get_future();
+
+    // 同 ConnectAsync：promise 移动进 lambda，不能捕获引用
+    std::thread([this, id = std::move(id), promise = std::move(promise)]() mutable {
+        try
+        {
+            m_provider.Disconnect(id);
+        }
+        catch (...)
+        {
+            // 断开失败不改变 UI 状态：用户已经看到"已断开"，
+            // 系统侧残留会在 ConnectionLost 里自然收敛
+        }
+
+        promise.set_value();
+
+        {
+            std::lock_guard<std::mutex> lock(m_pendingMutex);
+            --m_pendingCount;
+        }
+        m_pendingDone.notify_all();
+    }).detach();
+
+    return future;
+}
+
+void ConnectionManager::ReconnectSavedDevices(std::vector<std::wstring> const& deviceIds)
+{
+    for (auto const& id : deviceIds)
+    {
+        // 故意不等每个 future：开机时多台设备并行连，逐个串行会很慢
+        ConnectAsync(id);
+    }
+}
+
+void ConnectionManager::HandleConnectionLost(std::wstring const& deviceId)
+{
+    ConnectionEntry snapshot;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        auto* entry = FindLocked(deviceId);
+        if (entry == nullptr)
+        {
+            return;   // 未知设备的断开事件，忽略
+        }
+
+        if (entry->state == ConnectionState::Disconnected)
+        {
+            return;   // 已经断开了，重复通知无意义
+        }
+
+        snapshot = *entry;
+        snapshot.state = ConnectionState::Disconnected;
+        snapshot.errorMessage.clear();
+        *entry = snapshot;
+    }
+
+    RaiseEntryChanged(snapshot);
+}
+
+void ConnectionManager::WaitForIdle()
+{
+    std::unique_lock<std::mutex> lock(m_pendingMutex);
+    m_pendingDone.wait(lock, [this] { return m_pendingCount == 0; });
+}
+
+std::vector<ConnectionEntry> ConnectionManager::Snapshot() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_entries;
+}
+
+} // namespace AudioBule::Core
+```
+
+**实现上的三个关键点（写错了测试会挂住或死锁）：**
+
+1. **绝不在持 `m_mutex` 时 Raise 事件。** 每个 `RaiseEntryChanged` 调用前
+   都先退出作用域锁。`EventHandlerCanCallSnapshotWithoutDeadlock` 钉住这条。
+2. **析构里用同一个 lambda 表达式 Remove。** `SimpleEvent` 的
+   `Remove` 按 `std::function` 相等性比较 —— 捕获相同 `this` 的两个 lambda
+   是相等的，所以 `[this](std::wstring const&) { HandleConnectionLost(L""); }`
+   能匹配上订阅时那个。这里传参内容不同没关系，比较的是目标与捕获。
+   若编译器对 lambda 相等性有异议，改用 `Add` 返回 token 的接口。
+3. **`std::thread(...).detach()` + 在途计数。** 没有线程池，避免为一个状态机
+   引入额外依赖；`m_pendingCount` 保证析构前能收尾。
+
+- [ ] **Step 9: 在 `AudioBule.Core.vcxproj` 登记新文件**
+
+```xml
+  <ItemGroup>
+    <ClInclude Include="ConnectionEntry.h" />
+    <ClInclude Include="Messages.h" />
+    <ClInclude Include="IAudioDeviceProvider.h" />
+    <ClInclude Include="ConnectionManager.h" />
+  </ItemGroup>
+```
+```xml
+    <ClCompile Include="Messages.cpp" />
+    <ClCompile Include="ConnectionManager.cpp" />
+```
+
+- [ ] **Step 10: 在测试工程登记 `tests/ConnectionManager.test.cpp`**
+
+```xml
+    <ClCompile Include="ConnectionManager.test.cpp" />
+```
+
+- [ ] **Step 11: 编译并运行测试**
+
+Run:
+
+```powershell
+& "D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AudioBule.sln -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
+& ".\tests\bin\AudioBule.Core.Tests.exe"
+```
+
+Expected: 全部用例通过，`0 failed`，退出码 `0`。
+
+**如果测试卡住不返回**，几乎一定是 `EventHandlerCanCallSnapshotWithoutDeadlock`
+死锁了 —— 检查 `RaiseEntryChanged` 的调用位置。
+
+- [ ] **Step 12: 提交**
+
+```bash
+git add AudioBule.Core tests
+git commit -m "feat: add connection state machine with injectable device provider"
+```
+
 <!-- APPEND-MARKER -->
