@@ -88,6 +88,7 @@
     <ClInclude Include="ConnectionManager.h" />
     <ClInclude Include="WinRtDeviceProvider.h" />
     <ClInclude Include="IconFactory.h" />
+    <ClInclude Include="AudioSessionIdentity.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -99,6 +100,7 @@
     <ClCompile Include="ConnectionManager.cpp" />
     <ClCompile Include="WinRtDeviceProvider.cpp" />
     <ClCompile Include="IconFactory.cpp" />
+    <ClCompile Include="AudioSessionIdentity.cpp" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.ImplementationLibrary" Version="1.0.260126.7" />

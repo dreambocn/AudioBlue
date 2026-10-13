@@ -4,6 +4,7 @@
 #include "TrayIconService.h"
 #include "QuickPanel.h"
 #include "DesktopIntegration.h"
+#include "AudioSessionIdentity.h"
 #include <memory>
 
 namespace winrt::AudioBule::App::implementation
@@ -30,6 +31,7 @@ private:
     ::AudioBule::Core::WinRtDeviceProvider m_provider;
     ::AudioBule::Core::ConnectionManager m_manager;
     ::AudioBule::Core::AppSettings m_settings;
+    std::unique_ptr<::AudioBule::Core::AudioSessionIdentity> m_sessionIdentity;
     std::unique_ptr<::AudioBule::App::UI::UiText> m_text;
     std::unique_ptr<::AudioBule::App::UI::DesktopIntegration> m_desktop;
     com_ptr<MainWindow> m_window;

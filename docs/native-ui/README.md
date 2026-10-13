@@ -33,6 +33,23 @@ HTML 设计稿位于 `docs\ui-preview`；本目录截图来自实际 WinUI 程�
 
 测试消息窗口按进程 ID 查找，避免多个实例同时存在时影响其它实例。对齐检查比较开关与下拉框的右边缘；测试截图中通知开关不可用，是测试模式禁用通知注册的结果。
 
+## 音量合成器中的手机名称与图标
+
+补充验证日期：2026-10-14。
+
+Windows 代为播放 A2DP 音频，本机发现该会话属于 `Audiosrv`，原名为“麦克风 (DreamBo的Xiaomi 15 A2DP SNK)”，图标来自 `mmres.dll`。程序通过公开的 `IAudioSessionControl::SetDisplayName` / `SetIconPath` 将其显示为“AudioBule · 手机原名”及 EXE 中的品牌图标。
+
+- 独立 MTA 线程按秒检查活动渲染端点，处理延后出现或切换输出后出现的会话，不阻塞窗口。
+- 同时核对 Windows Audio 服务进程和完整的手机名称后缀，仅处理当前已连接设备。重名、未知格式、服务不可查询或缺少图标时保留系统显示。这是兼容性处理，不依赖驱动私有接口。
+- 修改的是会话显示信息；不修改蓝牙设备名称、系统端点属性、音量、静音或音频路由。设备断开或正常退出时恢复原值；其它程序已覆盖的值不会被恢复逻辑覆盖。
+- 公开的 `AudioPlaybackConnection` 不提供会话句柄，因此不能保证所有 Windows/驱动组合均可识别；当前 Windows 11 已实测通过。名称保留手机原名，中文/英文以及深浅主题共用品牌图标。
+
+本轮 x64 Release 构建与架构边界检查通过，核心测试 **82/82**、原生窗口冒烟 **52/52** 通过；重复广播 GDI 对象保持 66 → 66。另在用户已有的真实活动会话上完成 **13 项检查**，覆盖图标提取、名称/图标写入读回、设备集合移除后恢复、重名回退、再次应用、析构恢复、缺失图标回退、其它会话保持原值以及音量/静音与活动状态保持原值。日志保存在本机 `verification\session-identity`。
+
+这些检查没有主动断开或重新连接手机；“再次应用”检查通过更改已连接设备集合触发。实际系统混音器最终渲染、物理断开重连与输出切换仍需人工验收，不能用 API 读回替代界面验收。
+
+参考：[会话名称](https://learn.microsoft.com/en-us/windows/win32/api/audiopolicy/nf-audiopolicy-iaudiosessioncontrol-setdisplayname)、[会话图标](https://learn.microsoft.com/en-us/windows/win32/api/audiopolicy/nf-audiopolicy-iaudiosessioncontrol-seticonpath)。
+
 ## 实际界面截图
 
 仓库只保留最终的代表性截图，过程截图留在本地。

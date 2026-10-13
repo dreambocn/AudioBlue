@@ -20,6 +20,7 @@ App::App() : m_manager(m_provider)
 }
 App::~App()
 {
+    m_sessionIdentity.reset();
     m_tray.reset(); m_quick.reset(); m_desktop.reset();
     m_manager.EntryChanged.Remove(m_entryToken);
     m_manager.EntriesChanged.Remove(m_entriesToken);
@@ -31,6 +32,8 @@ void App::OnLaunched([[maybe_unused]] LaunchActivatedEventArgs const& e)
     m_text = std::make_unique<UI::UiText>();
     m_text->SetLanguage(m_settings.language);
     m_desktop = std::make_unique<UI::DesktopIntegration>();
+    // 品牌图标适用于深浅主题；会话名称保留手机原名，不受界面语言影响。
+    m_sessionIdentity = std::make_unique<Core::AudioSessionIdentity>(UI::DesktopIntegration::ExecutablePath());
     m_queue = Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
     m_window = make_self<MainWindow>();
     auto weak = get_weak();
@@ -151,6 +154,13 @@ void App::EntryChanged(Core::ConnectionEntry const& entry)
 void App::RenderDevices()
 {
     auto entries = m_manager.Snapshot();
+    if (m_sessionIdentity)
+    {
+        std::vector<Core::DeviceInfo> connected;
+        for (auto const& entry : entries)
+            if (entry.state == Core::ConnectionState::Connected) connected.push_back({ entry.deviceId, entry.displayName });
+        m_sessionIdentity->SetDevices(std::move(connected));
+    }
     m_window->Render(entries);
     if (m_quick) m_quick->Render(entries, m_pendingDevices);
     ApplyTheme(); if (m_tray) m_tray->UpdateTooltip(L"AudioBule · " + std::wstring(m_text->Count(m_manager.ConnectedDeviceIds().size())));
@@ -230,6 +240,7 @@ fire_and_forget App::Shutdown()
     apartment_context ui;
     while (m_refreshing || m_startupPending) { co_await resume_after(std::chrono::milliseconds(50)); co_await ui; }
     co_await resume_background(); m_manager.WaitForIdle(); auto connected = m_manager.ConnectedDeviceIds();
+    m_sessionIdentity.reset();
     co_await ui;
     m_settings.lastConnectedDevices = std::move(connected); SaveConfiguration(); m_desktop.reset();
     m_window->CloseForExit(); Exit();
