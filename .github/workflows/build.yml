@@ -99,7 +99,7 @@ jobs:
 
           - x64：适用于 Intel / AMD 64 位 Windows。
           - arm64：适用于 Windows on ARM。
-          - 下载对应架构的 ZIP，完整解压。首次使用运行 Install-Runtime.ps1 安装包内的微软签名运行时，再打开 AudioBule.exe。
+          - 下载对应架构的 ZIP，完整解压。首次使用在解压目录运行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-Runtime.ps1` 安装包内的微软签名运行时，再打开 AudioBule.exe。
           - MSIX 为未签名开发包，常规使用请选择 ZIP。
           - .sha256 文件用于核对下载文件的 SHA-256。
 

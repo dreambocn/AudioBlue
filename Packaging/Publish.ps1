@@ -118,7 +118,9 @@ try {
 AudioBule $version ($architecture)
 
 需要 Windows 10 2004 或更高版本及蓝牙硬件。
-首次使用：在本目录打开 PowerShell，运行 .\Install-Runtime.ps1 安装附带的微软签名运行时。
+首次使用：在本目录打开 PowerShell，运行以下命令安装附带的微软签名运行时：
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-Runtime.ps1
+执行策略仅作用于此安装进程，不更改系统策略。
 安装过 Windows App Runtime 1.8 的电脑可直接运行 AudioBule.exe。
 保留本目录全部文件，不要只复制 EXE。先在 Windows 设置中配对手机，再刷新、连接并播放音频。
 关闭窗口后继续在托盘运行；退出请使用托盘菜单或应用设置。

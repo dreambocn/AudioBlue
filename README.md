@@ -8,15 +8,17 @@ Windows 蓝牙音频接收工具，让电脑接收手机上的音频。原生 C+
 
 从 [Releases](https://github.com/dreambocn/AudioBlue/releases/latest) 下载适合设备的 ZIP：Intel / AMD 64 位电脑选择 `x64`，Windows on ARM 选择 `arm64`。需要 Windows 10 2004 或更高版本及蓝牙硬件。
 
-完整解压后，首次使用在该目录打开 PowerShell，运行 `.\Install-Runtime.ps1`，安装附带的微软签名 Windows App Runtime 1.8，再打开 `AudioBule.exe`。运行时依赖已放在包内，无需另行下载。
+完整解压后，首次使用在该目录打开 PowerShell，运行下方命令，安装附带的微软签名 Windows App Runtime 1.8，再打开 `AudioBule.exe`。运行时依赖已放在包内，无需另行下载。
 
 ```powershell
 # 在完整解压的发布包目录运行，安装当前用户的运行时依赖。
-.\Install-Runtime.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-Runtime.ps1
 .\AudioBule.exe
 ```
 
 发布页同时提供 SHA-256 校验文件和未签名 MSIX 开发包。常规使用请选择 ZIP；MSIX 正式分发需要签名证书。
+
+上述执行策略仅对安装脚本进程生效，不更改系统策略。
 
 ## 运行
 
