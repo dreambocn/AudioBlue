@@ -20,7 +20,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-Runtime.ps1
 
 上述执行策略仅对安装脚本进程生效，不更改系统策略。
 
-Code signing policy：[签名策略与申请状态](CODE_SIGNING.md)。目前正在准备申请 SignPath Foundation，尚未获批，当前应用 EXE 与标有 `unsigned` 的 MSIX 未签名。
+Code signing policy：[签名策略与申请状态](CODE_SIGNING.md)。已于 2026-10-16 向 SignPath Foundation 提交申请，等待审核；当前应用 EXE 与标有 `unsigned` 的 MSIX 未签名。
 
 隐私与卸载方式见 [Privacy policy / 隐私说明](PRIVACY.md)。
 

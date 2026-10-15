@@ -2,9 +2,9 @@
 
 ## 当前状态 / Current status
 
-AudioBule 正在准备申请 SignPath Foundation 的开源签名服务，尚未获批，也尚未接入正式代码签名。当前发布的应用 EXE 和标有 `unsigned` 的 MSIX 均未签名；包内由微软提供的运行时依赖保留原有签名。
+AudioBule 已于 2026-10-16 向 SignPath Foundation 提交开源签名申请，目前等待审核，尚未接入正式代码签名。当前发布的应用 EXE 和标有 `unsigned` 的 MSIX 均未签名；包内由微软提供的运行时依赖保留原有签名。
 
-AudioBule is preparing an application to the SignPath Foundation open-source program. Approval and production signing are pending. Current application executables and MSIX packages marked `unsigned` are not signed by the project.
+AudioBule submitted its application to the SignPath Foundation open-source program on 2026-10-16. Review and production signing are pending. Current application executables and MSIX packages marked `unsigned` are not signed by the project.
 
 申请获批并正式启用后，签名服务和证书来源将标注为：
 
