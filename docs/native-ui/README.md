@@ -71,7 +71,7 @@ $env:NUGET_PACKAGES = 'D:\NuGetPackages'
     AudioBule.sln -restore -t:Build -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
 & '.\tests\bin\AudioBule.Core.Tests.exe' --gtest_brief=1
 & '.\tools\app-smoke\Test-App.ps1' -ScreenshotPath '.\docs\native-ui\screenshots\devices.png'
-& '.\Packaging\Publish.ps1' -Configuration Release -SkipBuild
+& '.\Packaging\Publish.ps1' -Configuration Release -SkipBuild -BinaryDirectory '.\AudioBule.App\bin'
 ```
 
 已有实例占用默认输出目录时，可使用独立目录构建：

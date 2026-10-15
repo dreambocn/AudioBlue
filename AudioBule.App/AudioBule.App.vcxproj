@@ -51,8 +51,9 @@
     <EnableDefaultPageItems>false</EnableDefaultPageItems>
     <!-- TargetPlatformIdentifier is UAP here, so NuGet derives runtime identifier
          "win10-x64". It must be declared or ResolveNuGetPackageAssets fails. -->
-    <RuntimeIdentifiers>win10-x64</RuntimeIdentifiers>
-    <RuntimeIdentifier>win10-x64</RuntimeIdentifier>
+    <RuntimeIdentifiers>win10-x64;win10-arm64</RuntimeIdentifiers>
+    <RuntimeIdentifier Condition="'$(Platform)' == 'ARM64'">win10-arm64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(Platform)' != 'ARM64'">win10-x64</RuntimeIdentifier>
     <!-- 未打包时自动加载运行时；有 MSIX 身份时使用清单依赖，不重复 bootstrap。 -->
     <WindowsAppSDKBootstrapAutoInitializeOptions_Default>false</WindowsAppSDKBootstrapAutoInitializeOptions_Default>
     <WindowsAppSDKBootstrapAutoInitializeOptions_OnNoMatch_ShowUI>true</WindowsAppSDKBootstrapAutoInitializeOptions_OnNoMatch_ShowUI>
@@ -79,6 +80,14 @@
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -101,9 +110,13 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
-    <IntDir>$(ProjectDir)obj\</IntDir>
-    <OutDir>$(ProjectDir)bin\</OutDir>
+    <IntDir Condition="'$(AudioBuleBuildRoot)' == ''">$(ProjectDir)obj\</IntDir>
+    <IntDir Condition="'$(AudioBuleBuildRoot)' != ''">$(AudioBuleBuildRoot)$(Platform)\$(Configuration)\$(MSBuildProjectName)\obj\</IntDir>
+    <OutDir Condition="'$(AudioBuleBuildRoot)' == ''">$(ProjectDir)bin\</OutDir>
+    <OutDir Condition="'$(AudioBuleBuildRoot)' != ''">$(AudioBuleBuildRoot)$(Platform)\$(Configuration)\$(MSBuildProjectName)\bin\</OutDir>
     <!-- 直接运行的桌面版本；系统集成同时适配 MSIX 身份。 -->
+    <!-- XAML 编译器要求相对工程目录的路径，不能直接传入绝对路径。 -->
+    <GeneratedFilesDir Condition="'$(AudioBuleBuildRoot)' != ''">$([MSBuild]::MakeRelative('$(ProjectDir)', '$(IntDir)Generated Files'))\</GeneratedFilesDir>
     <WindowsPackageType>None</WindowsPackageType><DefaultLanguage>zh-CN</DefaultLanguage>
     <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
   </PropertyGroup>
@@ -115,7 +128,7 @@
       <!-- $(ProjectDir)$(GeneratedFilesDir) 必须显式加入：App.xaml.h 要
            #include "App.xaml.g.h"（XAML 编译器产物），它就在
            Generated Files\ 下，且 XAML 编译器不会自动把它加进包含路径。 -->
-      <AdditionalIncludeDirectories>$(CppWinRTProjectionIncludePath);$(WilIncludePath);$(ProjectDir)$(GeneratedFilesDir);$(ProjectDir);$(ProjectDir)..\AudioBule.Core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\cppwinrt\winrt;$(WilIncludePath);$(GeneratedFilesDir);$(ProjectDir)$(GeneratedFilesDir);$(ProjectDir);$(ProjectDir)..\AudioBule.Core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level4</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>

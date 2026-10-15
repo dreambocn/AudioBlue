@@ -4,6 +4,9 @@
 /x64/
 /Debug/
 /Release/
+/ARM64/
+/artifacts/
+/.nuget/
 /AudioBule.Core/bin/
 /AudioBule.Core/obj/
 /AudioBule.App/bin/

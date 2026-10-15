@@ -1,0 +1,113 @@
+name: 构建与发布
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: Release · ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: x64
+            runner: windows-2025
+          - platform: ARM64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}\.nuget\packages
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 缓存 NuGet 包
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: nuget-${{ runner.os }}-${{ matrix.platform }}-${{ hashFiles('**/*.vcxproj', 'Directory.Build.*') }}
+          restore-keys: nuget-${{ runner.os }}-${{ matrix.platform }}-
+
+      - name: 校验版本标签
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          [xml]$manifest = Get-Content -LiteralPath '.\assets\AudioBule.Package.appxmanifest' -Raw
+          $expected = 'v' + ([version]$manifest.Package.Identity.Version).ToString(3)
+          if ($env:GITHUB_REF_NAME -ne $expected) { throw "标签应为 $expected，实际为 $env:GITHUB_REF_NAME。" }
+
+      - name: 构建并运行核心测试
+        run: .\tools\Build.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -RunTests
+
+      - name: 生成 ZIP、MSIX 与校验文件
+        run: .\Packaging\Publish.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -SkipBuild
+
+      - name: 上传测试结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.platform }}
+          path: artifacts/build/**/test-results.xml
+          if-no-files-found: warn
+
+      - name: 上传可下载产出物
+        uses: actions/upload-artifact@v4
+        with:
+          name: AudioBule-${{ matrix.platform }}
+          path: artifacts/packages/*
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: 发布双架构版本
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: windows-2025
+    permissions:
+      contents: write
+    steps:
+      - name: 下载双架构产出物
+        uses: actions/download-artifact@v4
+        with:
+          pattern: AudioBule-*
+          merge-multiple: true
+          path: packages
+
+      - name: 创建 GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $notes = @'
+          原生 C++ / WinUI 3 蓝牙音频接收工具。
+
+          - x64：适用于 Intel / AMD 64 位 Windows。
+          - arm64：适用于 Windows on ARM。
+          - 下载对应架构的 ZIP，完整解压。首次使用运行 Install-Runtime.ps1 安装包内的微软签名运行时，再打开 AudioBule.exe。
+          - MSIX 为未签名开发包，常规使用请选择 ZIP。
+          - .sha256 文件用于核对下载文件的 SHA-256。
+
+          需要 Windows 10 2004 或更高版本与蓝牙硬件。先在系统设置配对手机，再在应用中刷新、连接并播放音频。
+          '@
+          $notesPath = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          Set-Content -LiteralPath $notesPath -Value $notes -Encoding utf8
+          $files = @(Get-ChildItem -LiteralPath packages -File | ForEach-Object FullName)
+          if ($files.Count -ne 6) { throw "预期 6 个发布文件，实际为 $($files.Count)。" }
+          gh release create $env:GITHUB_REF_NAME @files --repo $env:GITHUB_REPOSITORY --verify-tag --title "AudioBule $env:GITHUB_REF_NAME" --notes-file $notesPath --latest
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release 发布失败。' }

@@ -1,31 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project>
-  <!--
-    NuGet target-framework reconciliation for a C++/WinUI 3 project.
-
-    Background (all verified by inspecting obj\project.assets.json and
-    Microsoft.NuGet.targets):
-
-      * NuGet restores a C++/vcxproj project under the TFM "native,Version=v0.0".
-        That string is what lands in project.assets.json under
-        restore.frameworks / originalTargetFrameworks.
-
-      * Setting ApplicationType=Windows Store is REQUIRED for the WinUI XAML
-        toolchain to activate. But it makes the UAP-aware MSBuild targets set
-            _NuGetTargetFallbackMoniker = "UAP,Version=v10.0"
-
-      * ResolveNuGetPackageAssets receives
-            TargetMonikers = $(NuGetTargetMoniker);$(_NuGetTargetFallbackMoniker)
-        and fails with
-            "Your project does not reference "UAP,Version=v10.0" framework."
-        because the lock file has no UAP framework.
-
-    This file is imported at the END of Microsoft.Common.targets, i.e. after
-    Microsoft.Cpp.targets, so the UAP targets have already run and anything set
-    earlier in the vcxproj would be overwritten by them. Setting the moniker here
-    is what actually takes effect.
-  -->
   <PropertyGroup>
+    <!-- 原生 C++ 的 NuGet 还原框架为 native；清除 WinUI 注入的 UAP 回退框架。 -->
     <_NuGetTargetFallbackMoniker />
     <NuGetTargetMoniker>native,Version=v0.0</NuGetTargetMoniker>
   </PropertyGroup>

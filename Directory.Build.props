@@ -2,39 +2,15 @@
 <Project>
   <PropertyGroup>
     <AudioBuleRepoRoot>$(MSBuildThisFileDirectory)</AudioBuleRepoRoot>
-
-    <!-- NuGet 包目录：按要求装在非 C 盘。
-         构建前需设置环境变量，例如：
-           $env:NUGET_PACKAGES = "D:\NuGetPackages"
-         若未设置，NuGet 会回落到 %USERPROFILE%\.nuget\packages（C 盘）。
-         Restore 脚本 Packaging/Restore.ps1 会自动设置。 -->
+    <!-- 使用 NuGet 实际还原目录，兼容本机自定义磁盘与 GitHub 托管运行器。 -->
     <RestorePackagesPath Condition="'$(NUGET_PACKAGES)' != ''">$(NUGET_PACKAGES)</RestorePackagesPath>
-
-    <!-- 供工程引用包内文件（winmd 等）时使用的绝对包根。RestorePackagesPath
-         只在 NUGET_PACKAGES 环境变量存在时才赋值，直接引用它会让 MIDL 收到
-         相对路径并报 "argument illegal for switch /metadata_dir"。 -->
-    <AudioBuleNuGetRoot Condition="'$(AudioBuleNuGetRoot)' == ''">D:\NuGetPackages</AudioBuleNuGetRoot>
-
-    <!-- 必须显式写版本号：留 10.0 会去找 C:\Program Files (x86)\Windows Kits\10，
-         而本机 SDK 装在 D:\Windows Kits\10 -->
+    <AudioBuleNuGetRoot Condition="'$(RestorePackagesPath)' != ''">$(RestorePackagesPath)</AudioBuleNuGetRoot>
+    <AudioBuleNuGetRoot Condition="'$(AudioBuleNuGetRoot)' == ''">$(UserProfile)\.nuget\packages</AudioBuleNuGetRoot>
     <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
-
-    <!-- v180 是 MSBuild 目录名，v145 才是可用的工具集名 -->
-    <PlatformToolset>v145</PlatformToolset>
-
-    <!-- GoogleTest 1.17.0 源码内置路径。NuGet 上的 googletest 1.8.3 在 v145 下
-         编译失败（std::tr1::tuple 已被移除），因此改为源码内置。 -->
+    <!-- 按安装的 VS 选择工具集，也允许命令行显式覆盖。 -->
+    <PlatformToolset Condition="'$(PlatformToolset)' == '' and '$(VisualStudioVersion)' &gt;= '18.0'">v145</PlatformToolset>
+    <PlatformToolset Condition="'$(PlatformToolset)' == ''">v143</PlatformToolset>
     <GoogleTestRoot>$(AudioBuleRepoRoot)third_party\googletest\</GoogleTestRoot>
-
-    <!-- C++/WinRT 投影头的真实位置。MSBuild 默认注入的是 <sdk>\Include\<ver>\winrt\
-         （C 语言头目录），投影头在同级的 cppwinrt\winrt\ 下，必须显式补。
-         路径硬编码是因为 Directory.Build.props 导入时 $(WindowsSdkDir) 尚未定义。 -->
-    <CppWinRTProjectionIncludePath>D:\Windows Kits\10\Include\10.0.26100.0\cppwinrt\winrt</CppWinRTProjectionIncludePath>
-    <!-- WIL（Windows Implementation Library）头路径。
-         Microsoft.Windows.ImplementationLibrary 的 .targets 只在**直接引用它的
-         工程**里注入 include 目录；本仓库 Core / tests / App 都直接引用了它，
-         但依赖它导入顺序，删掉 obj\ 重新 restore 后就可能丢。这里显式写死，
-         与 CppWinRTProjectionIncludePath 同理。 -->
     <WilIncludePath>$(AudioBuleNuGetRoot)\microsoft.windows.implementationlibrary\1.0.260126.7\include</WilIncludePath>
   </PropertyGroup>
 </Project>
