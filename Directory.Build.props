@@ -10,6 +10,9 @@
     <!-- 按安装的 VS 选择工具集，也允许命令行显式覆盖。 -->
     <PlatformToolset Condition="'$(PlatformToolset)' == '' and '$(VisualStudioVersion)' &gt;= '18.0'">v145</PlatformToolset>
     <PlatformToolset Condition="'$(PlatformToolset)' == ''">v143</PlatformToolset>
+    <!-- 使用宿主的 64 位编译器，避免默认 x86 工具的预编译头地址空间不足。 -->
+    <PreferredToolArchitecture Condition="'$(PreferredToolArchitecture)' == '' and ('$(PROCESSOR_ARCHITECTURE)' == 'ARM64' or '$(PROCESSOR_ARCHITEW6432)' == 'ARM64')">arm64</PreferredToolArchitecture>
+    <PreferredToolArchitecture Condition="'$(PreferredToolArchitecture)' == ''">x64</PreferredToolArchitecture>
     <GoogleTestRoot>$(AudioBuleRepoRoot)third_party\googletest\</GoogleTestRoot>
     <WilIncludePath>$(AudioBuleNuGetRoot)\microsoft.windows.implementationlibrary\1.0.260126.7\include</WilIncludePath>
   </PropertyGroup>
