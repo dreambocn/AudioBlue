@@ -12,7 +12,8 @@ $root = [IO.Path]::GetFullPath($BuildRoot).TrimEnd('\') + '\'
 $msbuild = Find-MSBuild
 
 # 每个架构、配置和工程使用独立目录，不覆盖正在运行的本机版本。
-& $msbuild (Join-Path $repo 'AudioBule.sln') -restore -t:Build -m `
+# 按顺序编译工程，降低 WinUI 和核心测试同时创建预编译头的内存峰值。
+& $msbuild (Join-Path $repo 'AudioBule.sln') -restore -t:Build -m:1 `
     "-p:Configuration=$Configuration" "-p:Platform=$Platform" "-p:AudioBuleBuildRoot=$root" -v:minimal -nologo
 if ($LASTEXITCODE -ne 0) { throw "构建失败：$Configuration|$Platform。" }
 
