@@ -2,6 +2,8 @@
 
 验证日期：2026-10-12，Windows 11，PowerShell Core，VS 2026 v145，x64 Release。
 
+本文的验证结果按各节日期记录，不代表本次重新执行。下方「运行与复现」已按当前仓库脚本整理；通用环境要求见 [开发与构建](../../README.md#开发与构建)。
+
 HTML 设计稿位于 `docs\ui-preview`；本目录截图来自实际 WinUI 程序和真实设备枚举。
 
 ## 已实现
@@ -62,29 +64,38 @@ Windows 代为播放 A2DP 音频，本机发现该会话属于 `Audiosrv`，原�
 
 ## 运行与复现
 
-保留 `AudioBule.App\bin` 整个目录，运行其中的 `AudioBule.exe`。电脑需要 Windows 10 2004 或更高版本、蓝牙和 Windows App Runtime 1.8；桌面材质由系统能力和用户设置决定。
+以下命令在仓库根目录的 PowerShell Core 中执行。构建脚本自动探测 Visual Studio 与 Windows SDK，沿用用户 NuGet 缓存，不需要写死 MSBuild 或缓存路径。默认配置为 Release，输出位于 `artifacts\build\<架构>\<配置>\<工程>\bin`。
 
 ```powershell
-# 在仓库根目录构建和验证。
-$env:NUGET_PACKAGES = 'D:\NuGetPackages'
-& 'D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' `
-    AudioBule.sln -restore -t:Build -p:Configuration=Release -p:Platform=x64 -v:minimal -nologo
-& '.\tests\bin\AudioBule.Core.Tests.exe' --gtest_brief=1
-& '.\tools\app-smoke\Test-App.ps1' -ScreenshotPath '.\docs\native-ui\screenshots\devices.png'
-& '.\Packaging\Publish.ps1' -Configuration Release -SkipBuild -BinaryDirectory '.\AudioBule.App\bin'
+# 构建 x64 Release，并执行核心测试。
+.\tools\Build.ps1 -Platform x64 -Configuration Release -RunTests
+
+# 明确指定本次构建的应用，验证真实窗口与托盘。
+.\tools\app-smoke\Test-App.ps1 -Executable '.\artifacts\build\x64\Release\AudioBule.App\bin\AudioBule.exe'
+
+# 使用相同架构、配置的已有构建打包；需要 Inno Setup 6。
+.\Packaging\Publish.ps1 -Platform x64 -Configuration Release -SkipBuild
 ```
 
-已有实例占用默认输出目录时，可使用独立目录构建：
+正常启动可运行 `artifacts\build\x64\Release\AudioBule.App\bin\AudioBule.exe`；保留完整的应用输出目录，不要只复制 EXE。运行电脑需要 Windows 10 2004 或更高版本、蓝牙和 Windows App Runtime 1.8；便携版本的运行时安装步骤见仓库首页。桌面材质由系统能力和用户设置决定。
+
+构建 ARM64 时使用 `-Platform ARM64`，输出位于 `artifacts\build\ARM64\Release`；只有在 ARM64 Windows 上才能加 `-RunTests` 执行 ARM64 核心测试，窗口冒烟也应运行在支持目标架构的环境。使用 Debug 时，构建、冒烟路径及打包配置同步改为 Debug。
+
+已有实例占用默认输出目录，或需要保留本次验证截图时，可使用独立任务目录。构建和打包必须传入同一个 `-BuildRoot`，以便同时定位二进制文件与中间状态：
 
 ```powershell
-# 独立输出目录避免覆盖正在运行的版本；完成构建后再运行测试及打包。
-$reviewDirectory = Join-Path $PWD 'AudioBule.App\bin-aligned\'
-& 'D:\Applications\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' `
-    AudioBule.App\AudioBule.App.vcxproj -t:Build -p:Configuration=Release -p:Platform=x64 "-p:OutDir=$reviewDirectory" -v:minimal -nologo
-& '.\tools\app-smoke\Test-App.ps1' -Executable (Join-Path $reviewDirectory 'AudioBule.exe') `
-    -ScreenshotPath '.\docs\native-ui\screenshots\alignment-devices.png'
-& '.\Packaging\Publish.ps1' -Configuration Release -SkipBuild -BinaryDirectory $reviewDirectory
+# 每次使用独立目录，将临时构建和过程截图留在 C 盘。
+$taskRoot = Join-Path $env:USERPROFILE ('Documents\Codex\work\AudioBule\ui-review-' + [Guid]::NewGuid().ToString('N'))
+$buildRoot = Join-Path $taskRoot 'build'
+$null = New-Item -ItemType Directory -Path $taskRoot -Force
+
+.\tools\Build.ps1 -Platform x64 -Configuration Release -BuildRoot $buildRoot -RunTests
+.\tools\app-smoke\Test-App.ps1 -Executable (Join-Path $buildRoot 'x64\Release\AudioBule.App\bin\AudioBule.exe') `
+    -ScreenshotPath (Join-Path $taskRoot 'devices.png')
+.\Packaging\Publish.ps1 -Platform x64 -Configuration Release -BuildRoot $buildRoot -SkipBuild
 ```
+
+发布文件默认生成到 `artifacts\packages`。只需开发验证时无需执行打包命令；验证完成后关闭本次测试进程，再按需清理独立任务目录。不要并发构建同一个输出目录。直接从解决方案构建仍使用工程原有 `bin` / `obj`，属于另一套输出布局，不与上述脚本示例混用。
 
 ## 验证边界
 

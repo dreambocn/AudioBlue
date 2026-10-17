@@ -157,6 +157,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-Runtime.ps1
 
 构建脚本自动探测 Visual Studio 与 Windows SDK。NuGet 沿用用户缓存，可通过进程级 `$env:NUGET_PACKAGES` 指定现有缓存。直接从解决方案构建仍使用各工程的原有 `bin` / `obj`，应顺序构建。
 
+脚本默认使用 Release 配置；指定其他配置时，构建、窗口冒烟路径和打包配置需保持一致。独立构建目录与截图示例见 [运行与复现](docs/native-ui/README.md#运行与复现)，使用自定义目录时构建与打包传入同一个 `-BuildRoot`。
+
 <details>
 <summary>本机窗口与安装验证</summary>
 

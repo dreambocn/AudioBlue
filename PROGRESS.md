@@ -1,5 +1,7 @@
 # AudioBule 项目进度
 
+> 历史记录：本文保留当时的环境、分支、命令和验证结果，不代表当前状态。当前构建入口见 [开发与构建](README.md#开发与构建)，窗口验证与独立输出目录见 [运行与复现](docs/native-ui/README.md#运行与复现)。旧 MSBuild 绝对路径和产物路径不应直接作为当前操作命令。
+
 - 最后更新：2026-10-11
 - 仓库：`E:\Development\Project\GitHubStar\AudioBule`
 - 当前分支：`main`（无远程）

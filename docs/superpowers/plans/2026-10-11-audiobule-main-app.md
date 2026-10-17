@@ -1,5 +1,7 @@
 # AudioBule 主工程实施计划（阶段 0~3）
 
+> 历史实施计划：下文保留当时的工具路径、构建示例和设计假设。当前构建与测试请使用 [仓库开发入口](../../../README.md#开发与构建) 及 [原生运行说明](../../native-ui/README.md#运行与复现)，不再照搬旧 MSBuild 绝对路径或旧输出目录。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 交付一个可用的 AudioBule 应用：托盘常驻，点击弹出自绘设备列表窗口，可对多台蓝牙设备并行连接/断开，配置持久化，能打 MSIX 包。
