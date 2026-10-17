@@ -27,7 +27,10 @@ namespace AudioBuleInstallerTest {
 }
 $Installer = (Resolve-Path -LiteralPath $Installer).Path
 $registry = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{9C798D70-A8E1-4485-904E-EBE558077E01}_is1'
-$shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'AudioBule\AudioBule.lnk'
+# 干净的运行器可能尚未创建用户开始菜单目录，取路径时不能要求目录已存在。
+$programs = [Environment]::GetFolderPath([Environment+SpecialFolder]::Programs, [Environment+SpecialFolderOption]::DoNotVerify)
+if (-not [IO.Path]::IsPathFullyQualified($programs)) { throw "无法确定当前用户开始菜单目录：$programs" }
+$shortcut = Join-Path $programs 'AudioBule\AudioBule.lnk'
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $startup = Get-ItemProperty -LiteralPath $runKey -Name AudioBule -ErrorAction SilentlyContinue
 # 只在未安装本产品的环境中运行；已有其他目录的启动项保持原值。
@@ -55,7 +58,9 @@ try {
         $installed = Get-ItemProperty -LiteralPath $registry
         if ($installed.InstallLocation.TrimEnd('\') -ne $applicationDirectory) { throw '卸载记录的安装目录不一致。' }
         $shell = New-Object -ComObject WScript.Shell
+        if (-not (Test-Path -LiteralPath $shortcut)) { throw "开始菜单快捷方式不存在：$shortcut" }
         $shortcutTarget = $shell.CreateShortcut($shortcut).TargetPath
+        if (-not [IO.Path]::IsPathFullyQualified($shortcutTarget)) { throw "无法读取快捷方式目标：$shortcut，读取值：$shortcutTarget" }
         $expectedTarget = Join-Path $applicationDirectory 'AudioBule.exe'
         if ([AudioBuleInstallerTest.Paths]::Normalize($shortcutTarget) -ne [AudioBuleInstallerTest.Paths]::Normalize($expectedTarget)) {
             throw "开始菜单快捷方式指向错误：$shortcutTarget，预期：$expectedTarget"
