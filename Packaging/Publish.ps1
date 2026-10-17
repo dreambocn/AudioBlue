@@ -131,13 +131,20 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-Runtime.ps1
     [IO.File]::WriteAllText((Join-Path $staging '使用说明.txt'), $instructions, [Text.UTF8Encoding]::new($true))
     $zip = Join-Path $output "AudioBule_${version}_${architecture}.zip"
     Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $zip -Force
-    $hashes = foreach ($file in $zip, $package) {
+    # 使用同一份已验证负载生成常规安装程序，自动安装离线依赖。
+    $compiler = & (Join-Path $PSScriptRoot 'Find-InnoSetup.ps1')
+    & $compiler "/DAppVersion=$version" "/DAppArchitecture=$architecture" "/DPayloadDirectory=$staging" "/DPackageOutput=$output" (Join-Path $PSScriptRoot 'AudioBule.iss')
+    if ($LASTEXITCODE -ne 0) { throw 'Windows 安装程序编译失败。' }
+    $installer = Join-Path $output "AudioBule_${version}_${architecture}_Setup.exe"
+    if (-not (Test-Path -LiteralPath $installer)) { throw '找不到生成的安装程序。' }
+    $hashes = foreach ($file in $zip, $package, $installer) {
         $hash = Get-FileHash -LiteralPath $file -Algorithm SHA256
         "$($hash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($file))"
     }
     [IO.File]::WriteAllLines((Join-Path $output "AudioBule_${version}_${architecture}.sha256"), $hashes, [Text.UTF8Encoding]::new($false))
     Write-Output "已生成：$zip"
     Write-Output "已生成：$package"
+    Write-Output "已生成：$installer"
 } finally {
     # 仅清理本脚本在输出目录中创建的随机暂存目录。
     $resolved = [IO.Path]::GetFullPath($staging)

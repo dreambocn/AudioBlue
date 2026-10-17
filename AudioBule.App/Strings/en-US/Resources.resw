@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
   <resheader name="resmimetype">
     <value>text/microsoft-resx</value>
@@ -190,7 +190,7 @@
     <value>Once connected, play music, podcasts or videos on your phone. Audio plays through your default PC audio device.</value>
   </data>
   <data name="Version" xml:space="preserve">
-    <value>Version 1.0.0</value>
+    <value>Version 1.0.1</value>
   </data>
   <data name="OpenWindow" xml:space="preserve">
     <value>Open device window</value>

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
   <resheader name="resmimetype">
     <value>text/microsoft-resx</value>
@@ -190,7 +190,7 @@
     <value>连接后在手机播放音乐、播客或视频。声音通过电脑的默认音频设备播放。</value>
   </data>
   <data name="Version" xml:space="preserve">
-    <value>版本 1.0.0</value>
+    <value>版本 1.0.1</value>
   </data>
   <data name="OpenWindow" xml:space="preserve">
     <value>打开设备窗口</value>

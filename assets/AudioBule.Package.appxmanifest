@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
@@ -6,7 +6,7 @@
          xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
          xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
          IgnorableNamespaces="uap uap5 desktop com rescap">
-  <Identity Name="AudioBule" Publisher="CN=AudioBule" Version="1.0.0.0" ProcessorArchitecture="x64" />
+  <Identity Name="AudioBule" Publisher="CN=AudioBule" Version="1.0.1.0" ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>AudioBule</DisplayName>
     <PublisherDisplayName>AudioBule</PublisherDisplayName>

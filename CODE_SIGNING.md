@@ -2,15 +2,11 @@
 
 ## 当前状态 / Current status
 
-AudioBule 已于 2026-10-16 向 SignPath Foundation 提交开源签名申请，目前等待审核，尚未接入正式代码签名。当前发布的应用 EXE 和标有 `unsigned` 的 MSIX 均未签名；包内由微软提供的运行时依赖保留原有签名。
+AudioBule 于 2026-10-16 向 SignPath Foundation 申请免费开源签名，同日收到未获批准的通知：当前项目的公众可见度和社区采用信号未达到该计划要求。当前未接入代码签名。
 
-AudioBule submitted its application to the SignPath Foundation open-source program on 2026-10-16. Review and production signing are pending. Current application executables and MSIX packages marked `unsigned` are not signed by the project.
+常规用户请选择 Release 中的 `_Setup.exe` 安装程序。安装程序和应用 EXE 未签名，可能显示 Windows 未知发布者或 SmartScreen 提示；安装无需导入自签名证书。受组织应用控制策略限制的环境可能阻止运行。标有 `unsigned` 的 MSIX 仅供开发使用，正式安装需要签名。微软运行时依赖保留原有签名。
 
-申请获批并正式启用后，签名服务和证书来源将标注为：
-
-> Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
-
-这段说明不表示当前版本已经获得该服务或签名。
+The SignPath Foundation application submitted on 2026-10-16 was not approved because the project did not yet meet the program's public visibility criteria. No production signing is enabled. Use the unsigned EXE installer for ordinary installation; Windows security prompts or organizational restrictions may apply. Microsoft runtime packages retain their original signatures.
 
 ## 维护与审批 / Maintainers and approvers
 

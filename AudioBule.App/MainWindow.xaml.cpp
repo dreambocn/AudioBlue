@@ -232,7 +232,7 @@ void MainWindow::BuildAbout()
     image.Width(80); image.Height(80); image.Margin({ 0, 24, 0, 8 }); image.HorizontalAlignment(HorizontalAlignment::Left);
     panel.Children().Append(image);
     panel.Children().Append(Label(L"AudioBule", 24, true));
-    panel.Children().Append(Label(m_text->Get(L"Version") + L" 1.0.0", 12));
+    panel.Children().Append(Label(m_text->Get(L"Version"), 12));
     auto description = Label(m_text->Get(L"AboutDescription")); description.Margin({ 0, 4, 0, 16 }); description.Opacity(0.65); panel.Children().Append(description);
     panel.Children().Append(SettingsCard(m_text->Get(L"DesignedForWindows"), m_text->Get(L"NativeAudio"), L"\xE782"));
     panel.Children().Append(SettingsCard(m_text->Get(L"Independent"), m_text->Get(L"IndependentDescription"), L"\xE8EA"));

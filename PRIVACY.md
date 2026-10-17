@@ -1,8 +1,8 @@
 # Privacy policy / 隐私说明
 
-适用范围：本仓库的原生 C++ / WinUI 3 AudioBule 应用。更新日期：2026-10-16。
+适用范围：本仓库的原生 C++ / WinUI 3 AudioBule 应用。更新日期：2026-10-17。
 
-This policy covers the native C++ / WinUI 3 AudioBule application maintained in this repository. Last updated: 2026-10-16.
+This policy covers the native C++ / WinUI 3 AudioBule application maintained in this repository. Last updated: 2026-10-17.
 
 ## 音频、设备与本地设置
 
@@ -15,9 +15,9 @@ AudioBule uses Windows Bluetooth audio APIs to discover paired devices and manag
 
 ## Windows 系统集成与第三方服务
 
-开机启动由用户在设置中启用，默认关闭。启用后，便携版在当前用户启动项中登记；MSIX 版使用 Windows StartupTask。连接通知通过 Windows App SDK 的本地应用通知功能提供，用户可以在应用设置中关闭。
+开机启动由用户在设置中启用，默认关闭。启用后，EXE 安装版和便携版在当前用户启动项中登记；MSIX 版使用 Windows StartupTask。连接通知通过 Windows App SDK 的本地应用通知功能提供，用户可以在应用设置中关闭。
 
-发布包附带微软签名的 Windows App Runtime 离线依赖。安装脚本在用户执行后为当前用户安装这些组件；它不把应用设置或设备信息上传给维护者。Windows、蓝牙驱动、运行时组件及系统服务的行为由其供应商控制，微软产品的隐私说明见 [Microsoft Privacy Statement](https://privacy.microsoft.com/privacystatement)。
+发布包附带微软签名的 Windows App Runtime 离线依赖。EXE 安装程序自动为当前用户安装这些组件；便携 ZIP 由用户执行安装脚本；它不把应用设置或设备信息上传给维护者。Windows、蓝牙驱动、运行时组件及系统服务的行为由其供应商控制，微软产品的隐私说明见 [Microsoft Privacy Statement](https://privacy.microsoft.com/privacystatement)。
 
 访问项目的 GitHub 页面、提交 Issue 或下载文件时，GitHub 会按其自身政策处理网站数据，见 [GitHub Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement)。请勿在公开 Issue 中粘贴敏感的设备信息、私人日志或凭据。
 
@@ -25,6 +25,7 @@ Startup integration is opt-in and disabled by default. Windows features, drivers
 
 ## 删除与卸载
 
+- EXE 安装版：从应用设置或托盘菜单退出后，在 Windows“设置 → 应用”中卸载 AudioBule。卸载会移除应用文件、快捷方式、安装记录及指向本安装目录的启动项，保留用户偏好和共享运行时。
 - 便携版：先在应用设置中关闭开机启动，再从设置或托盘菜单选择退出，之后删除解压目录。
 - MSIX 版：在 Windows“设置 → 应用 → 已安装的应用”中卸载 AudioBule。
 - 如需清除本地偏好，在应用退出后删除 `%LOCALAPPDATA%\AudioBule` 文件夹。保留该文件夹会保留已有设置。

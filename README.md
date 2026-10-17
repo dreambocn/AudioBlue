@@ -6,21 +6,24 @@ Windows 蓝牙音频接收工具，让电脑接收手机上的音频。原生 C+
 
 ## 下载
 
-从 [Releases](https://github.com/dreambocn/AudioBlue/releases/latest) 下载适合设备的 ZIP：Intel / AMD 64 位电脑选择 `x64`，Windows on ARM 选择 `arm64`。需要 Windows 10 2004 或更高版本及蓝牙硬件。
+从 [Releases](https://github.com/dreambocn/AudioBlue/releases/latest) 下载对应架构的 **`_Setup.exe` 安装包**，双击并按向导安装：
 
-完整解压后，首次使用在该目录打开 PowerShell，运行下方命令，安装附带的微软签名 Windows App Runtime 1.8，再打开 `AudioBule.exe`。运行时依赖已放在包内，无需另行下载。
+- Intel / AMD 64 位电脑：`AudioBule_1.0.1_x64_Setup.exe`。
+- Windows on ARM：`AudioBule_1.0.1_arm64_Setup.exe`。
+
+需要 Windows 10 2004 或更高版本及蓝牙硬件。安装程序自带微软签名的 Windows App Runtime 1.8 离线依赖，自动安装到当前用户，并创建开始菜单快捷方式和系统卸载入口，无需手动运行命令或另行下载依赖。默认安装位置为 `%LOCALAPPDATA%\Programs\AudioBule`。更新或卸载前，请从应用设置或托盘菜单退出。
+
+安装程序和应用暂未签名，Windows 可能显示“未知发布者”或 SmartScreen 提示；启用严格应用控制的电脑可能阻止运行。签名状态见 [CODE_SIGNING.md](CODE_SIGNING.md)。普通 EXE 安装无需导入自签名证书。
+
+发布页同时提供便携 ZIP、SHA-256 校验文件和未签名 MSIX 开发包。常规安装请选择 `_Setup.exe`；ZIP 首次使用仍需运行下列命令，MSIX 需要另行签名后才能正常安装。
 
 ```powershell
-# 在完整解压的发布包目录运行，安装当前用户的运行时依赖。
+# 仅便携 ZIP 用户需要：在完整解压的目录安装当前用户的运行时依赖。
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-Runtime.ps1
 .\AudioBule.exe
 ```
 
-发布页同时提供 SHA-256 校验文件和未签名 MSIX 开发包。常规使用请选择 ZIP；MSIX 正式分发需要签名证书。
-
 上述执行策略仅对安装脚本进程生效，不更改系统策略。
-
-Code signing policy：[签名策略与申请状态](CODE_SIGNING.md)。已于 2026-10-16 向 SignPath Foundation 提交申请，等待审核；当前应用 EXE 与标有 `unsigned` 的 MSIX 未签名。
 
 隐私与卸载方式见 [Privacy policy / 隐私说明](PRIVACY.md)。
 
@@ -53,7 +56,10 @@ Code signing policy：[签名策略与申请状态](CODE_SIGNING.md)。已于 20
 # 交叉构建 ARM64；ARM64 核心测试需在 ARM64 Windows 上加 -RunTests 执行。
 .\tools\Build.ps1 -Platform ARM64
 
-# 对应架构构建成功后，生成 ZIP、MSIX 和 SHA-256 校验文件。
+# 首次打包前安装 Inno Setup 6。
+winget install --id JRSoftware.InnoSetup --exact --source winget
+
+# 对应架构构建成功后，生成安装程序、ZIP、MSIX 和 SHA-256 校验文件。
 .\Packaging\Publish.ps1 -Platform x64 -SkipBuild
 .\Packaging\Publish.ps1 -Platform ARM64 -SkipBuild
 
@@ -69,9 +75,9 @@ Code signing policy：[签名策略与申请状态](CODE_SIGNING.md)。已于 20
 
 ## 自动构建与发布
 
-- 推送 `main`、提交 Pull Request 或手动运行 [构建与发布](https://github.com/dreambocn/AudioBlue/actions/workflows/build.yml)，自动构建 x64 和 ARM64，并在各自架构的 Windows 运行器上执行核心测试。
+- 推送 `main`、提交 Pull Request 或手动运行 [构建与发布](https://github.com/dreambocn/AudioBlue/actions/workflows/build.yml)，自动构建 x64 和 ARM64，并在各自架构的 Windows 运行器上执行核心测试及首次安装、覆盖安装和卸载验证。
 - 成功后可在该次 Actions 运行的 Artifacts 下载 `AudioBule-x64`、`AudioBule-ARM64`，保存 30 天。
-- 推送与清单版本一致的标签（例如清单 `1.0.0.0` 对应 `v1.0.0`），双架构构建、测试、打包全部成功后自动创建 GitHub Release，附上两套 ZIP、MSIX 和校验文件。
+- 推送与清单版本一致的标签（例如清单 `1.0.0.0` 对应 `v1.0.0`），双架构构建、测试、打包全部成功后自动创建 GitHub Release，附上两套 EXE 安装程序、ZIP、MSIX 和校验文件。
 - 更新版本时修改 `assets\AudioBule.Package.appxmanifest` 与应用关于页版本，再推送对应标签。标签版本不匹配时流水线会停止发布。
 
 项目采用 [MIT 许可证](LICENSE)。

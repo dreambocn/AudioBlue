@@ -15,6 +15,8 @@ struct App : AppT<App>
     ~App();
     void OnLaunched(Microsoft::UI::Xaml::LaunchActivatedEventArgs const& e);
 private:
+    // 安装和卸载前要求退出应用，避免覆盖仍在使用的资源及连接。
+    winrt::handle m_installationMutex{ ::CreateMutexW(nullptr, FALSE, L"Local\\AudioBule.Installation") };
     void ApplyTheme();
     void ApplyPreferences();
     void ChangePreferences(::AudioBule::Core::AppSettings const& settings);
