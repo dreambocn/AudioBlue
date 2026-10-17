@@ -4,6 +4,27 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# 快捷方式接口可能返回 DOS 短路径；比较前统一为实际长路径。
+if (-not ('AudioBuleInstallerTest.Paths' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+namespace AudioBuleInstallerTest {
+    public static class Paths {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint GetLongPathName(string source, StringBuilder target, uint length);
+        public static string Normalize(string path) {
+            var buffer = new StringBuilder(32768);
+            uint length = GetLongPathName(path, buffer, (uint)buffer.Capacity);
+            if (length == 0 || length >= buffer.Capacity)
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            return buffer.ToString().TrimEnd('\\');
+        }
+    }
+}
+'@
+}
 $Installer = (Resolve-Path -LiteralPath $Installer).Path
 $registry = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{9C798D70-A8E1-4485-904E-EBE558077E01}_is1'
 $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'AudioBule\AudioBule.lnk'
@@ -34,7 +55,11 @@ try {
         $installed = Get-ItemProperty -LiteralPath $registry
         if ($installed.InstallLocation.TrimEnd('\') -ne $applicationDirectory) { throw '卸载记录的安装目录不一致。' }
         $shell = New-Object -ComObject WScript.Shell
-        if ($shell.CreateShortcut($shortcut).TargetPath -ne (Join-Path $applicationDirectory 'AudioBule.exe')) { throw '开始菜单快捷方式指向错误。' }
+        $shortcutTarget = $shell.CreateShortcut($shortcut).TargetPath
+        $expectedTarget = Join-Path $applicationDirectory 'AudioBule.exe'
+        if ([AudioBuleInstallerTest.Paths]::Normalize($shortcutTarget) -ne [AudioBuleInstallerTest.Paths]::Normalize($expectedTarget)) {
+            throw "开始菜单快捷方式指向错误：$shortcutTarget，预期：$expectedTarget"
+        }
         Write-Output "通过：第 $attempt 次安装、完整资源、快捷方式与卸载记录。"
     }
     if ($RunAppSmoke) {
