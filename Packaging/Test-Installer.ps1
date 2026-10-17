@@ -57,9 +57,12 @@ try {
         }
         $installed = Get-ItemProperty -LiteralPath $registry
         if ($installed.InstallLocation.TrimEnd('\') -ne $applicationDirectory) { throw '卸载记录的安装目录不一致。' }
-        $shell = New-Object -ComObject WScript.Shell
         if (-not (Test-Path -LiteralPath $shortcut)) { throw "开始菜单快捷方式不存在：$shortcut" }
-        $shortcutTarget = $shell.CreateShortcut($shortcut).TargetPath
+        # 使用支持 Unicode 的 Shell 属性，避免旧 WScript 接口损坏中文路径。
+        $shell = New-Object -ComObject Shell.Application
+        $folder = $shell.Namespace((Split-Path -Parent $shortcut))
+        $shortcutTarget = $folder.ParseName([IO.Path]::GetFileName($shortcut)).ExtendedProperty('System.Link.TargetParsingPath')
+        Write-Output "快捷方式目标：$shortcutTarget"
         if (-not [IO.Path]::IsPathFullyQualified($shortcutTarget)) { throw "无法读取快捷方式目标：$shortcut，读取值：$shortcutTarget" }
         $expectedTarget = Join-Path $applicationDirectory 'AudioBule.exe'
         if ([AudioBuleInstallerTest.Paths]::Normalize($shortcutTarget) -ne [AudioBuleInstallerTest.Paths]::Normalize($expectedTarget)) {
