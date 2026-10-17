@@ -56,8 +56,14 @@ jobs:
 
       - name: 安装安装包编译器
         run: |
-          choco install innosetup --version=6.7.3 --yes --no-progress
-          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 编译器安装失败。' }
+          # 直接使用官方发布文件及固定摘要，避免包管理镜像缺少指定版本。
+          $download = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.3.exe'
+          Invoke-WebRequest -Uri 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe' -OutFile $download -MaximumRetryCount 3
+          $expected = '9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732'
+          if ((Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash -ne $expected) { throw 'Inno Setup 下载校验失败。' }
+          $directory = Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6'
+          $process = Start-Process -FilePath $download -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/CURRENTUSER', '/NOICONS', "/DIR=`"$directory`"") -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Inno Setup 编译器安装失败：$($process.ExitCode)" }
 
       - name: 生成安装程序、ZIP、MSIX 与校验文件
         run: .\Packaging\Publish.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -SkipBuild
