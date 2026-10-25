@@ -6,7 +6,7 @@
          xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
          xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
          IgnorableNamespaces="uap uap5 desktop com rescap">
-  <Identity Name="AudioBule" Publisher="CN=AudioBule" Version="1.0.1.0" ProcessorArchitecture="x64" />
+  <Identity Name="AudioBule" Publisher="CN=AudioBule" Version="1.0.2.0" ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>AudioBule</DisplayName>
     <PublisherDisplayName>AudioBule</PublisherDisplayName>

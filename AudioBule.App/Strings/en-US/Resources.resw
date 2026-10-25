@@ -190,7 +190,7 @@
     <value>Once connected, play music, podcasts or videos on your phone. Audio plays through your default PC audio device.</value>
   </data>
   <data name="Version" xml:space="preserve">
-    <value>Version 1.0.1</value>
+    <value>Version 1.0.2</value>
   </data>
   <data name="OpenWindow" xml:space="preserve">
     <value>Open device window</value>
