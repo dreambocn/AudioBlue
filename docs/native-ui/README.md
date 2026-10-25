@@ -116,3 +116,13 @@ $null = New-Item -ItemType Directory -Path $taskRoot -Force
 系统集成参考 Microsoft 官方文档：
 [StartupTask](https://learn.microsoft.com/en-us/uwp/api/windows.applicationmodel.startuptask) 与
 [Windows App SDK 通知](https://learn.microsoft.com/en-us/windows/apps/develop/notifications/app-notifications/app-notifications-quickstart?tabs=cpp)。
+
+
+## 2026-10-18 本地日志与原生诊断
+
+- 设置页增加日志目录、15 分钟详细日志与诊断导出，使用现有原生卡片和中英文资源；导出忙碌时禁用重复请求，前台操作结束后恢复焦点。
+- 日志覆盖连接、取消迟到清理、设置、通知、托盘及退出；文件写入、属性探测、轮转和清理均在后台完成，日志不可写时保持业务回退。
+- 本轮 x64 Release 与 Debug 核心测试各 105/105 通过，ARM64 Release 交叉构建通过；ARM64 上的实际执行未运行。
+- 本轮原生冒烟 73/73 通过，包括实际系统保存对话框、隔离路径导出、JSONL 解析、焦点恢复及取消；重复广播期间 GDI 对象 130 → 130。
+- 诊断文件格式、保留策略和开发命令见[日志与故障排查](../diagnostics/README.md)。完整实施记录和性能数据见[日志系统建设计划](../plans/2026-10-18-日志系统建设计划.md)。
+- 以上验证未覆盖真实蓝牙音频连接、长时间设备阻塞、完整读屏/高 DPI 矩阵以及安装/MSIX 运行差异；没有替换或停止日常安装版，也未启用 WER 系统转储设置。

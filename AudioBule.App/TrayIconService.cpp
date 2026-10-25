@@ -15,11 +15,12 @@ constexpr UINT_PTR kRetryTimer = 1;
 }
 
 TrayIconService::TrayIconService(
-    winrt::Microsoft::UI::Dispatching::DispatcherQueue const& queue, Callbacks callbacks)
-    : m_queue(queue), m_callbacks(std::make_shared<CallbackState>())
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue const& queue, Callbacks callbacks, Core::LogContext log)
+    : m_queue(queue), m_callbacks(std::make_shared<CallbackState>()), m_log(std::move(log))
 {
     if (!queue) throw std::invalid_argument("必须提供 UI 调度队列");
     m_callbacks->callbacks = std::move(callbacks);
+    m_callbacks->log = m_log;
     m_thread = std::thread([this] { ThreadMain(); });
 }
 
@@ -76,6 +77,7 @@ void TrayIconService::ThreadMain() noexcept
         m_data.hIcon = static_cast<HICON>(m_icon.handle);
         wcscpy_s(m_data.szTip, L"AudioBule · 蓝牙音频");
         bool added = AddIcon();
+        m_log.Write(added ? Core::LogEvent::TrayReady : Core::LogEvent::TrayFailed, {}, added ? Core::LogLevel::Info : Core::LogLevel::Error);
         {
             std::lock_guard lock(m_mutex);
             m_publishedWindow = m_window;
@@ -92,7 +94,7 @@ void TrayIconService::ThreadMain() noexcept
     }
     catch (...)
     {
-        ::OutputDebugStringW(L"AudioBule：托盘线程初始化失败。\n");
+        m_log.Write(Core::LogEvent::TrayFailed, { .hresult = winrt::to_hresult() }, Core::LogLevel::Error);
     }
     Cleanup();
     if (apartment) winrt::uninit_apartment();
@@ -111,6 +113,7 @@ bool TrayIconService::AddIcon()
         ::SetTimer(m_window, kRetryTimer, 1000, nullptr);
         return false;
     }
+    m_log.Write(Core::LogEvent::TrayRestored, {}, Core::LogLevel::Debug);
     m_added = true;
     m_data.uVersion = NOTIFYICON_VERSION_4;
     m_version4 = ::Shell_NotifyIconW(NIM_SETVERSION, &m_data) != FALSE;
@@ -145,7 +148,7 @@ LRESULT CALLBACK TrayIconService::WndProc(HWND window, UINT message, WPARAM wPar
     {
         // 异常不能越过 Win32 回调边界。
         try { self->ProcessMessage(window, message, wParam, lParam); }
-        catch (...) { ::OutputDebugStringW(L"AudioBule：处理托盘消息失败。\n"); }
+        catch (...) { self->m_log.Write(Core::LogEvent::TrayMessageFailed, { .hresult = winrt::to_hresult() }, Core::LogLevel::Warning); }
         if (message == kWork || message == kCallback || message == WM_CLOSE) return 0;
     }
     return ::DefWindowProcW(window, message, wParam, lParam);
@@ -209,7 +212,7 @@ void TrayIconService::Dispatch(std::function<void(Callbacks const&)> callback)
     if (!m_queue.TryEnqueue([state, callback = std::move(callback)] {
         if (!state->active) return;
         try { callback(state->callbacks); }
-        catch (...) { ::OutputDebugStringW(L"AudioBule：托盘操作失败。\n"); }
+        catch (...) { state->log.Write(Core::LogEvent::TrayMessageFailed, { .hresult = winrt::to_hresult() }, Core::LogLevel::Warning); }
     }))
     {
         state->active = false;

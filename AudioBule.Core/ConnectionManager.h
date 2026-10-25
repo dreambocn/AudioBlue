@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include <future>
 #include <mutex>
+#include <map>
 #include <set>
 #include <string>
 #include <string_view>
@@ -24,7 +25,7 @@ class ConnectionManager
 {
 public:
     // provider 必须 outlive ConnectionManager
-    explicit ConnectionManager(IAudioDeviceProvider& provider);
+    explicit ConnectionManager(IAudioDeviceProvider& provider, LogContext log = {});
     ~ConnectionManager();
 
     ConnectionManager(ConnectionManager const&) = delete;
@@ -43,7 +44,7 @@ public:
     // 异步发起连接。立即返回；结果通过 EntryChanged 通知。
     // 已处于 Connecting/Connected 的设备会被忽略（幂等）。
     // 未知设备会新增一条 Failed 条目，保证 UI 有东西可显示。
-    std::future<void> ConnectAsync(std::wstring_view deviceId);
+    std::future<void> ConnectAsync(std::wstring_view deviceId, LogTrigger trigger = LogTrigger::Manual);
 
     // 异步断开。对非 Connected 条目是无害的空操作。
     std::future<void> DisconnectAsync(std::wstring_view deviceId);
@@ -69,7 +70,7 @@ public:
     bool IsSupported() const;
 
 private:
-    void ApplyConnectResult(std::wstring const& deviceId, ConnectResult const& result);
+    void ApplyConnectResult(std::wstring const& deviceId, ConnectResult const& result, LogContext const& log);
     void HandleConnectionLost(std::wstring const& deviceId);
     ConnectionEntry* FindLocked(std::wstring const& deviceId);
     ConnectionEntry const* FindLocked(std::wstring const& deviceId) const;
@@ -77,6 +78,8 @@ private:
     static std::future<void> CompletedFuture();
 
     IAudioDeviceProvider& m_provider;
+    LogContext m_log;
+    std::map<std::wstring, LogContext> m_operations;
     // 存成订阅 id 才能在析构时退订 —— 见 ConnectionManager.cpp 的说明
     SimpleEvent<std::wstring>::SubscriptionId m_lostSubscription = 0;
 

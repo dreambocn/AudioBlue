@@ -5,6 +5,7 @@
 #include "QuickPanel.h"
 #include "DesktopIntegration.h"
 #include "AudioSessionIdentity.h"
+#include "DiagnosticsController.h"
 #include <memory>
 
 namespace winrt::AudioBule::App::implementation
@@ -17,6 +18,9 @@ struct App : AppT<App>
 private:
     // 安装和卸载前要求退出应用，避免覆盖仍在使用的资源及连接。
     winrt::handle m_installationMutex{ ::CreateMutexW(nullptr, FALSE, L"Local\\AudioBule.Installation") };
+    struct ConnectionRuntime;
+    winrt::fire_and_forget PerformDiagnostics(::AudioBule::App::UI::DiagnosticsAction action);
+    void UpdateDiagnostics();
     void ApplyTheme();
     void ApplyPreferences();
     void ChangePreferences(::AudioBule::Core::AppSettings const& settings);
@@ -30,8 +34,12 @@ private:
     winrt::fire_and_forget OperateDevice(std::wstring id, bool disconnect);
     winrt::fire_and_forget Shutdown();
     // 逆序析构：窗口/托盘停用后，manager 等待操作，provider 最后释放会话。
-    ::AudioBule::Core::WinRtDeviceProvider m_provider;
-    ::AudioBule::Core::ConnectionManager m_manager;
+    ::AudioBule::Core::Logger m_logger;
+    std::unique_ptr<ConnectionRuntime> m_connections;
+    std::unique_ptr<::AudioBule::App::UI::DiagnosticsController> m_diagnostics;
+    Microsoft::UI::Dispatching::DispatcherQueueTimer m_diagnosticsTimer{ nullptr };
+    Windows::Foundation::IAsyncInfo m_diagnosticsPicker{ nullptr };
+    bool m_diagnosticsBusy = false;
     ::AudioBule::Core::AppSettings m_settings;
     std::unique_ptr<::AudioBule::Core::AudioSessionIdentity> m_sessionIdentity;
     std::unique_ptr<::AudioBule::App::UI::UiText> m_text;

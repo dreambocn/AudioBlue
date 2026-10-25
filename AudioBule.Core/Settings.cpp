@@ -1,4 +1,4 @@
-﻿#include "pch.h"
+#include "pch.h"
 #include "Settings.h"
 #include "StringUtil.h"
 
@@ -118,7 +118,7 @@ std::wstring DefaultSettingsPath()
     return base + L"\\AudioBule\\settings.json";
 }
 
-AppSettings LoadSettings(std::wstring const& path)
+AppSettings LoadSettings(std::wstring const& path, LogContext const& log)
 {
     AppSettings settings; // 默认值
 
@@ -133,10 +133,16 @@ AppSettings LoadSettings(std::wstring const& path)
         std::filesystem::path target(path);
         std::error_code ec;
         auto length = std::filesystem::file_size(target, ec);
-        if (ec || length == 0 || length > 1024 * 1024) return settings;
+        if (ec)
+        {
+            bool missing = ec == std::errc::no_such_file_or_directory;
+            log.Write(missing ? LogEvent::SettingsMissing : LogEvent::SettingsFailed, { .stage = LogStage::Read, .win32Error = static_cast<DWORD>(ec.value()) }, missing ? LogLevel::Debug : LogLevel::Warning);
+            return settings;
+        }
+        if (length == 0 || length > 1024 * 1024) { log.Write(LogEvent::SettingsInvalid, { .stage = LogStage::Read }, LogLevel::Warning); return settings; }
         std::ifstream file(target, std::ios::binary);
         std::string content(static_cast<size_t>(length), '\0');
-        if (!file.read(content.data(), static_cast<std::streamsize>(content.size()))) return settings;
+        if (!file.read(content.data(), static_cast<std::streamsize>(content.size()))) { log.Write(LogEvent::SettingsFailed, { .stage = LogStage::Read, .win32Error = ERROR_READ_FAULT }, LogLevel::Warning); return settings; }
         // 兼容用户用编辑器保存的 UTF-8 BOM。
         if (content.starts_with("\xEF\xBB\xBF")) content.erase(0, 3);
         if (content.empty())
@@ -160,25 +166,36 @@ AppSettings LoadSettings(std::wstring const& path)
     catch (winrt::hresult_error const&)
     {
         // 文件不存在（0x80070002）、JSON 语法错误（0x83750007）等一律回落默认值。
-        // 这里刻意不记日志：首次启动时「文件不存在」是常态，记日志会污染输出。
+        // 首次无文件已单独处理；损坏配置保留诊断，不记录配置正文。
+        log.Write(LogEvent::SettingsInvalid, { .stage = LogStage::Parse, .hresult = winrt::to_hresult() }, LogLevel::Warning);
         return AppSettings{};
     }
     catch (std::exception const&)
     {
+        log.Write(LogEvent::SettingsFailed, { .stage = LogStage::Read, .hresult = E_FAIL }, LogLevel::Warning);
         return AppSettings{};
     }
 
     NormalizeDeviceList(settings.lastConnectedDevices);
+    log.Write(LogEvent::SettingsLoaded, {}, LogLevel::Debug);
     return settings;
 }
 
-bool SaveSettings(AppSettings const& settings, std::wstring const& path)
+bool SaveSettings(AppSettings const& settings, std::wstring const& path, LogContext const& log)
 {
     if (path.empty())
     {
         return false;
     }
 
+    bool succeeded = false;
+    LogStage stage = LogStage::Write;
+    DWORD error = ERROR_WRITE_FAULT;
+    auto report = wil::scope_exit([&] {
+        log.Write(succeeded ? LogEvent::SettingsSaved : LogEvent::SettingsFailed,
+            { .stage = stage, .outcome = succeeded ? LogOutcome::Succeeded : LogOutcome::Failed, .win32Error = succeeded ? 0 : error },
+            succeeded ? LogLevel::Debug : LogLevel::Error);
+    });
     AppSettings normalized = settings;
     NormalizeDeviceList(normalized.lastConnectedDevices);
 
@@ -215,6 +232,7 @@ bool SaveSettings(AppSettings const& settings, std::wstring const& path)
         std::filesystem::create_directories(parent, ec);
         if (ec)
         {
+            error = static_cast<DWORD>(ec.value());
             return false;
         }
 
@@ -228,8 +246,11 @@ bool SaveSettings(AppSettings const& settings, std::wstring const& path)
         file.flush();
         bool written = file.good();
         file.close();
-        return written && !file.fail() && ::MoveFileExW(temporary.c_str(), path.c_str(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+        if (!written || file.fail()) return false;
+        stage = LogStage::Replace;
+        succeeded = ::MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+        if (!succeeded) error = ::GetLastError();
+        return succeeded;
     }
     catch (winrt::hresult_error const&)
     {

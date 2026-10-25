@@ -93,6 +93,11 @@
     <ClInclude Include="targetver.h" />
     <ClInclude Include="SimpleEvent.h" />
     <ClInclude Include="StringUtil.h" />
+    <ClInclude Include="DiagnosticsTypes.h" />
+    <ClInclude Include="Logger.h" />
+    <ClInclude Include="LogWriter.h" />
+    <ClInclude Include="DiagnosticPrivacy.h" />
+    <ClInclude Include="DiagnosticExport.h" />
     <ClInclude Include="Settings.h" />
     <ClInclude Include="ConnectionEntry.h" />
     <ClInclude Include="Messages.h" />
@@ -107,6 +112,10 @@
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="StringUtil.cpp" />
+    <ClCompile Include="Logger.cpp" />
+    <ClCompile Include="LogWriter.cpp" />
+    <ClCompile Include="DiagnosticPrivacy.cpp" />
+    <ClCompile Include="DiagnosticExport.cpp" />
     <ClCompile Include="Settings.cpp" />
     <ClCompile Include="Messages.cpp" />
     <ClCompile Include="ConnectionManager.cpp" />

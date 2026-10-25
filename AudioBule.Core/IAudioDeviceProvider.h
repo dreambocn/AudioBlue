@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ConnectionEntry.h"
+#include "Logger.h"
 #include "SimpleEvent.h"
 
 #include <string>
@@ -25,8 +26,8 @@ public:
 
     virtual bool IsSupported() const = 0;
     virtual std::vector<DeviceInfo> EnumerateDevices() = 0;
-    virtual ConnectResult Connect(std::wstring_view deviceId) = 0;
-    virtual void Disconnect(std::wstring_view deviceId) = 0;
+    virtual ConnectResult Connect(std::wstring_view deviceId, LogContext const& log = {}) = 0;
+    virtual void Disconnect(std::wstring_view deviceId, LogContext const& log = {}) = 0;
 
     // 参数为 deviceId（宽字符，与 ConnectionEntry::deviceId 同类型）。
     // 由 provider 在观察到连接被系统关闭时触发。

@@ -6,7 +6,7 @@
 
 namespace AudioBule::App::UI
 {
-UiText::UiText()
+UiText::UiText(Core::LogContext log) : m_log(std::move(log))
 {
     m_context = m_manager.CreateResourceContext();
     m_strings = m_manager.MainResourceMap().GetSubtree(L"Resources");
@@ -27,7 +27,7 @@ winrt::hstring UiText::Get(wchar_t const* key) const
 {
     // 资源丢失不能使蓝牙连接退出；构建检查和冒烟会验证所有资源完整性。
     try { return m_strings.GetValue(key, m_context).ValueAsString(); }
-    catch (...) { ::OutputDebugStringW(L"AudioBule：界面文字资源缺失。\n"); return key; }
+    catch (...) { m_log.Write(Core::LogEvent::ResourceMissing, { .hresult = winrt::to_hresult() }, Core::LogLevel::Warning); return key; }
 }
 winrt::hstring UiText::Count(size_t count) const
 {

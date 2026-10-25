@@ -1,5 +1,6 @@
 #pragma once
 #include "ConnectionEntry.h"
+#include "Logger.h"
 #include <winrt/Microsoft.Windows.ApplicationModel.Resources.h>
 #include <string>
 
@@ -9,13 +10,14 @@ namespace AudioBule::App::UI
 class UiText
 {
 public:
-    UiText();
+    explicit UiText(Core::LogContext log = {});
     void SetLanguage(std::wstring const& preference);
     winrt::hstring Get(wchar_t const* key) const;
     winrt::hstring Count(size_t count) const;
     winrt::hstring Error(Core::ConnectionEntry const& entry) const;
     winrt::hstring Locale() const;
 private:
+    Core::LogContext m_log;
     winrt::Microsoft::Windows::ApplicationModel::Resources::ResourceManager m_manager;
     winrt::Microsoft::Windows::ApplicationModel::Resources::ResourceContext m_context{ nullptr };
     winrt::Microsoft::Windows::ApplicationModel::Resources::ResourceMap m_strings{ nullptr };

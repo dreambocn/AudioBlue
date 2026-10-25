@@ -73,9 +73,11 @@ struct AudioSessionIdentity::Impl
     bool stopping = false, dirty = false;
     // 只由工作线程访问；保存会话原值，断开或退出时条件恢复。
     std::vector<OwnedSession> owned;
+    LogContext log;
+    size_t previousOwned = 0;
     std::thread worker;
 
-    explicit Impl(std::wstring icon) : iconPath(std::move(icon)), worker([this] { Run(); }) {}
+    explicit Impl(std::wstring icon, LogContext context) : iconPath(std::move(icon)), log(std::move(context)), worker([this] { Run(); }) {}
     ~Impl()
     {
         { std::lock_guard lock(mutex); stopping = true; }
@@ -156,7 +158,7 @@ struct AudioSessionIdentity::Impl
                 // 任一写入失败就恢复已修改的一项，不保留半完成的品牌显示。
                 HRESULT nameHr = control->SetDisplayName(record.appliedName.c_str(), nullptr);
                 HRESULT iconHr = SUCCEEDED(nameHr) ? control->SetIconPath(iconPath.c_str(), nullptr) : nameHr;
-                if (FAILED(nameHr) || FAILED(iconHr)) { Restore(record); continue; }
+                if (FAILED(nameHr) || FAILED(iconHr)) { log.Write(LogEvent::AudioIdentityFailed, { .stage = LogStage::Write, .hresult = FAILED(nameHr) ? nameHr : iconHr }, LogLevel::Warning); Restore(record); continue; }
                 owned.push_back(std::move(record));
             }
         }
@@ -164,7 +166,7 @@ struct AudioSessionIdentity::Impl
     void Run() noexcept
     {
         HRESULT initialized = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        if (FAILED(initialized)) return;
+        if (FAILED(initialized)) { log.Write(LogEvent::AudioIdentityFailed, { .stage = LogStage::Initialize, .hresult = initialized }, LogLevel::Warning); return; }
         try
         {
             // 缺少图标时直接回退到系统显示，不写入无效路径。
@@ -180,18 +182,19 @@ struct AudioSessionIdentity::Impl
                     dirty = false;
                     lock.unlock();
                     Scan(targets);
+                    if (previousOwned != owned.size()) { log.Write(LogEvent::AudioIdentityChanged, { .count = static_cast<int64_t>(owned.size()) }); previousOwned = owned.size(); }
                     lock.lock();
                 }
             }
         }
-        catch (...) { ::OutputDebugStringW(L"AudioBule：音频会话外观更新失败，保留系统显示。\n"); }
+        catch (...) { log.Write(LogEvent::AudioIdentityFailed, { .hresult = winrt::to_hresult() }, LogLevel::Warning); }
         for (auto const& session : owned) Restore(session);
         owned.clear();
         ::CoUninitialize();
     }
 };
 
-AudioSessionIdentity::AudioSessionIdentity(std::wstring iconPath) : m_impl(std::make_unique<Impl>(std::move(iconPath))) {}
+AudioSessionIdentity::AudioSessionIdentity(std::wstring iconPath, LogContext log) : m_impl(std::make_unique<Impl>(std::move(iconPath), std::move(log))) {}
 AudioSessionIdentity::~AudioSessionIdentity() = default;
 void AudioSessionIdentity::SetDevices(std::vector<DeviceInfo> devices)
 {

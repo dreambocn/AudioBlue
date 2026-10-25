@@ -18,15 +18,16 @@ namespace AudioBule::Core
 class WinRtDeviceProvider final : public IAudioDeviceProvider
 {
 public:
-    WinRtDeviceProvider();
+    explicit WinRtDeviceProvider(LogContext log = {});
     ~WinRtDeviceProvider() override;
 
     bool IsSupported() const override;
     std::vector<DeviceInfo> EnumerateDevices() override;
-    ConnectResult Connect(std::wstring_view deviceId) override;
-    void Disconnect(std::wstring_view deviceId) override;
+    ConnectResult Connect(std::wstring_view deviceId, LogContext const& log = {}) override;
+    void Disconnect(std::wstring_view deviceId, LogContext const& log = {}) override;
 
 private:
+    LogContext m_log;
     std::mutex m_mutex;
     std::unordered_map<std::wstring, winrt::Windows::Media::Audio::AudioPlaybackConnection>
         m_connections;

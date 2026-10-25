@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <resheader name="resmimetype">
     <value>text/microsoft-resx</value>
@@ -276,4 +276,25 @@
   <data name="ViewAll" xml:space="preserve">
     <value>View all devices</value>
   </data>
+  <data name="Diagnostics" xml:space="preserve"><value>Diagnostics</value></data>
+  <data name="DiagnosticsOpenFolder" xml:space="preserve"><value>Log folder</value></data>
+  <data name="DiagnosticsPrivacy" xml:space="preserve"><value>Logs stay on this PC with anonymous device tokens. Audio is never recorded or uploaded.</value></data>
+  <data name="DiagnosticsDetailed" xml:space="preserve"><value>Detailed logging</value></data>
+  <data name="DiagnosticsDetailedDescription" xml:space="preserve"><value>Record connection stages temporarily. Turns off after 15 minutes or when the app exits.</value></data>
+  <data name="DiagnosticsExport" xml:space="preserve"><value>Export diagnostics</value></data>
+  <data name="DiagnosticsExportDescription" xml:space="preserve"><value>Save recent sanitized logs to share if you choose. Settings files and crash dumps are excluded.</value></data>
+  <data name="DiagnosticsInitializing" xml:space="preserve"><value>Preparing log storage…</value></data>
+  <data name="DiagnosticsAvailable" xml:space="preserve"><value>Local log storage is available</value></data>
+  <data name="DiagnosticsUnavailable" xml:space="preserve"><value>Log storage is unavailable. Existing records can be exported, but some events may be missing.</value></data>
+  <data name="DiagnosticsDropped" xml:space="preserve"><value>Events not retained:</value></data>
+  <data name="DiagnosticsRemaining" xml:space="preserve"><value>Detailed logging seconds left:</value></data>
+  <data name="DiagnosticsEnable" xml:space="preserve"><value>Enable for 15 min</value></data>
+  <data name="DiagnosticsDisable" xml:space="preserve"><value>Turn off</value></data>
+  <data name="DiagnosticsOpen" xml:space="preserve"><value>Open</value></data>
+  <data name="DiagnosticsSave" xml:space="preserve"><value>Export…</value></data>
+  <data name="DiagnosticsExporting" xml:space="preserve"><value>Exporting…</value></data>
+  <data name="DiagnosticsOpenFailed" xml:space="preserve"><value>Unable to open the log folder. Check local log storage.</value></data>
+  <data name="DiagnosticsExportSuccess" xml:space="preserve"><value>Diagnostics saved to your chosen location. Nothing was uploaded.</value></data>
+  <data name="DiagnosticsExportPartial" xml:space="preserve"><value>Diagnostics saved with a notice about missing, skipped, or incomplete records.</value></data>
+  <data name="DiagnosticsExportFailed" xml:space="preserve"><value>Unable to save diagnostics. Check permissions and free space at the selected location.</value></data>
 </root>

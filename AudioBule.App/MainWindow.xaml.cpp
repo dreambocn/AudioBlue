@@ -69,8 +69,10 @@ namespace winrt::AudioBule::App::implementation
 {
 void MainWindow::Initialize(::AudioBule::App::UI::UiText& text, std::function<void()> refresh,
     std::function<void()> addDevice, std::function<void(std::wstring const&, bool)> operate,
-    std::function<void()> exit, std::function<void(Core::AppSettings const&)> preferences)
+    std::function<void()> exit, std::function<void(Core::AppSettings const&)> preferences,
+    Core::LogContext log, std::function<void(::AudioBule::App::UI::DiagnosticsAction)> diagnostics)
 {
+    m_log = std::move(log); m_diagnostics = std::move(diagnostics);
     InitializeComponent();
     m_text = &text;
     m_addDevice = std::move(addDevice);
@@ -87,7 +89,7 @@ void MainWindow::Initialize(::AudioBule::App::UI::UiText& text, std::function<vo
             auto icon = ::LoadImageW(::GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101), IMAGE_ICON, size, size, LR_SHARED);
             if (icon) ::SendMessageW(Handle(), WM_SETICON, type, reinterpret_cast<LPARAM>(icon));
         }
-        ::OutputDebugStringW(L"AudioBule：窗口图标已回退到嵌入资源。\n");
+        m_log.Write(Core::LogEvent::WindowIconFallback, { .hresult = winrt::to_hresult() }, Core::LogLevel::Warning);
     }
     ExtendsContentIntoTitleBar(true);
     SetTitleBar(TitleDragRegion());
@@ -215,6 +217,24 @@ void MainWindow::BuildSettings()
     };
     combo(L"Theme", L"ThemeDescription", L"\xE790", &Core::AppSettings::theme, { {L"system",L"System"}, {L"light",L"Light"}, {L"dark",L"Dark"} });
     combo(L"Language", L"LanguageDescription", L"\xE774", &Core::AppSettings::language, { {L"system",L"System"}, {L"zh-CN",L"Chinese"}, {L"en-US",L"English"} });
+    group(L"Diagnostics");
+    m_diagnosticsStatus = Label(L"", 12);
+    Automation::AutomationProperties::SetAutomationId(m_diagnosticsStatus, L"DiagnosticsStatus");
+    Automation::AutomationProperties::SetLiveSetting(m_diagnosticsStatus, Automation::Peers::AutomationLiveSetting::Polite);
+    panel.Children().Append(m_diagnosticsStatus);
+    auto diagnosticButton = [this, panel](wchar_t const* key, wchar_t const* description, ::AudioBule::App::UI::DiagnosticsAction action) {
+        Button button;
+        Automation::AutomationProperties::SetAutomationId(button, key);
+        Automation::AutomationProperties::SetName(button, m_text->Get(key));
+        auto weak = get_weak();
+        button.Click([weak, action](auto const&, auto const&) { if (auto self = weak.get(); self && !self->m_stopping && self->m_diagnostics) self->m_diagnostics(action); });
+        panel.Children().Append(SettingsCard(m_text->Get(key), m_text->Get(description), L"\xE9D9", button));
+        return button;
+    };
+    m_diagnosticsFolder = diagnosticButton(L"DiagnosticsOpenFolder", L"DiagnosticsPrivacy", ::AudioBule::App::UI::DiagnosticsAction::OpenFolder);
+    m_diagnosticsDetailed = diagnosticButton(L"DiagnosticsDetailed", L"DiagnosticsDetailedDescription", ::AudioBule::App::UI::DiagnosticsAction::ToggleDetailed);
+    m_diagnosticsExport = diagnosticButton(L"DiagnosticsExport", L"DiagnosticsExportDescription", ::AudioBule::App::UI::DiagnosticsAction::Export);
+    SetDiagnostics(m_logStatus, m_diagnosticsBusy);
     Button exit;
     exit.Content(box_value(m_text->Get(L"Exit")));
     exit.Margin({ 0, 20, 0, 8 });
@@ -278,6 +298,29 @@ void MainWindow::SetOperationPending(std::wstring const& id, bool pending)
     if (pending) m_pendingDevices.insert(id); else m_pendingDevices.erase(id);
     Render(m_entries);
 }
+void MainWindow::SetDiagnostics(Core::LogStatus status, bool busy)
+{
+    m_logStatus = status; m_diagnosticsBusy = busy;
+    if (!m_diagnosticsStatus) return;
+    auto text = std::wstring(m_text->Get(!status.ready ? L"DiagnosticsInitializing" : status.available ? L"DiagnosticsAvailable" : L"DiagnosticsUnavailable"));
+    if (status.dropped) text += L" · " + std::wstring(m_text->Get(L"DiagnosticsDropped")) + L" " + std::to_wstring(status.dropped);
+    if (status.detailed) text += L" · " + std::wstring(m_text->Get(L"DiagnosticsRemaining")) + L" " + std::to_wstring(status.detailedSeconds);
+    if (m_diagnosticsStatus.Text() != text) m_diagnosticsStatus.Text(text);
+    if (m_diagnosticsDetailed)
+    {
+        auto action = m_text->Get(status.detailed ? L"DiagnosticsDisable" : L"DiagnosticsEnable");
+        m_diagnosticsDetailed.Content(box_value(action));
+        Automation::AutomationProperties::SetName(m_diagnosticsDetailed, std::wstring(m_text->Get(L"DiagnosticsDetailed")) + L" · " + std::wstring(action));
+    }
+    if (m_diagnosticsExport) { m_diagnosticsExport.Content(box_value(m_text->Get(busy ? L"DiagnosticsExporting" : L"DiagnosticsSave"))); m_diagnosticsExport.IsEnabled(!busy && !m_stopping); }
+    if (m_diagnosticsFolder) { m_diagnosticsFolder.Content(box_value(m_text->Get(L"DiagnosticsOpen"))); m_diagnosticsFolder.IsEnabled(status.available && !m_stopping); }
+}
+void MainWindow::RestoreDiagnosticsFocus()
+{
+    // 只在当前窗口仍处于前台且设置页可见时恢复焦点，避免抢占其它窗口。
+    if (!m_stopping && m_diagnosticsExport && SettingsPage().Visibility() == Visibility::Visible && ::GetForegroundWindow() == Handle())
+        m_diagnosticsExport.Focus(FocusState::Programmatic);
+}
 void MainWindow::SetStopping()
 {
     m_stopping = true;
@@ -326,7 +369,7 @@ fire_and_forget MainWindow::ConfirmExit()
         dialog.CloseButtonText(m_text->Get(L"Cancel"));
         dialog.DefaultButton(ContentDialogButton::Close);
         if (co_await dialog.ShowAsync() == ContentDialogResult::Primary) m_exit();
-    } catch (...) { ::OutputDebugStringW(L"AudioBule：退出确认无法显示。\n"); }
+    } catch (...) { m_log.Write(Core::LogEvent::ExitDialogFailed, { .hresult = winrt::to_hresult() }, Core::LogLevel::Warning); }
     m_confirming = false;
 }
 void MainWindow::CloseForExit() { m_allowClose = true; Close(); }

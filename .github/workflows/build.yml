@@ -54,6 +54,17 @@ jobs:
       - name: 构建并运行核心测试
         run: .\tools\Build.ps1 -Platform '${{ matrix.platform }}' -Configuration Release -RunTests
 
+      - name: 保存匹配的应用符号
+        run: .\tools\diagnostics\Save-Symbols.ps1 -Platform '${{ matrix.platform }}' -Configuration Release
+
+      - name: 独立保留诊断符号
+        uses: actions/upload-artifact@v4
+        with:
+          name: symbols-${{ matrix.platform }}
+          path: artifacts/symbols/**
+          if-no-files-found: error
+          retention-days: 90
+
       - name: 安装安装包编译器
         run: |
           # 直接使用官方发布文件及固定摘要，避免包管理镜像缺少指定版本。

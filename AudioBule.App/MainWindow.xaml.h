@@ -2,6 +2,7 @@
 #include "MainWindow.g.h"
 #include "DevicePresenter.h"
 #include "Settings.h"
+#include "DiagnosticsController.h"
 #include <functional>
 #include <set>
 
@@ -13,13 +14,16 @@ struct MainWindow : MainWindowT<MainWindow>
     // 组件初始化在 make_self 完成以后执行。
     void Initialize(::AudioBule::App::UI::UiText& text, std::function<void()> refresh,
         std::function<void()> addDevice, std::function<void(std::wstring const&, bool)> operate,
-        std::function<void()> exit, std::function<void(::AudioBule::Core::AppSettings const&)> preferences);
+        std::function<void()> exit, std::function<void(::AudioBule::Core::AppSettings const&)> preferences,
+        ::AudioBule::Core::LogContext log = {}, std::function<void(::AudioBule::App::UI::DiagnosticsAction)> diagnostics = {});
     void ApplyPreferences(::AudioBule::Core::AppSettings const& settings, bool startupPending = false, bool notificationsAvailable = true);
     void Navigate(std::wstring const& page);
     void Render(std::vector<::AudioBule::Core::ConnectionEntry> const& entries);
     void SetRefreshing(bool refreshing);
     void SetOperationPending(std::wstring const& id, bool pending);
     void SetStopping();
+    void SetDiagnostics(::AudioBule::Core::LogStatus status, bool busy);
+    void RestoreDiagnosticsFocus();
     void SetStatus(std::wstring const& status);
     void SetStatusKey(wchar_t const* key);
     void Show();
@@ -31,6 +35,12 @@ struct MainWindow : MainWindowT<MainWindow>
     int32_t Placeholder();
     void Placeholder(int32_t value);
 private:
+    ::AudioBule::Core::LogContext m_log;
+    ::AudioBule::Core::LogStatus m_logStatus;
+    std::function<void(::AudioBule::App::UI::DiagnosticsAction)> m_diagnostics;
+    Microsoft::UI::Xaml::Controls::TextBlock m_diagnosticsStatus{ nullptr };
+    Microsoft::UI::Xaml::Controls::Button m_diagnosticsDetailed{ nullptr }, m_diagnosticsExport{ nullptr }, m_diagnosticsFolder{ nullptr };
+    bool m_diagnosticsBusy = false;
     void BuildSettings();
     void BuildAbout();
     void UpdateCaption();

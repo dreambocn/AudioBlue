@@ -1,5 +1,6 @@
 #pragma once
 #include "ConnectionEntry.h"
+#include "Logger.h"
 #include <memory>
 #include <optional>
 #include <string_view>
@@ -15,7 +16,7 @@ std::optional<size_t> MatchA2dpSessionDevice(
 class AudioSessionIdentity final
 {
 public:
-    explicit AudioSessionIdentity(std::wstring iconPath);
+    explicit AudioSessionIdentity(std::wstring iconPath, LogContext log = {});
     ~AudioSessionIdentity();
     void SetDevices(std::vector<DeviceInfo> devices);
 private:

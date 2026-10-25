@@ -1,8 +1,8 @@
 # Privacy policy / 隐私说明
 
-适用范围：本仓库的原生 C++ / WinUI 3 AudioBule 应用。更新日期：2026-10-17。
+适用范围：本仓库的原生 C++ / WinUI 3 AudioBule 应用。更新日期：2026-10-18。
 
-This policy covers the native C++ / WinUI 3 AudioBule application maintained in this repository. Last updated: 2026-10-17.
+This policy covers the native C++ / WinUI 3 AudioBule application maintained in this repository. Last updated: 2026-10-18.
 
 ## 音频、设备与本地设置
 
@@ -12,6 +12,14 @@ This policy covers the native C++ / WinUI 3 AudioBule application maintained in 
 - 本应用没有广告、使用统计、遥测上报、远程账户或由维护者运营的后台服务。
 
 AudioBule uses Windows Bluetooth audio APIs to discover paired devices and manage audio reception. Windows renders the incoming audio. AudioBule does not implement audio recording, audio-file storage, analytics, advertising, or a maintainer-operated upload service. Device information and preferences are used locally and are not sent to project maintainers.
+
+## 本地日志与诊断 / Local diagnostics
+
+应用默认在 `%LOCALAPPDATA%\AudioBule\Logs` 记录本地运行事件、错误码及耗时，不自动上传。普通日志不记录设备原名、原始设备标识、蓝牙地址、完整用户路径、配置正文、异常原文或音频；匿名设备令牌仅在同次运行内可关联，重启后变化。启动时按 7 天保留期限清理非活动会话，每次运行的日志载荷最多 20 MiB，总量目标 100 MiB；多个活动实例可暂时超过总量目标。
+
+设置页允许临时开启最多 15 分钟的详细日志，并手动导出最多 20 MiB 的脱敏诊断文件。导出由用户选择保存位置并决定是否分享，不包含设置原文、安装日志或内存转储。导出文件不随日志过期自动删除。崩溃转储只在用户显式使用排查工具后按 Windows 的实际配置采集，可能含私人内存数据，不适合公开分享。
+
+Local runtime logs include event codes, errors and timings and are never uploaded automatically. Raw device names, IDs, Bluetooth addresses, user paths, configuration contents, exception text and audio are excluded. Device tokens change between sessions. Inactive sessions are cleaned on startup using a seven-day retention period; each session is limited to 20 MiB, with a 100 MiB retention target that can temporarily be exceeded by active instances. Detailed logging lasts at most 15 minutes. Users can save a sanitized diagnostic file of up to 20 MiB and choose whether to share it. Exported files must be managed separately. Optional Windows crash dumps may contain private memory data and are excluded from normal exports.
 
 ## Windows 系统集成与第三方服务
 

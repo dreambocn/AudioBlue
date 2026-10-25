@@ -156,6 +156,10 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ProgramDatabaseFile>$(OutDir)$(TargetName).pdb</ProgramDatabaseFile>
+    </Link>
     <ClCompile>
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
@@ -172,6 +176,7 @@
     <ClInclude Include="QuickPanel.h" />
     <ClInclude Include="DevicePresenter.h" />
     <ClInclude Include="UiText.h" />
+    <ClInclude Include="DiagnosticsController.h" />
     <ClInclude Include="TrayIconService.h" />
     <ClInclude Include="TrayMenuBuilder.h" />
     <ClInclude Include="App.xaml.h">
@@ -207,6 +212,7 @@
     <ClCompile Include="QuickPanel.cpp" />
     <ClCompile Include="DevicePresenter.cpp" />
     <ClCompile Include="UiText.cpp" />
+    <ClCompile Include="DiagnosticsController.cpp" />
     <ClCompile Include="TrayMenuBuilder.cpp" />
     <ClCompile Include="App.xaml.cpp">
       <DependentUpon>App.xaml</DependentUpon>

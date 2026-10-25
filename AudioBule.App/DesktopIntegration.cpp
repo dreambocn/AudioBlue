@@ -20,7 +20,7 @@ bool DisabledInWindows()
 }
 constexpr wchar_t kRunKey[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 }
-DesktopIntegration::DesktopIntegration()
+DesktopIntegration::DesktopIntegration(Core::LogContext log) : m_log(std::move(log))
 {
     wchar_t flag[8]{};
     m_smoke = ::GetEnvironmentVariableW(L"AUDIOBULE_SMOKE_TEST", flag, 8) && std::wstring_view(flag) == L"1";
@@ -29,7 +29,7 @@ DesktopIntegration::~DesktopIntegration()
 {
     if (m_registered) {
         try { m_notifications.NotificationInvoked(m_notificationToken); m_notifications.Unregister(); }
-        catch (...) { ::OutputDebugStringW(L"AudioBule：通知服务注销失败。\n"); }
+        catch (...) { m_log.Write(Core::LogEvent::NotificationCleanupFailed, { .hresult = winrt::to_hresult() }, Core::LogLevel::Warning); }
     }
 }
 bool DesktopIntegration::Packaged()
@@ -95,7 +95,7 @@ bool DesktopIntegration::RegisterNotifications(std::function<void()> activated)
         m_notifications.Register();
         m_registered = true;
         return true;
-    } catch (...) { ::OutputDebugStringW(L"AudioBule：系统通知不可用。\n"); return false; }
+    } catch (...) { m_log.Write(Core::LogEvent::NotificationsUnavailable, { .hresult = winrt::to_hresult() }, Core::LogLevel::Warning); return false; }
 }
 void DesktopIntegration::Notify(Core::ConnectionEntry const& entry, UiText const& text)
 {
@@ -105,6 +105,6 @@ void DesktopIntegration::Notify(Core::ConnectionEntry const& entry, UiText const
         auto notification = AppNotificationBuilder().AddArgument(L"action", L"open")
             .AddText(entry.displayName).AddText(text.Get(entry.state == Core::ConnectionState::Connected ? L"NotificationConnected" : L"NotificationDisconnected")).BuildNotification();
         m_notifications.Show(notification);
-    } catch (...) { ::OutputDebugStringW(L"AudioBule：发送连接通知失败。\n"); }
+    } catch (...) { m_log.Write(Core::LogEvent::NotificationFailed, { .hresult = winrt::to_hresult() }, Core::LogLevel::Warning); }
 }
 }

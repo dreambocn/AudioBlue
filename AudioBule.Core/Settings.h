@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Logger.h"
 #include <string>
 #include <vector>
 
@@ -24,9 +25,9 @@ std::wstring DefaultSettingsPath();
 // 读配置。**永不抛出、永不返回错误码** —— 文件不存在、JSON 损坏、
 // 字段缺失、类型不符，一律回落到默认值。对齐 spec §3.8
 // 「配置读写失败 → 记日志并使用默认值，不阻断启动」。
-AppSettings LoadSettings(std::wstring const& path);
+AppSettings LoadSettings(std::wstring const& path, LogContext const& log = {});
 
 // 写配置。失败返回 false（调用方记日志即可），不抛异常。
-bool SaveSettings(AppSettings const& settings, std::wstring const& path);
+bool SaveSettings(AppSettings const& settings, std::wstring const& path, LogContext const& log = {});
 
 } // namespace AudioBule::Core

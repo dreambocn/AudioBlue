@@ -184,7 +184,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install-Runtime.ps1
 
 ## 参与项目
 
-欢迎通过 [Issues](https://github.com/dreambocn/AudioBlue/issues) 报告问题或提出建议，也欢迎提交 Pull Request。反馈连接问题时，请附上系统与应用版本、设备类型、复现步骤及错误信息；公开日志前请移除私人设备信息和凭据。
+欢迎通过 [Issues](https://github.com/dreambocn/AudioBlue/issues) 报告问题或提出建议，也欢迎提交 Pull Request。反馈连接问题时，请附上系统与应用版本、设备类型、复现步骤及错误信息。可以在“设置 → 诊断”临时开启详细日志，复现后导出诊断文件；日志只保存在本机，不自动上传。导出排除原始设备标识、配置正文及崩溃转储，分享前仍请核对内容。完整步骤、留存策略和按需崩溃排查见[日志与故障排查](docs/diagnostics/README.md)。
 
 相关文档：[原生 UI 与验证](docs/native-ui/README.md) · [界面设计稿](docs/ui-preview/README.md) · [隐私说明](PRIVACY.md) · [签名策略](CODE_SIGNING.md)
 

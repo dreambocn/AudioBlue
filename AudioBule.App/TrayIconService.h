@@ -5,6 +5,7 @@
 #include <winrt/Microsoft.UI.Dispatching.h>
 
 #include "IconFactory.h"
+#include "Logger.h"
 #include <atomic>
 #include <condition_variable>
 #include <functional>
@@ -27,7 +28,7 @@ public:
     };
 
     TrayIconService(winrt::Microsoft::UI::Dispatching::DispatcherQueue const& queue,
-        Callbacks callbacks);
+        Callbacks callbacks, Core::LogContext log = {});
     ~TrayIconService();
     TrayIconService(TrayIconService const&) = delete;
     TrayIconService& operator=(TrayIconService const&) = delete;
@@ -41,6 +42,7 @@ private:
     // 队列里可能仍有回调；共享开关让析构后的回调安全失效。
     struct CallbackState
     {
+        Core::LogContext log;
         std::atomic<bool> active{ true };
         Callbacks callbacks;
     };
@@ -54,6 +56,7 @@ private:
 
     winrt::Microsoft::UI::Dispatching::DispatcherQueue m_queue;
     std::shared_ptr<CallbackState> m_callbacks;
+    Core::LogContext m_log;
     std::thread m_thread;
     std::mutex m_mutex;
     std::condition_variable m_readyCondition;

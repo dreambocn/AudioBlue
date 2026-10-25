@@ -41,7 +41,7 @@ constexpr int kAudioConnectionClosed = 0;
 
 } // namespace
 
-WinRtDeviceProvider::WinRtDeviceProvider() = default;
+WinRtDeviceProvider::WinRtDeviceProvider(LogContext log) : m_log(std::move(log)) {}
 
 WinRtDeviceProvider::~WinRtDeviceProvider()
 {
@@ -61,6 +61,7 @@ bool WinRtDeviceProvider::IsSupported() const
     }
     catch (...)
     {
+        m_log.Write(LogEvent::SupportProbeFailed, { .hresult = winrt::to_hresult() }, LogLevel::Warning);
         return false;
     }
 }
@@ -91,7 +92,7 @@ std::vector<DeviceInfo> WinRtDeviceProvider::EnumerateDevices()
     return result;
 }
 
-ConnectResult WinRtDeviceProvider::Connect(std::wstring_view deviceId)
+ConnectResult WinRtDeviceProvider::Connect(std::wstring_view deviceId, LogContext const& log)
 {
     std::wstring id(deviceId);
 
@@ -109,6 +110,7 @@ ConnectResult WinRtDeviceProvider::Connect(std::wstring_view deviceId)
         }
     }
 
+    LogStage stage = LogStage::Create;
     AudioPlaybackConnection connection = nullptr;
     try
     {
@@ -119,11 +121,13 @@ ConnectResult WinRtDeviceProvider::Connect(std::wstring_view deviceId)
     }
     catch (winrt::hresult_error const& e)
     {
+        log.Write(LogEvent::ProviderStage, { .stage = stage, .outcome = LogOutcome::Failed, .hresult = e.code() }, LogLevel::Warning);
         return ConnectResult{ false, ConnectFailure::HresultError, e.code() };
     }
 
     if (!connection)
     {
+        log.Write(LogEvent::ProviderStage, { .stage = LogStage::Create, .outcome = LogOutcome::Unsupported }, LogLevel::Warning);
         // 设备不支持 A2DP Sink（spike 实测：部分手机会这样）
         return ConnectResult{ false, ConnectFailure::DeviceNotSupported, 0 };
     }
@@ -131,8 +135,12 @@ ConnectResult WinRtDeviceProvider::Connect(std::wstring_view deviceId)
     try
     {
         // StartAsync 返回 void，无结果值可查 —— 不要试图检查它的「返回值」
+        stage = LogStage::Start;
+        log.Write(LogEvent::ProviderStage, { .stage = stage }, LogLevel::Debug);
         connection.StartAsync().get();
 
+        stage = LogStage::Open;
+        log.Write(LogEvent::ProviderStage, { .stage = stage }, LogLevel::Debug);
         auto openResult = connection.OpenAsync().get();
 
         if (openResult.Status() != AudioPlaybackConnectionOpenResultStatus::Success)
@@ -149,11 +157,13 @@ ConnectResult WinRtDeviceProvider::Connect(std::wstring_view deviceId)
                 failure = ConnectFailure::GenericFailure;
             }
 
+            log.Write(LogEvent::ProviderStage, { .stage = stage, .outcome = LogOutcome::Failed, .hresult = extended, .failure = static_cast<int32_t>(failure), .status = static_cast<int32_t>(openResult.Status()) }, LogLevel::Warning);
             return ConnectResult{ false, failure, extended };
         }
     }
     catch (winrt::hresult_error const& e)
     {
+        log.Write(LogEvent::ProviderStage, { .stage = stage, .outcome = LogOutcome::Failed, .hresult = e.code() }, LogLevel::Warning);
         return ConnectResult{ false, ConnectFailure::HresultError, e.code() };
     }
 
@@ -184,10 +194,11 @@ ConnectResult WinRtDeviceProvider::Connect(std::wstring_view deviceId)
             });
     }
 
+    log.Write(LogEvent::ProviderStage, { .stage = LogStage::Open, .outcome = LogOutcome::Succeeded }, LogLevel::Debug);
     return ConnectResult{ true, ConnectFailure::None, 0 };
 }
 
-void WinRtDeviceProvider::Disconnect(std::wstring_view deviceId)
+void WinRtDeviceProvider::Disconnect(std::wstring_view deviceId, LogContext const& log)
 {
     std::wstring id(deviceId);
 
@@ -209,8 +220,9 @@ void WinRtDeviceProvider::Disconnect(std::wstring_view deviceId)
     {
         connection.Close();
     }
-    catch (winrt::hresult_error const&)
+    catch (winrt::hresult_error const& error)
     {
+        log.Write(LogEvent::ProviderStage, { .stage = LogStage::Close, .outcome = LogOutcome::Failed, .hresult = error.code() }, LogLevel::Warning);
         // 关不掉也不要紧：连接对象已从表里移除并在此析构，
         // AudioPlaybackConnection 的析构同样会关闭底层会话。
     }

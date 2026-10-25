@@ -5,4 +5,17 @@
     <_NuGetTargetFallbackMoniker />
     <NuGetTargetMoniker>native,Version=v0.0</NuGetTargetMoniker>
   </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <!-- 运行日志的版本从发布清单生成，避免手写第二份版本号。 -->
+  <Target Name="AudioBuleGenerateVersion" BeforeTargets="ClCompile">
+    <XmlPeek XmlInputPath="$(MSBuildThisFileDirectory)assets\AudioBule.Package.appxmanifest" Query="/*[local-name()='Package']/*[local-name()='Identity']/@Version">
+      <Output TaskParameter="Result" PropertyName="AudioBuleManifestVersion" />
+    </XmlPeek>
+    <MakeDir Directories="$(IntDir)" />
+    <WriteLinesToFile File="$(IntDir)AudioBule.Version.h" Lines="#pragma once%0A#define AUDIOBULE_VERSION &quot;$(AudioBuleManifestVersion)&quot;" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
 </Project>

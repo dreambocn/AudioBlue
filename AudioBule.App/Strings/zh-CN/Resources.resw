@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <resheader name="resmimetype">
     <value>text/microsoft-resx</value>
@@ -276,4 +276,25 @@
   <data name="ViewAll" xml:space="preserve">
     <value>查看全部设备</value>
   </data>
+  <data name="Diagnostics" xml:space="preserve"><value>诊断</value></data>
+  <data name="DiagnosticsOpenFolder" xml:space="preserve"><value>日志文件夹</value></data>
+  <data name="DiagnosticsPrivacy" xml:space="preserve"><value>日志仅保存在本机，设备标识已匿名化；不会记录或上传音频。</value></data>
+  <data name="DiagnosticsDetailed" xml:space="preserve"><value>详细日志</value></data>
+  <data name="DiagnosticsDetailedDescription" xml:space="preserve"><value>临时记录连接阶段详情，15 分钟后或退出时自动关闭。</value></data>
+  <data name="DiagnosticsExport" xml:space="preserve"><value>导出诊断文件</value></data>
+  <data name="DiagnosticsExportDescription" xml:space="preserve"><value>保存已脱敏的近期日志，由你决定是否分享；不包含设置原文或崩溃转储。</value></data>
+  <data name="DiagnosticsInitializing" xml:space="preserve"><value>正在准备日志存储…</value></data>
+  <data name="DiagnosticsAvailable" xml:space="preserve"><value>本地日志存储正常</value></data>
+  <data name="DiagnosticsUnavailable" xml:space="preserve"><value>日志存储不可用；仍可导出已有记录，部分事件可能缺失。</value></data>
+  <data name="DiagnosticsDropped" xml:space="preserve"><value>未保留事件：</value></data>
+  <data name="DiagnosticsRemaining" xml:space="preserve"><value>详细日志剩余秒数：</value></data>
+  <data name="DiagnosticsEnable" xml:space="preserve"><value>开启 15 分钟</value></data>
+  <data name="DiagnosticsDisable" xml:space="preserve"><value>关闭</value></data>
+  <data name="DiagnosticsOpen" xml:space="preserve"><value>打开</value></data>
+  <data name="DiagnosticsSave" xml:space="preserve"><value>导出…</value></data>
+  <data name="DiagnosticsExporting" xml:space="preserve"><value>正在导出…</value></data>
+  <data name="DiagnosticsOpenFailed" xml:space="preserve"><value>无法打开日志目录，请检查本地日志存储状态。</value></data>
+  <data name="DiagnosticsExportSuccess" xml:space="preserve"><value>诊断文件已保存到所选位置，未自动上传。</value></data>
+  <data name="DiagnosticsExportPartial" xml:space="preserve"><value>诊断文件已保存，但包含丢失、跳过或不完整记录的说明。</value></data>
+  <data name="DiagnosticsExportFailed" xml:space="preserve"><value>无法保存诊断文件，请检查所选位置的权限与可用空间。</value></data>
 </root>

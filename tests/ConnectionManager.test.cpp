@@ -67,7 +67,7 @@ public:
         return devices;
     }
 
-    ConnectResult Connect(std::wstring_view deviceId) override
+    ConnectResult Connect(std::wstring_view deviceId, LogContext const& = {}) override
     {
         APTTYPE type{};
         APTTYPEQUALIFIER qualifier{};
@@ -89,7 +89,7 @@ public:
         return ConnectResult{ true, ConnectFailure::None, 0 };
     }
 
-    void Disconnect(std::wstring_view deviceId) override
+    void Disconnect(std::wstring_view deviceId, LogContext const& = {}) override
     {
         APTTYPE type{};
         APTTYPEQUALIFIER qualifier{};
@@ -630,12 +630,12 @@ public:
     {
         return includeA ? std::vector<DeviceInfo>{ {L"A", L"手机 A"}, {L"B", L"手机 B"} } : std::vector<DeviceInfo>{ {L"B", L"手机 B"} };
     }
-    ConnectResult Connect(std::wstring_view id) override
+    ConnectResult Connect(std::wstring_view id, LogContext const& = {}) override
     {
         if (id == L"A") { ++attempts; started.set_value(); released.wait(); return result; }
         return { true, ConnectFailure::None, 0 };
     }
-    void Disconnect(std::wstring_view id) override { if (id == L"A") ++closed; }
+    void Disconnect(std::wstring_view id, LogContext const& = {}) override { if (id == L"A") ++closed; }
 };
 }
 TEST(ConnectionManager, CancelClosesLateSuccessAndKeepsOtherDevicesConnected)

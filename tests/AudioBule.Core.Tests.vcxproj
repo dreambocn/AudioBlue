@@ -93,6 +93,8 @@
     <ClCompile Include="SimpleEvent.test.cpp" />
     <ClCompile Include="StringUtil.test.cpp" />
     <ClCompile Include="Settings.test.cpp" />
+    <ClCompile Include="Logger.test.cpp" />
+    <ClCompile Include="LoggingBenchmark.cpp" />
     <ClCompile Include="ConnectionManager.test.cpp" />
     <ClCompile Include="IconFactory.test.cpp" />
     <ClCompile Include="AudioSessionIdentity.test.cpp" />

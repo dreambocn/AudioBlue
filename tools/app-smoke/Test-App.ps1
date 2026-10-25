@@ -1,6 +1,7 @@
-﻿param(
+param(
     [string]$Executable = (Join-Path $PSScriptRoot '..\..\AudioBule.App\bin\AudioBule.exe'),
-    [string]$ScreenshotPath
+    [string]$ScreenshotPath,
+    [switch]$TestDiagnosticPicker
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,9 +30,12 @@ namespace AudioBuleSmoke {
         [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr window, StringBuilder text, int count);
         [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string name, string title);
         [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+        [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr window, int identifier);
+        [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
         [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wparam, IntPtr lparam);
         [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern uint RegisterWindowMessage(string text);
-        [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wparam, IntPtr lparam);
+        [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wparam, IntPtr lparam);
         [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr LoadImage(IntPtr instance, string name, uint type, int width, int height, uint flags);
         [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr icon);
         [DllImport("user32.dll")] public static extern int GetMenuItemCount(IntPtr menu);
@@ -218,6 +222,94 @@ try {
     Save-WindowImage $window ''
     Invoke-Ui (Find-Ui $root 'SettingsNav')
     Assert-Condition ($null -ne (Find-Ui $root '启动时自动重连' -Name)) '设置页显示原生开关'
+    Assert-Condition ($null -ne (Find-Ui $root 'DiagnosticsExport')) '设置页提供原生诊断导出按钮'
+    Assert-Condition (Wait-Condition { (Find-Ui $root 'DiagnosticsStatus').Current.Name.Contains('本地日志存储正常') }) '本轮隔离实例日志存储可用'
+    Invoke-Ui (Find-Ui $root 'DiagnosticsDetailed')
+    Assert-Condition (Wait-Condition { (Find-Ui $root 'DiagnosticsStatus').Current.Name.Contains('剩余秒数') }) '详细日志可临时开启并显示剩余时间'
+    Invoke-Ui (Find-Ui $root 'DiagnosticsDetailed')
+    Assert-Condition (Wait-Condition { -not (Find-Ui $root 'DiagnosticsStatus').Current.Name.Contains('剩余秒数') }) '详细日志可关闭'
+    $diagnosticsButton = Find-Ui $root 'DiagnosticsDetailed'
+    $diagnosticsScroll = $null
+    if ($diagnosticsButton.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern, [ref]$diagnosticsScroll)) { $diagnosticsScroll.ScrollIntoView() }
+    Save-WindowImage $window 'diagnostics'
+    if ($TestDiagnosticPicker) {
+        # 只操作本轮测试进程拥有的原生保存对话框。
+        $exportButton = Find-Ui $root 'DiagnosticsExport'
+        $null = [AudioBuleSmoke.Native]::SetForegroundWindow($window)
+        Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::GetForegroundWindow() -eq $window }) '模拟用户在前台主窗口发起诊断导出'
+        $exportButton.SetFocus()
+        Invoke-Ui $exportButton
+        Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::Find([uint32]$application.Id, '#32770') -ne [IntPtr]::Zero }) '诊断导出打开原生保存对话框'
+        $saveDialog = [System.Windows.Automation.AutomationElement]::FromHandle([AudioBuleSmoke.Native]::Find([uint32]$application.Id, '#32770'))
+        Write-Output ("保存对话框标题：{0}" -f $saveDialog.Current.Name)
+        Save-WindowImage ([AudioBuleSmoke.Native]::Find([uint32]$application.Id, '#32770')) 'picker'
+        # 本机 Shell 将可写文件名通过 SaveDialogLabel 暴露，不能假定角色为 Edit。
+        $null = Wait-Condition {
+            $candidate = Find-Ui $saveDialog 'SaveDialogLabel'
+            $candidate -and $candidate.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsValuePatternAvailableProperty)
+        }
+        $fileName = Find-Ui $saveDialog 'SaveDialogLabel'
+        Assert-Condition ($null -ne $fileName) '原生保存对话框提供文件名编辑框'
+        $exportPath = Join-Path $testData 'AudioBule\diagnostic-export.jsonl'
+        $candidates = $saveDialog.FindAll($scope, [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, '1001'))
+        $nativeEdit = @($candidates | Where-Object { $_.Current.Name -eq 'AudioBule-diagnostics' -and $_.Current.ClassName -eq 'Edit' -and $_.Current.NativeWindowHandle -ne 0 }) | Select-Object -First 1
+        Assert-Condition ($null -ne $nativeEdit) '保存对话框的文件名区域具有原生句柄'
+        $textPointer = [Runtime.InteropServices.Marshal]::StringToHGlobalUni($exportPath)
+        try {
+            # 替换选区触发原生编辑通知，避免 Shell 沿用默认文件名。
+            $null = [AudioBuleSmoke.Native]::SendMessage([IntPtr]$nativeEdit.Current.NativeWindowHandle, 0x00B1, [IntPtr]::Zero, [IntPtr](-1))
+            $null = [AudioBuleSmoke.Native]::SendMessage([IntPtr]$nativeEdit.Current.NativeWindowHandle, 0x00C2, [IntPtr]1, $textPointer)
+        }
+        finally { [Runtime.InteropServices.Marshal]::FreeHGlobal($textPointer) }
+
+        $readPointer = [Runtime.InteropServices.Marshal]::AllocHGlobal(65536)
+        try {
+            $null = [AudioBuleSmoke.Native]::SendMessage([IntPtr]$nativeEdit.Current.NativeWindowHandle, 0x000D, [IntPtr]32768, $readPointer)
+            $selectedText = [Runtime.InteropServices.Marshal]::PtrToStringUni($readPointer)
+        }
+        finally { [Runtime.InteropServices.Marshal]::FreeHGlobal($readPointer) }
+        Assert-Condition ($selectedText -eq $exportPath) '文件名输入只指向本轮隔离目录'
+        $dialogHandle = [AudioBuleSmoke.Native]::Find([uint32]$application.Id, '#32770')
+        $saveHandle = [AudioBuleSmoke.Native]::GetDlgItem($dialogHandle, 1)
+        $buttonClass = [Text.StringBuilder]::new(256)
+        $null = [AudioBuleSmoke.Native]::GetClassName($saveHandle, $buttonClass, $buttonClass.Capacity)
+        Assert-Condition ($saveHandle -ne [IntPtr]::Zero -and $buttonClass.ToString() -eq 'Button') '保存操作定位到本对话框的原生确认按钮'
+        $null = [AudioBuleSmoke.Native]::SendMessage($dialogHandle, 0x0028, $saveHandle, [IntPtr]1)
+        $null = [AudioBuleSmoke.Native]::SendMessage($saveHandle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+        $saved = Wait-Condition { (Test-Path -LiteralPath $exportPath) -and (Find-Ui $root 'DiagnosticsExport').Current.IsEnabled }
+        if (-not $saved) {
+            Write-Output ("导出按钮启用状态：{0}；目标文件存在：{1}" -f (Find-Ui $root 'DiagnosticsExport').Current.IsEnabled, (Test-Path -LiteralPath $exportPath))
+            Get-ChildItem -LiteralPath (Join-Path $testData 'AudioBule') -File | Select-Object Name,Length | Format-Table | Out-String | Write-Output
+            Get-ChildItem -LiteralPath (Join-Path $testData 'AudioBule\Logs') -Recurse -Filter '*.jsonl' | ForEach-Object { Get-Content -LiteralPath $_.FullName } | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.event -eq 'diagnostics.export_completed' } | ConvertTo-Json -Compress | Write-Output
+        }
+        Assert-Condition $saved '原生保存操作完成诊断导出'
+        $diagnostics = @(Get-Content -LiteralPath $exportPath | ForEach-Object { $_ | ConvertFrom-Json })
+        Assert-Condition ($diagnostics.Count -gt 1 -and $diagnostics[0].record_type -eq 'manifest') '实际导出文件包含清单及可解析的日志'
+        Assert-Condition (-not $diagnostics[0].incomplete) '本轮正常导出没有缺失说明'
+        if ($ScreenshotPath) { Copy-Item -LiteralPath $exportPath -Destination (Join-Path (Split-Path ([IO.Path]::GetFullPath($ScreenshotPath))) 'diagnostics-sample.jsonl') -Force }
+
+        Assert-Condition (@($diagnostics | Where-Object { $_.PSObject.Properties.Name -contains 'device_name' }).Count -eq 0) '实际导出不包含设备原名字段'
+        $focusReturned = Wait-Condition { (Find-Ui $root 'DiagnosticsExport').Current.HasKeyboardFocus }
+        if (-not $focusReturned) {
+            $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+            $foreground = [AudioBuleSmoke.Native]::GetForegroundWindow()
+            Write-Output ("焦点诊断：前台是否主窗口={0}；焦点是否测试进程={1}" -f ($foreground -eq $window), ($focused -and $focused.Current.ProcessId -eq $application.Id))
+            if ($focused -and $focused.Current.ProcessId -eq $application.Id) { Write-Output ("焦点标识：{0}；类型：{1}" -f $focused.Current.AutomationId, $focused.Current.ControlType.ProgrammaticName) }
+        }
+        Assert-Condition $focusReturned '导出完成后焦点回到原生导出按钮'
+        Invoke-Ui (Find-Ui $root 'DiagnosticsExport')
+        Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::Find([uint32]$application.Id, '#32770') -ne [IntPtr]::Zero }) '可再次打开诊断保存对话框'
+        $cancelDialog = [AudioBuleSmoke.Native]::Find([uint32]$application.Id, '#32770')
+        $cancelButton = [AudioBuleSmoke.Native]::GetDlgItem($cancelDialog, 2)
+        $null = [AudioBuleSmoke.Native]::SendMessage($cancelButton, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+        Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::Find([uint32]$application.Id, '#32770') -eq [IntPtr]::Zero -and (Find-Ui $root 'DiagnosticsExport').Current.IsEnabled }) '取消保存对话框后恢复导出按钮'
+
+    }
+
+    $settingsScroll = (Find-Ui $root 'SettingsPage').GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+    if ($settingsScroll.Current.VerticallyScrollable) { $settingsScroll.SetScrollPercent(-1, 0) }
+
+
     $reconnect = Find-Ui $root 'AutoReconnect'
     $startup = Find-Ui $root 'RunAtStartup'
     $notifications = Find-Ui $root 'ConnectionNotifications'
@@ -332,6 +424,13 @@ try {
     Assert-Condition ($application.WaitForExit(10000)) '确认后正常退出无残留进程'
     Assert-Condition ($application.ExitCode -eq 0) '正常退出码为 0'
     Assert-Condition (-not [AudioBuleSmoke.Native]::HasIcon($callback)) '退出后托盘移除'
+    $sessionDirectories = @(Get-ChildItem -LiteralPath (Join-Path $testData 'AudioBule\Logs') -Directory)
+    Assert-Condition ($sessionDirectories.Count -eq 1 -and (Test-Path -LiteralPath (Join-Path $sessionDirectories[0].FullName 'complete'))) '正常退出写入完整结束标记'
+    $logRecords = @(Get-ChildItem -LiteralPath $sessionDirectories[0].FullName -Filter '*.jsonl' | ForEach-Object { Get-Content -LiteralPath $_.FullName | ForEach-Object { $_ | ConvertFrom-Json } })
+    Assert-Condition (@($logRecords | Where-Object event -eq 'app.shutdown_completed').Count -eq 1) '日志覆盖业务资源退出清理'
+    Assert-Condition (@($logRecords | Where-Object event -eq 'diagnostics.detailed_enabled').Count -eq 1) '原生详细日志按钮记录真实事件'
+    Assert-Condition (@($logRecords | Where-Object schema_version -ne 1).Count -eq 0) '运行日志逐行解析且版本正确'
+
     $settings = [IO.File]::ReadAllText((Join-Path $testData 'AudioBule\settings.json')) | ConvertFrom-Json
     Assert-Condition ($settings.language -eq 'en-US' -and $settings.theme -eq 'dark' -and $settings.autoReconnect) '退出保留语言、主题与重连设置'
     $application.Dispose()
@@ -357,7 +456,15 @@ try {
     Assert-Condition ($application.WaitForExit(10000) -and $application.ExitCode -eq 0) '第二次启动也正常退出'
 } finally {
     $env:LOCALAPPDATA = $originalLocalAppData; $env:AUDIOBULE_SMOKE_TEST = $originalSmoke
-    if ($application) { $application.Refresh(); if (-not $application.HasExited) { Stop-Process -Id $application.Id }; $application.Dispose() }
+    if ($application) {
+        $application.Refresh()
+        if (-not $application.HasExited) {
+            Stop-Process -Id $application.Id
+            # 日志线程的文件句柄要等进程退出后才能安全清理。
+            $null = $application.WaitForExit(5000)
+        }
+        $application.Dispose()
+    }
     $resolved = [IO.Path]::GetFullPath($testData)
     $temporaryRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
     if ($resolved.StartsWith($temporaryRoot, [StringComparison]::OrdinalIgnoreCase) -and [IO.Path]::GetFileName($resolved).StartsWith('AudioBuleSmoke_') -and (Test-Path -LiteralPath $resolved)) { Remove-Item -LiteralPath $resolved -Recurse -Force }
