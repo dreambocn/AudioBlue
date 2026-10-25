@@ -12,7 +12,7 @@ struct TrayIcon
     explicit operator bool() const { return handle != nullptr; }
 };
 
-// 从嵌入的多尺寸 ICO 资源加载 32x32 托盘图标（SVG 在构建期转换）。
+// 从嵌入的多尺寸 ICO 资源按系统小图标尺寸加载，不写临时文件。
 //   darkTheme = false → 浅色任务栏：画深色图形
 //   darkTheme = true  → 深色任务栏：画浅色图形
 // 返回空 TrayIcon 表示资源加载失败；调用方可显示设备窗口作为备用入口。

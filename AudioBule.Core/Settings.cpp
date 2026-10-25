@@ -10,6 +10,7 @@
 #include <fstream>
 #include <system_error>
 #include <vector>
+#include <set>
 
 namespace AudioBule::Core
 {
@@ -28,9 +29,10 @@ void NormalizeDeviceList(std::vector<std::wstring>& devices)
 {
     constexpr size_t kMaxDevices = 32;
 
-    devices.erase(std::unique(devices.begin(), devices.end()), devices.end());
+    std::set<std::wstring> seen;
+    // 保留首次出现顺序，空值与非相邻重复项必须在截断条数前过滤。
     devices.erase(std::remove_if(devices.begin(), devices.end(),
-                      [](std::wstring const& id) { return id.empty(); }),
+                      [&](std::wstring const& id) { return id.empty() || !seen.insert(id).second; }),
         devices.end());
 
     if (devices.size() > kMaxDevices)

@@ -126,7 +126,7 @@ public:
         if (enumerateThrows) throw winrt::hresult_error(E_ACCESSDENIED, L"私人设备信息");
         return {{L"private-device-id", L"私人手机"}};
     }
-    ConnectResult Connect(std::wstring_view, LogContext const& log) override
+    ConnectResult Connect(std::wstring_view, LogContext const& log, uint64_t = 0) override
     {
         if (blocked) { entered.set_value(); released.wait(); }
         log.Write(LogEvent::ProviderStage, { .stage = LogStage::Open, .outcome = result.succeeded ? LogOutcome::Succeeded : LogOutcome::Failed, .hresult = result.extendedError });

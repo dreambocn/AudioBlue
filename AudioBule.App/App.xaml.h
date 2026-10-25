@@ -31,7 +31,7 @@ private:
     void EntryChanged(::AudioBule::Core::ConnectionEntry const& entry);
     void SaveConfiguration();
     winrt::fire_and_forget RefreshDevices(bool reconnect);
-    winrt::fire_and_forget OperateDevice(std::wstring id, bool disconnect);
+    winrt::fire_and_forget OperateDevice(std::wstring id, ::AudioBule::App::UI::DeviceAction action);
     winrt::fire_and_forget Shutdown();
     // 逆序析构：窗口/托盘停用后，manager 等待操作，provider 最后释放会话。
     ::AudioBule::Core::Logger m_logger;

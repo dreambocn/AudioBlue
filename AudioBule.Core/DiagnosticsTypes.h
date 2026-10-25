@@ -24,6 +24,8 @@ enum class LogEvent
     WindowIconFallback, ExitDialogFailed, ResourceMissing, AudioIdentityChanged,
     AudioIdentityFailed, BluetoothSettingsFailed, RefreshFailed, OperationFailed,
     EventsDropped, StorageRecovered, DetailedEnabled, DetailedDisabled, ExportCompleted, EventsSuppressed,
+    ReconnectRequested,
+    ProviderStateSynchronized,
     Count
 };
 

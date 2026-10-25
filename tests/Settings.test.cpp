@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <string>
 #include <future>
+#include <filesystem>
 #include <thread>
 #include <winrt/base.h>
 
@@ -298,4 +299,35 @@ TEST(Settings, InvalidAppearanceValuesFallBackIndependently)
     auto normalized = LoadSettings(temporary.FilePath());
     EXPECT_EQ(normalized.theme, L"system");
     EXPECT_EQ(normalized.language, L"system");
+}
+
+TEST(Settings, DeduplicationKeepsFirstOccurrenceAndAppliesLimitAfterFiltering)
+{
+    TempDir dir;
+    AppSettings original;
+    original.lastConnectedDevices = {L"A", L"B", L"A", L"", L"B", L"", L"A"};
+    for (int i = 0; i < 40; ++i)
+    {
+        original.lastConnectedDevices.push_back(L"设备" + std::to_wstring(i));
+        original.lastConnectedDevices.push_back(L"A");
+    }
+    ASSERT_TRUE(SaveSettings(original, dir.FilePath()));
+    auto loaded = LoadSettings(dir.FilePath());
+    ASSERT_EQ(loaded.lastConnectedDevices.size(), 32u);
+    EXPECT_EQ(loaded.lastConnectedDevices[0], L"A");
+    EXPECT_EQ(loaded.lastConnectedDevices[1], L"B");
+    EXPECT_EQ(loaded.lastConnectedDevices.back(), L"设备29");
+}
+
+TEST(Settings, ExistingConfigurationDeduplicatesBeforeApplyingDeviceLimit)
+{
+    // 固定输入验证读入的旧配置；不依赖本机临时目录写入权限。
+    auto fixture = std::filesystem::path(__FILE__).parent_path() / L"fixtures" / L"settings-duplicates.json";
+    ASSERT_TRUE(std::filesystem::exists(fixture));
+    auto loaded = LoadSettings(fixture.wstring());
+    EXPECT_FALSE(loaded.autoReconnect);
+    ASSERT_EQ(loaded.lastConnectedDevices.size(), 32u);
+    EXPECT_EQ(loaded.lastConnectedDevices[0], L"A");
+    EXPECT_EQ(loaded.lastConnectedDevices[1], L"B");
+    EXPECT_EQ(loaded.lastConnectedDevices.back(), L"设备29");
 }

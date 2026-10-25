@@ -16,6 +16,7 @@ enum class ConnectionState
     Connecting,
     Connected,
     Failed,
+    Reconnecting,   // 用户主动重建连接，包含关闭清理和重新打开两个阶段
 };
 
 // 连接失败的归类。生产实现在 OpenAsync 的 Status + ExtendedError 上做映射，

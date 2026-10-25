@@ -3,6 +3,7 @@
 #include "ConnectionEntry.h"
 #include "IAudioDeviceProvider.h"
 #include "SimpleEvent.h"
+#include "CallbackGate.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -38,18 +39,21 @@ public:
     SimpleEvent<> EntriesChanged;
 
     // 重新扫描设备。已存在的条目保留其状态，消失的设备被移除。
-    // 系统不支持 A2DP Sink 或枚举抛异常时，得到空列表。
-    void Refresh();
+    // 失败时保留现有快照并返回 false；成功移除的连接在工作线程清理。
+    bool Refresh();
 
     // 异步发起连接。立即返回；结果通过 EntryChanged 通知。
     // 已处于 Connecting/Connected 的设备会被忽略（幂等）。
     // 未知设备会新增一条 Failed 条目，保证 UI 有东西可显示。
     std::future<void> ConnectAsync(std::wstring_view deviceId, LogTrigger trigger = LogTrigger::Manual);
 
+    // 一次性重建已连接设备；关闭完成后才重新打开，可通过 CancelConnection 取消。
+    std::future<void> ReconnectAsync(std::wstring_view deviceId);
+
     // 异步断开。对非 Connected 条目是无害的空操作。
     std::future<void> DisconnectAsync(std::wstring_view deviceId);
 
-    // 立即撤销 UI 上的连接请求；底层 Open 完成后清理迟到的连接。
+    // 立即撤销连接或重连请求；关闭清理后停止重建，Open 完成后清理迟到结果。
     // 清理完成前同一设备不能再发起连接，其它设备不受影响。
     bool CancelConnection(std::wstring_view deviceId);
     // 取消后清理底层请求期间仍返回 true，供界面控制重试按钮。
@@ -70,8 +74,10 @@ public:
     bool IsSupported() const;
 
 private:
-    void ApplyConnectResult(std::wstring const& deviceId, ConnectResult const& result, LogContext const& log);
-    void HandleConnectionLost(std::wstring const& deviceId);
+    std::future<void> StartConnectionAsync(std::wstring_view deviceId, LogTrigger trigger, bool reconnect);
+    void ApplyConnectResult(std::wstring const& deviceId, ConnectResult const& result, LogContext const& log, ConnectionState requestedState);
+    void RestoreAfterReconnectFailure(ConnectionEntry entry, uint64_t connectionId, LogContext const& previousLog, HRESULT error);
+    void HandleConnectionLost(std::wstring const& deviceId, uint64_t connectionId);
     ConnectionEntry* FindLocked(std::wstring const& deviceId);
     ConnectionEntry const* FindLocked(std::wstring const& deviceId) const;
     void RaiseEntryChanged(ConnectionEntry const& entry);
@@ -81,11 +87,16 @@ private:
     LogContext m_log;
     std::map<std::wstring, LogContext> m_operations;
     // 存成订阅 id 才能在析构时退订 —— 见 ConnectionManager.cpp 的说明
-    SimpleEvent<std::wstring>::SubscriptionId m_lostSubscription = 0;
+    SimpleEvent<std::wstring, uint64_t>::SubscriptionId m_lostSubscription = 0;
+    std::shared_ptr<CallbackGate> m_callbacks = std::make_shared<CallbackGate>();
+    inline static std::atomic<uint64_t> s_nextConnectionId{ 0 };
+    std::map<std::wstring, uint64_t> m_connectionIds;
 
+    std::mutex m_refreshMutex;
     mutable std::mutex m_mutex;
     std::vector<ConnectionEntry> m_entries;
     std::set<std::wstring> m_connectingDevices;
+    std::set<std::wstring> m_disconnectingDevices;
 
     // 追踪在途异步操作，供 WaitForIdle 使用
     mutable std::mutex m_pendingMutex;

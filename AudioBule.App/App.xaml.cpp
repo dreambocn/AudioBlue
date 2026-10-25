@@ -2,6 +2,7 @@
 #include "App.xaml.h"
 #include <shellapi.h>
 #include <chrono>
+#include <thread>
 #include <winrt/Microsoft.Windows.Storage.Pickers.h>
 #include <winrt/Microsoft.Windows.AppLifecycle.h>
 
@@ -13,12 +14,38 @@ namespace UI = ::AudioBule::App::UI;
 
 namespace winrt::AudioBule::App::implementation
 {
+namespace
+{
+bool SmokeFlag(wchar_t const* name)
+{
+    wchar_t value[2]{};
+    return ::GetEnvironmentVariableW(name, value, 2) == 1 && value[0] == L'1';
+}
+
+// 仅由双标志隔离冒烟启用，提供稳定进度窗口，不接触系统蓝牙或音频设备。
+class SmokeDeviceProvider final : public Core::IAudioDeviceProvider
+{
+public:
+    bool IsSupported() const override { return true; }
+    std::vector<Core::DeviceInfo> EnumerateDevices() override { return {{L"AudioBule.Smoke.Phone", L"AudioBule 测试手机"}}; }
+    Core::ConnectResult Connect(std::wstring_view, Core::LogContext const&, uint64_t) override
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(900));
+        return {true, Core::ConnectFailure::None, 0};
+    }
+    void Disconnect(std::wstring_view, Core::LogContext const&) override { std::this_thread::sleep_for(std::chrono::milliseconds(900)); }
+};
+}
+
 // 连接资源可在日志停止前显式释放，同时保持 Manager 早于 Provider 析构。
 struct App::ConnectionRuntime
 {
-    Core::WinRtDeviceProvider provider;
+    bool simulated = SmokeFlag(L"AUDIOBULE_SMOKE_TEST") && SmokeFlag(L"AUDIOBULE_SMOKE_SIMULATE_DEVICES");
+    std::unique_ptr<Core::IAudioDeviceProvider> provider;
     Core::ConnectionManager manager;
-    explicit ConnectionRuntime(Core::LogContext log) : provider(log), manager(provider, log) {}
+    explicit ConnectionRuntime(Core::LogContext log)
+        : provider(simulated ? std::unique_ptr<Core::IAudioDeviceProvider>(std::make_unique<SmokeDeviceProvider>()) :
+            std::make_unique<Core::WinRtDeviceProvider>(log)), manager(*provider, log) {}
 };
 App::App() : m_connections(std::make_unique<ConnectionRuntime>(m_logger.Context()))
 {
@@ -43,12 +70,13 @@ void App::OnLaunched([[maybe_unused]] LaunchActivatedEventArgs const& e)
     m_text->SetLanguage(m_settings.language);
     m_desktop = std::make_unique<UI::DesktopIntegration>(m_logger.Context());
     // 品牌图标适用于深浅主题；会话名称保留手机原名，不受界面语言影响。
-    m_sessionIdentity = std::make_unique<Core::AudioSessionIdentity>(UI::DesktopIntegration::ExecutablePath(), m_logger.Context());
+    if (!m_connections->simulated)
+        m_sessionIdentity = std::make_unique<Core::AudioSessionIdentity>(UI::DesktopIntegration::ExecutablePath(), m_logger.Context());
     m_queue = Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread();
     m_window = make_self<MainWindow>();
     auto weak = get_weak();
-    auto operate = [weak](std::wstring const& id, bool disconnect) {
-        if (auto self = weak.get(); self && !self->m_stopping) self->OperateDevice(id, disconnect);
+    auto operate = [weak](std::wstring const& id, UI::DeviceAction action) {
+        if (auto self = weak.get(); self && !self->m_stopping) self->OperateDevice(id, action);
     };
     auto preferences = [weak](Core::AppSettings const& settings) {
         if (auto self = weak.get(); self && !self->m_stopping) self->ChangePreferences(settings);
@@ -88,6 +116,15 @@ void App::OnLaunched([[maybe_unused]] LaunchActivatedEventArgs const& e)
         queue.TryEnqueue([weak] { if (auto self = weak.get(); self && !self->m_stopping) self->RenderDevices(); });
     });
     Tray::TrayIconService::Callbacks callbacks;
+    callbacks.onAvailabilityChanged = [weak](bool available) {
+        if (auto self = weak.get(); self && !self->m_stopping)
+        {
+            bool current = self->m_tray ? self->m_tray->IsAvailable() : available;
+            self->m_window->SetTrayAvailable(current);
+            // 图标丢失期间保留可访问的窗口入口，避免隐藏到不存在的托盘。
+            if (!current) self->m_window->Show();
+        }
+    };
     callbacks.onToggled = [weak](POINT point, bool keyboard) { if (auto self = weak.get(); self && !self->m_stopping) self->m_quick->Toggle(point, keyboard); };
     callbacks.onContextMenu = [weak](POINT point, bool keyboard) { if (auto self = weak.get(); self && !self->m_stopping) self->m_quick->ShowMenu(point, keyboard); };
     callbacks.onThemeShouldRefresh = [weak] {
@@ -103,12 +140,13 @@ void App::OnLaunched([[maybe_unused]] LaunchActivatedEventArgs const& e)
         m_tray = std::make_unique<Tray::TrayIconService>(m_queue, std::move(callbacks), m_logger.Context());
         if (!m_tray->WaitUntilReady()) m_tray.reset();
     } catch (...) { m_logger.Context().Write(Core::LogEvent::TrayFailed, { .hresult = winrt::to_hresult() }, Core::LogLevel::Error); }
-    m_window->SetTrayAvailable(static_cast<bool>(m_tray));
+    bool trayAvailable = m_tray && m_tray->IsAvailable();
+    m_window->SetTrayAvailable(trayAvailable);
     ApplyTheme();
     bool startup = std::wstring_view(::GetCommandLineW()).find(L"--startup") != std::wstring_view::npos;
     try { startup |= Microsoft::Windows::AppLifecycle::AppInstance::GetCurrent().GetActivatedEventArgs().Kind() == Microsoft::Windows::AppLifecycle::ExtendedActivationKind::StartupTask; } catch (...) {}
     m_logger.Context().Operation(startup ? Core::LogTrigger::Startup : Core::LogTrigger::Manual).Write(Core::LogEvent::InitializationCompleted);
-    if (!startup || !m_tray) m_window->Show();
+    if (!startup || !trayAvailable) m_window->Show();
     RefreshStartup();
     RefreshDevices(true);
 }
@@ -135,6 +173,7 @@ fire_and_forget App::PerformDiagnostics(UI::DiagnosticsAction action)
     m_diagnosticsBusy = true; m_diagnostics->BeginExport(); UpdateDiagnostics();
     apartment_context ui;
     wchar_t const* status = nullptr;
+    auto severity = Controls::InfoBarSeverity::Error;
     try
     {
         Microsoft::Windows::Storage::Pickers::FileSavePicker picker(m_window->AppWindow().Id());
@@ -150,7 +189,11 @@ fire_and_forget App::PerformDiagnostics(UI::DiagnosticsAction action)
             co_await resume_background();
             auto result = m_diagnostics->Export(target);
             co_await ui;
-            if (!result.cancelled) status = result.succeeded ? result.incomplete ? L"DiagnosticsExportPartial" : L"DiagnosticsExportSuccess" : L"DiagnosticsExportFailed";
+            if (!result.cancelled)
+            {
+                status = result.succeeded ? result.incomplete ? L"DiagnosticsExportPartial" : L"DiagnosticsExportSuccess" : L"DiagnosticsExportFailed";
+                severity = result.succeeded ? result.incomplete ? Controls::InfoBarSeverity::Warning : Controls::InfoBarSeverity::Success : Controls::InfoBarSeverity::Error;
+            }
         }
     }
     catch (...) { status = L"DiagnosticsExportFailed"; }
@@ -159,7 +202,7 @@ fire_and_forget App::PerformDiagnostics(UI::DiagnosticsAction action)
     {
         co_await ui;
         m_diagnosticsPicker = nullptr; m_diagnosticsBusy = false;
-        if (!m_stopping) { UpdateDiagnostics(); if (status) m_window->SetStatusKey(status); m_window->RestoreDiagnosticsFocus(); }
+        if (!m_stopping) { UpdateDiagnostics(); if (status) m_window->SetStatusKey(status, severity); m_window->RestoreDiagnosticsFocus(); }
     }
     catch (...) {}
 }
@@ -219,7 +262,7 @@ fire_and_forget App::ChangeStartup(bool enabled)
 void App::EntryChanged(Core::ConnectionEntry const& entry)
 {
     auto previous = m_previousStates.contains(entry.deviceId) ? m_previousStates.at(entry.deviceId) : Core::ConnectionState::Disconnected;
-    if (m_settings.connectionNotifications && ((entry.state == Core::ConnectionState::Connected && previous != entry.state) ||
+    if (m_settings.connectionNotifications && ((entry.state == Core::ConnectionState::Connected && entry.failure == Core::ConnectFailure::None && previous != entry.state) ||
         (previous == Core::ConnectionState::Connected && entry.state == Core::ConnectionState::Disconnected))) m_desktop->Notify(entry, *m_text);
     m_previousStates[entry.deviceId] = entry.state;
 }
@@ -247,7 +290,7 @@ fire_and_forget App::RefreshDevices(bool reconnect)
     auto autoReconnect = m_settings.autoReconnect;
     auto savedDevices = m_settings.lastConnectedDevices;
     co_await resume_background();
-    try { m_connections->manager.Refresh(); if (reconnect && autoReconnect) m_connections->manager.ReconnectSavedDevices(savedDevices); }
+    try { succeeded = m_connections->manager.Refresh(); if (succeeded && reconnect && autoReconnect) m_connections->manager.ReconnectSavedDevices(savedDevices); }
     catch (...) { m_logger.Context().Write(Core::LogEvent::RefreshFailed, { .hresult = winrt::to_hresult() }, Core::LogLevel::Warning); succeeded = false; }
     co_await ui;
     m_refreshing = false;
@@ -259,12 +302,13 @@ void App::OpenBluetoothSettings()
         m_window->Show(); m_window->SetStatusKey(L"BluetoothSettingsFailed");
     }
 }
-fire_and_forget App::OperateDevice(std::wstring id, bool disconnect)
+fire_and_forget App::OperateDevice(std::wstring id, UI::DeviceAction action)
 {
     auto lifetime = get_strong();
     if (m_stopping) co_return;
-    if (disconnect && m_connections->manager.CancelConnection(id))
+    if (action == UI::DeviceAction::Cancel)
     {
+        if (!m_connections->manager.CancelConnection(id)) co_return;
         // 自动重连没有 OperateDevice 协程；取消时单独追踪其后台清理。
         if (!m_pendingDevices.contains(id))
         {
@@ -288,13 +332,25 @@ fire_and_forget App::OperateDevice(std::wstring id, bool disconnect)
     apartment_context ui;
     bool succeeded = true;
     try {
-        auto operation = disconnect ? m_connections->manager.DisconnectAsync(id) : m_connections->manager.ConnectAsync(id);
+        auto operation = action == UI::DeviceAction::Reconnect ? m_connections->manager.ReconnectAsync(id) :
+            action == UI::DeviceAction::Disconnect ? m_connections->manager.DisconnectAsync(id) : m_connections->manager.ConnectAsync(id);
         RenderDevices();
         co_await resume_background(); operation.get();
     } catch (...) { m_logger.Context().Write(Core::LogEvent::OperationFailed, { .hresult = winrt::to_hresult() }, Core::LogLevel::Warning); succeeded = false; }
     co_await ui;
     m_pendingDevices.erase(id); m_window->SetOperationPending(id, false);
-    if (!m_stopping) { RenderDevices(); if (!succeeded) m_window->SetStatusKey(L"OperationFailed"); }
+    if (!m_stopping)
+    {
+        RenderDevices();
+        if (!succeeded) m_window->SetStatusKey(L"OperationFailed");
+        if (action == UI::DeviceAction::Reconnect)
+        {
+            // 已连接筛选可能隐藏失败行，仍应在全局提示中显示真实错误。
+            for (auto const& entry : m_connections->manager.Snapshot())
+                if (entry.deviceId == id && entry.failure != Core::ConnectFailure::None)
+                    m_window->SetDeviceError(L"ReconnectFailed", entry);
+        }
+    }
 }
 void App::SaveConfiguration()
 {

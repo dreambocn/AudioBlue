@@ -297,4 +297,9 @@
   <data name="DiagnosticsExportSuccess" xml:space="preserve"><value>Diagnostics saved to your chosen location. Nothing was uploaded.</value></data>
   <data name="DiagnosticsExportPartial" xml:space="preserve"><value>Diagnostics saved with a notice about missing, skipped, or incomplete records.</value></data>
   <data name="DiagnosticsExportFailed" xml:space="preserve"><value>Unable to save diagnostics. Check permissions and free space at the selected location.</value></data>
+  <data name="ConnectedAudioHint" xml:space="preserve"><value>The connection stays open while your phone is paused. If playback is silent, use the Reconnect button on the right.</value></data>
+  <data name="Reconnect" xml:space="preserve"><value>Reconnect</value></data>
+  <data name="ReconnectDescription" xml:space="preserve"><value>Disconnect and establish the audio connection again. No action is needed while your phone is paused.</value></data>
+  <data name="ReconnectFailed" xml:space="preserve"><value>Unable to reconnect: </value></data>
+  <data name="Reconnecting" xml:space="preserve"><value>Reconnecting</value></data>
 </root>

@@ -68,7 +68,7 @@ Grid SettingsCard(hstring const& title, hstring const& description, wchar_t cons
 namespace winrt::AudioBule::App::implementation
 {
 void MainWindow::Initialize(::AudioBule::App::UI::UiText& text, std::function<void()> refresh,
-    std::function<void()> addDevice, std::function<void(std::wstring const&, bool)> operate,
+    std::function<void()> addDevice, std::function<void(std::wstring const&, ::AudioBule::App::UI::DeviceAction)> operate,
     std::function<void()> exit, std::function<void(Core::AppSettings const&)> preferences,
     Core::LogContext log, std::function<void(::AudioBule::App::UI::DiagnosticsAction)> diagnostics)
 {
@@ -108,8 +108,8 @@ void MainWindow::Initialize(::AudioBule::App::UI::UiText& text, std::function<vo
     Navigation().SelectionChanged([weak](auto const&, NavigationViewSelectionChangedEventArgs const& args) {
         if (auto self = weak.get(); self && args.SelectedItem()) self->Navigate(std::wstring(unbox_value<hstring>(args.SelectedItem().as<NavigationViewItem>().Tag())));
     });
-    AllFilter().Click([weak](auto const&, auto const&) { if (auto self = weak.get()) { self->m_filtered = false; self->Render(self->m_entries); } });
-    ConnectedFilter().Click([weak](auto const&, auto const&) { if (auto self = weak.get()) { self->m_filtered = true; self->Render(self->m_entries); } });
+    AllFilter().Checked([weak](auto const&, auto const&) { if (auto self = weak.get(); self && self->m_filtered) { self->m_filtered = false; self->Render(self->m_entries); } });
+    ConnectedFilter().Checked([weak](auto const&, auto const&) { if (auto self = weak.get(); self && !self->m_filtered) { self->m_filtered = true; self->Render(self->m_entries); } });
     RootPanel().ActualThemeChanged([weak](auto const&, auto const&) { if (auto self = weak.get()) { self->UpdateCaption(); self->Render(self->m_entries); } });
     DevicesPage().SizeChanged([weak](auto const&, auto const&) {
         if (auto self = weak.get()) self->RefreshLabel().Visibility(self->DevicesPage().ActualWidth() < 380 ? Visibility::Collapsed : Visibility::Visible);
@@ -145,7 +145,8 @@ void MainWindow::ApplyPreferences(Core::AppSettings const& settings, bool startu
     AboutNav().Content(box_value(m_text->Get(L"About")));
     PageTitle().Text(m_text->Get(L"Devices"));
     PageDescription().Text(m_text->Get(L"DeviceDescription"));
-    if (!m_statusKey.empty()) StatusBar().Message(m_text->Get(m_statusKey.c_str()));
+    if (!m_statusKey.empty()) StatusBar().Message(m_text->Get(m_statusKey.c_str()) +
+        (m_statusError ? m_text->Error(*m_statusError) : hstring{}));
     AddDeviceButton().Content(box_value(m_text->Get(L"AddDevice")));
     Automation::AutomationProperties::SetName(NavigationButton(), m_text->Get(L"ToggleNavigation"));
     BuildSettings();
@@ -301,13 +302,22 @@ void MainWindow::Render(std::vector<Core::ConnectionEntry> const& entries)
 {
     if (m_stopping) return;
     m_entries = entries;
+    // 新请求或成功恢复后移除同设备的旧错误，避免仍显示上一次重连失败。
+    if (m_statusError)
+        for (auto const& entry : entries)
+            if (entry.deviceId == m_statusError->deviceId && entry.failure == Core::ConnectFailure::None)
+            {
+                StatusBar().IsOpen(false); m_statusKey.clear(); m_statusError.reset();
+                break;
+            }
     size_t count = 0;
     for (auto const& entry : entries) count += entry.state == Core::ConnectionState::Connected;
     auto visible = m_devices.Update(entries, m_pendingDevices, m_filtered);
     AllFilter().Content(box_value(m_text->Get(L"AllDevices") + L"  " + to_hstring(entries.size())));
     ConnectedFilter().Content(box_value(m_text->Get(L"ConnectedDevices") + L"  " + to_hstring(count)));
-    AllIndicator().Visibility(m_filtered ? Visibility::Collapsed : Visibility::Visible);
-    ConnectedIndicator().Visibility(m_filtered ? Visibility::Visible : Visibility::Collapsed);
+    // 原生切换状态与视觉指示同步，辅助技术可读出当前互斥筛选。
+    AllFilter().IsChecked(!m_filtered);
+    ConnectedFilter().IsChecked(m_filtered);
     EmptyState().Visibility(visible ? Visibility::Collapsed : Visibility::Visible);
     EmptyTitle().Text(m_text->Get(m_filtered ? L"FilteredTitle" : L"EmptyTitle"));
     EmptyDescription().Text(m_text->Get(m_filtered ? L"FilteredBody" : L"EmptyBody"));
@@ -354,8 +364,18 @@ void MainWindow::SetStopping()
     RootPanel().IsHitTestVisible(false);
     SummaryText().Text(m_text->Get(L"Stopping"));
 }
-void MainWindow::SetStatus(std::wstring const& status) { StatusBar().Message(status); StatusBar().IsOpen(true); }
-void MainWindow::SetStatusKey(wchar_t const* key) { m_statusKey = key; SetStatus(std::wstring(m_text->Get(key))); }
+void MainWindow::SetStatus(std::wstring const& status, InfoBarSeverity severity)
+{
+    m_statusKey.clear(); m_statusError.reset();
+    StatusBar().Severity(severity); StatusBar().Message(status); StatusBar().IsOpen(true);
+}
+void MainWindow::SetStatusKey(wchar_t const* key, InfoBarSeverity severity) { SetStatus(std::wstring(m_text->Get(key)), severity); m_statusKey = key; }
+void MainWindow::SetDeviceError(wchar_t const* key, Core::ConnectionEntry const& entry)
+{
+    SetStatus(std::wstring(m_text->Get(key)) + std::wstring(m_text->Error(entry)));
+    // 保存机器可读错误，切换语言后重新格式化，不能留下旧语言的错误文本。
+    m_statusKey = key; m_statusError = entry;
+}
 void MainWindow::UpdateCaption()
 {
     auto dark = RootPanel().ActualTheme() == ElementTheme::Dark;

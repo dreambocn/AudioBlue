@@ -2,230 +2,264 @@
 #include "WinRtDeviceProvider.h"
 
 #include <winrt/Windows.Devices.Enumeration.h>
-#include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Foundation.Metadata.h>
 #include <winrt/Windows.Media.Audio.h>
+#include <thread>
 
 namespace AudioBule::Core
 {
-
 using namespace winrt::Windows::Devices::Enumeration;
 using namespace winrt::Windows::Foundation::Metadata;
 using namespace winrt::Windows::Media::Audio;
 
-namespace {
-
-// 把 OpenAsync 的 Status 映射到我们的 ConnectFailure。
-// 实测值（winrt/impl/windows.media.audio.0.h）：
-//   Success=0, RequestTimedOut=1, DeniedBySystem=2, UnknownFailure=3
+namespace
+{
 ConnectFailure MapOpenStatus(AudioPlaybackConnectionOpenResultStatus status)
 {
     switch (status)
     {
-    case AudioPlaybackConnectionOpenResultStatus::Success:
-        return ConnectFailure::None;
-    case AudioPlaybackConnectionOpenResultStatus::RequestTimedOut:
-        return ConnectFailure::RequestTimedOut;
-    case AudioPlaybackConnectionOpenResultStatus::DeniedBySystem:
-        return ConnectFailure::DeniedBySystem;
-    case AudioPlaybackConnectionOpenResultStatus::UnknownFailure:
-    default:
-        return ConnectFailure::UnknownFailure;
+    case AudioPlaybackConnectionOpenResultStatus::Success: return ConnectFailure::None;
+    case AudioPlaybackConnectionOpenResultStatus::RequestTimedOut: return ConnectFailure::RequestTimedOut;
+    case AudioPlaybackConnectionOpenResultStatus::DeniedBySystem: return ConnectFailure::DeniedBySystem;
+    default: return ConnectFailure::UnknownFailure;
     }
 }
 
-// ⚠️ AudioPlaybackConnectionState **只有** Closed=0 与 Opened=1，
-// 没有中间的 Connecting 状态。「连接中」是 AudioBule 自己的
-// ConnectionState::Connecting，由 ConnectionManager 在 OpenAsync 返回前维持。
-constexpr int kAudioConnectionClosed = 0;
+// 只有这个适配器接触 WinRT 会话，Provider 的并发与生命周期可使用模拟会话验证。
+class WinRtPlaybackSession final : public IAudioPlaybackSession
+{
+public:
+    WinRtPlaybackSession(AudioPlaybackConnection connection, LogContext log)
+        : m_connection(std::move(connection)), m_log(std::move(log)) {}
+    ~WinRtPlaybackSession() override { Close(); }
+    void SetClosedHandler(std::function<void()> handler) override
+    {
+        m_token = m_connection.StateChanged([handler = std::move(handler), log = m_log](auto const& sender, auto const&) {
+            try { if (sender.State() == AudioPlaybackConnectionState::Closed) handler(); }
+            catch (...) { log.Write(LogEvent::ProviderStage, { .stage = LogStage::Close, .outcome = LogOutcome::Failed, .hresult = winrt::to_hresult() }, LogLevel::Warning); }
+        });
+        m_subscribed = true;
+    }
+    void ClearClosedHandler() noexcept override
+    {
+        if (!m_subscribed.exchange(false)) return;
+        try { m_connection.StateChanged(m_token); }
+        catch (...) { m_log.Write(LogEvent::ProviderStage, { .stage = LogStage::Cleanup, .hresult = winrt::to_hresult() }, LogLevel::Warning); }
+    }
+    ConnectResult Open() override
+    {
+        auto stage = LogStage::Start;
+        try
+        {
+            m_log.Write(LogEvent::ProviderStage, { .stage = stage }, LogLevel::Debug);
+            m_connection.StartAsync().get();
+            stage = LogStage::Open;
+            m_log.Write(LogEvent::ProviderStage, { .stage = stage }, LogLevel::Debug);
+            auto result = m_connection.OpenAsync().get();
+            if (result.Status() != AudioPlaybackConnectionOpenResultStatus::Success)
+            {
+                auto extended = result.ExtendedError();
+                auto failure = static_cast<DWORD>(extended) == 0x8007001Fu ? ConnectFailure::GenericFailure : MapOpenStatus(result.Status());
+                m_log.Write(LogEvent::ProviderStage, { .stage = stage, .outcome = LogOutcome::Failed, .hresult = extended,
+                    .failure = static_cast<int32_t>(failure), .status = static_cast<int32_t>(result.Status()) }, LogLevel::Warning);
+                return { false, failure, extended };
+            }
+            return { true, ConnectFailure::None, 0 };
+        }
+        catch (winrt::hresult_error const& error)
+        {
+            m_log.Write(LogEvent::ProviderStage, { .stage = stage, .outcome = LogOutcome::Failed, .hresult = error.code() }, LogLevel::Warning);
+            return { false, ConnectFailure::HresultError, error.code() };
+        }
+    }
+    bool IsOpen() const override { return m_connection.State() == AudioPlaybackConnectionState::Opened; }
+    void Close() noexcept override
+    {
+        if (m_closed.exchange(true)) return;
+        ClearClosedHandler();
+        try { m_connection.Close(); }
+        catch (...) { m_log.Write(LogEvent::ProviderStage, { .stage = LogStage::Close, .outcome = LogOutcome::Failed, .hresult = winrt::to_hresult() }, LogLevel::Warning); }
+    }
+private:
+    AudioPlaybackConnection m_connection;
+    LogContext m_log;
+    winrt::event_token m_token{};
+    std::atomic<bool> m_subscribed{false}, m_closed{false};
+};
+}
 
-} // namespace
-
-WinRtDeviceProvider::WinRtDeviceProvider(LogContext log) : m_log(std::move(log)) {}
+WinRtDeviceProvider::WinRtDeviceProvider(LogContext log, SessionFactory factory, std::chrono::milliseconds openStateTimeout)
+    : m_log(std::move(log)), m_factory(std::move(factory)),
+      m_openStateTimeout(std::max(openStateTimeout, std::chrono::milliseconds::zero())) {}
 
 WinRtDeviceProvider::~WinRtDeviceProvider()
 {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    // 直接清空即可：AudioPlaybackConnection 的析构会关闭底层 A2DP 会话。
-    // 刻意不逐个 Close() —— 程序退出路径上任何 COM 调用都可能失败并阻塞。
-    m_connections.clear();
+    // 先禁止并等待外部回调，再在锁外退订和释放会话。
+    m_callbacks->CloseAndWait();
+    decltype(m_connections) connections;
+    { std::lock_guard lock(m_mutex); connections.swap(m_connections); }
+    for (auto const& [id, record] : connections)
+    {
+        record->session->ClearClosedHandler();
+        record->session->Close();
+    }
 }
 
 bool WinRtDeviceProvider::IsSupported() const
 {
-    try
-    {
-        // Windows 10 2004 以下 AudioPlaybackConnection 类型不存在。
-        // 先探测再调用，否则低版本系统上会在 GetDeviceSelector 处 E_NOINTERFACE。
-        return ApiInformation::IsTypePresent(winrt::name_of<AudioPlaybackConnection>());
-    }
-    catch (...)
-    {
-        m_log.Write(LogEvent::SupportProbeFailed, { .hresult = winrt::to_hresult() }, LogLevel::Warning);
-        return false;
-    }
+    if (m_factory) return true;
+    try { return ApiInformation::IsTypePresent(winrt::name_of<AudioPlaybackConnection>()); }
+    catch (...) { m_log.Write(LogEvent::SupportProbeFailed, { .hresult = winrt::to_hresult() }, LogLevel::Warning); return false; }
 }
 
 std::vector<DeviceInfo> WinRtDeviceProvider::EnumerateDevices()
 {
     std::vector<DeviceInfo> result;
-
-    if (!IsSupported())
-    {
-        return result;
-    }
-
-    auto selector = AudioPlaybackConnection::GetDeviceSelector();
-
-    // 同步阻塞：ConnectionManager::Refresh 是同步方法，调用方已在工作线程上
-    auto devices = DeviceInformation::FindAllAsync(selector).get();
-
+    if (!IsSupported()) return result;
+    // 调用方已经切到工作线程；枚举失败交给 Manager 保留原快照。
+    auto devices = DeviceInformation::FindAllAsync(AudioPlaybackConnection::GetDeviceSelector()).get();
     for (auto const& device : devices)
     {
-        DeviceInfo info;
-        info.id = std::wstring(device.Id());
         auto name = device.Name();
-        info.name = name.empty() ? info.id : std::wstring(name);
-        result.push_back(std::move(info));
+        result.push_back({ std::wstring(device.Id()), name.empty() ? std::wstring(device.Id()) : std::wstring(name) });
     }
-
     return result;
 }
 
-ConnectResult WinRtDeviceProvider::Connect(std::wstring_view deviceId, LogContext const& log)
+ConnectResult WinRtDeviceProvider::Connect(std::wstring_view deviceId, LogContext const& log, uint64_t connectionId)
 {
     std::wstring id(deviceId);
-
-    if (!IsSupported())
+    if (!IsSupported()) return { false, ConnectFailure::DeviceNotSupported, 0 };
     {
-        return ConnectResult{ false, ConnectFailure::DeviceNotSupported, 0 };
+        std::lock_guard lock(m_mutex);
+        if (m_connections.contains(id)) return { false, ConnectFailure::HresultError, HRESULT_FROM_WIN32(ERROR_BUSY) };
     }
-
+    auto record = std::make_shared<ConnectionRecord>();
+    record->connectionId = connectionId;
+    try
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        if (m_connections.find(id) != m_connections.end())
+        if (m_factory) record->session = m_factory(id);
+        else if (auto connection = AudioPlaybackConnection::TryCreateFromId(winrt::hstring(id)))
+            record->session = std::make_shared<WinRtPlaybackSession>(std::move(connection), log);
+        if (!record->session)
         {
-            // 已连着。ConnectionManager 的幂等检查通常已拦住，这里是第二道防线。
-            return ConnectResult{ true, ConnectFailure::None, 0 };
+            log.Write(LogEvent::ProviderStage, { .stage = LogStage::Create, .outcome = LogOutcome::Unsupported }, LogLevel::Warning);
+            return { false, ConnectFailure::DeviceNotSupported, 0 };
         }
     }
-
-    LogStage stage = LogStage::Create;
-    AudioPlaybackConnection connection = nullptr;
-    try
+    catch (...)
     {
-        // 不能写 winrt::to_hstring(std::wstring) —— CppWinRT 的 base.h 没有
-        // 该重载。显式构造一次即可（详见 PROGRESS.md 第 27 条）。
-        winrt::hstring nativeId{ std::wstring_view{ id } };
-        connection = AudioPlaybackConnection::TryCreateFromId(nativeId);
-    }
-    catch (winrt::hresult_error const& e)
-    {
-        log.Write(LogEvent::ProviderStage, { .stage = stage, .outcome = LogOutcome::Failed, .hresult = e.code() }, LogLevel::Warning);
-        return ConnectResult{ false, ConnectFailure::HresultError, e.code() };
+        auto error = winrt::to_hresult();
+        log.Write(LogEvent::ProviderStage, { .stage = LogStage::Create, .outcome = LogOutcome::Failed, .hresult = error }, LogLevel::Warning);
+        return { false, ConnectFailure::HresultError, error };
     }
 
-    if (!connection)
     {
-        log.Write(LogEvent::ProviderStage, { .stage = LogStage::Create, .outcome = LogOutcome::Unsupported }, LogLevel::Warning);
-        // 设备不支持 A2DP Sink（spike 实测：部分手机会这样）
-        return ConnectResult{ false, ConnectFailure::DeviceNotSupported, 0 };
-    }
-
-    try
-    {
-        // StartAsync 返回 void，无结果值可查 —— 不要试图检查它的「返回值」
-        stage = LogStage::Start;
-        log.Write(LogEvent::ProviderStage, { .stage = stage }, LogLevel::Debug);
-        connection.StartAsync().get();
-
-        stage = LogStage::Open;
-        log.Write(LogEvent::ProviderStage, { .stage = stage }, LogLevel::Debug);
-        auto openResult = connection.OpenAsync().get();
-
-        if (openResult.Status() != AudioPlaybackConnectionOpenResultStatus::Success)
+        std::lock_guard lock(m_mutex);
+        if (auto it = m_connections.find(id); it != m_connections.end())
         {
-            auto extended = openResult.ExtendedError();
-
-            // ERROR_GEN_FAILURE (0x8007001F) 在实践中几乎总是同一个原因：
-            // 手机正作为 A2DP 源连着别的设备，无法同时当接收端。
-            // 归到 GenericFailure 而不是 UnknownFailure，好让 Messages 给出
-            // 针对性的操作建议（见 Review Focus 第 1 条）。
-            ConnectFailure failure = MapOpenStatus(openResult.Status());
-            if (static_cast<DWORD>(extended) == 0x8007001Fu)
+            // 不把另一次尚未完成的打开当成当前请求成功。
+            return { false, ConnectFailure::HresultError, HRESULT_FROM_WIN32(ERROR_BUSY) };
+        }
+        m_connections.emplace(id, record);
+    }
+    bool committed = false;
+    auto cleanup = wil::scope_exit([&] { if (!committed) RemoveAndClose(id, record); });
+    try
+    {
+        // 监听先于 Start/Open 注册，打开阶段关闭只标记当前记录，不发布过期成功。
+        record->session->SetClosedHandler([this, gate = m_callbacks, id, weak = std::weak_ptr(record)] {
+            auto lease = gate->TryEnter();
+            if (!lease) return;
+            if (auto current = weak.lock()) ObserveClosed(id, current);
+        });
+        auto result = record->session->Open();
+        if (!result.succeeded) return result;
+        bool open = record->session->IsOpen();
+        if (!open)
+        {
+            // SDK 成功结果可能先于 State 更新；只等待连接状态，不探测播放或循环重连。
+            auto started = std::chrono::steady_clock::now();
+            auto deadline = started + m_openStateTimeout;
+            while (!open && std::chrono::steady_clock::now() < deadline)
             {
-                failure = ConnectFailure::GenericFailure;
+                {
+                    std::lock_guard lock(m_mutex);
+                    auto it = m_connections.find(id);
+                    // 真正的关闭、移除或替换不能被延迟状态同步掩盖。
+                    if (it == m_connections.end() || it->second != record || record->closed) break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                open = record->session->IsOpen();
             }
-
-            log.Write(LogEvent::ProviderStage, { .stage = stage, .outcome = LogOutcome::Failed, .hresult = extended, .failure = static_cast<int32_t>(failure), .status = static_cast<int32_t>(openResult.Status()) }, LogLevel::Warning);
-            return ConnectResult{ false, failure, extended };
+            log.Write(LogEvent::ProviderStateSynchronized, { .stage = LogStage::Open,
+                .outcome = open ? LogOutcome::Succeeded : LogOutcome::Failed,
+                .count = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count(),
+                .stateBefore = 0, .stateAfter = open ? 1 : 0 }, open ? LogLevel::Info : LogLevel::Warning);
         }
-    }
-    catch (winrt::hresult_error const& e)
-    {
-        log.Write(LogEvent::ProviderStage, { .stage = stage, .outcome = LogOutcome::Failed, .hresult = e.code() }, LogLevel::Warning);
-        return ConnectResult{ false, ConnectFailure::HresultError, e.code() };
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-
-        // 重新检查：等待 OpenAsync 期间可能已被别的线程连上或断开
-        if (m_connections.find(id) != m_connections.end())
         {
-            return ConnectResult{ true, ConnectFailure::None, 0 };
-        }
-
-        m_connections.emplace(id, connection);
-
-        // 底层连接被系统关闭（设备走远、手机关蓝牙）时通知 ConnectionManager。
-        connection.StateChanged(
-            [this, id](AudioPlaybackConnection const& sender, auto const&)
+            std::lock_guard lock(m_mutex);
+            auto it = m_connections.find(id);
+            if (it != m_connections.end() && it->second == record && !record->closed && open)
             {
-                if (static_cast<int>(sender.State()) != kAudioConnectionClosed)
-                {
-                    return;
-                }
-                {
-                    std::lock_guard<std::mutex> lock(m_mutex);
-                    m_connections.erase(id);
-                }
-                ConnectionLost.Raise(id);
-            });
+                record->opening = false;
+                committed = true;
+            }
+        }
+        if (!committed)
+        {
+            auto error = HRESULT_FROM_WIN32(ERROR_CONNECTION_ABORTED);
+            log.Write(LogEvent::ProviderStage, { .stage = LogStage::Open, .outcome = LogOutcome::Failed, .hresult = error }, LogLevel::Warning);
+            return { false, ConnectFailure::HresultError, error };
+        }
+        log.Write(LogEvent::ProviderStage, { .stage = LogStage::Open, .outcome = LogOutcome::Succeeded }, LogLevel::Debug);
+        return result;
     }
-
-    log.Write(LogEvent::ProviderStage, { .stage = LogStage::Open, .outcome = LogOutcome::Succeeded }, LogLevel::Debug);
-    return ConnectResult{ true, ConnectFailure::None, 0 };
+    catch (...)
+    {
+        auto error = winrt::to_hresult();
+        log.Write(LogEvent::ProviderStage, { .stage = LogStage::Open, .outcome = LogOutcome::Failed, .hresult = error }, LogLevel::Warning);
+        return { false, ConnectFailure::HresultError, error };
+    }
 }
 
-void WinRtDeviceProvider::Disconnect(std::wstring_view deviceId, LogContext const& log)
+void WinRtDeviceProvider::ObserveClosed(std::wstring const& id, std::shared_ptr<ConnectionRecord> const& record)
 {
-    std::wstring id(deviceId);
-
-    AudioPlaybackConnection connection = nullptr;
+    bool notify = false;
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        std::lock_guard lock(m_mutex);
         auto it = m_connections.find(id);
-        if (it == m_connections.end())
-        {
-            return;   // 幂等：未连接时直接返回
-        }
-        connection = it->second;
+        if (it == m_connections.end() || it->second != record) return;
+        record->closed = true;
+        if (!record->opening) { m_connections.erase(it); notify = true; }
+    }
+    // 不在状态锁内发布事件；代次让 Manager 拒绝已进入队列的旧连接通知。
+    if (notify) ConnectionLost.Raise(id, record->connectionId);
+}
+
+void WinRtDeviceProvider::RemoveAndClose(std::wstring const& id, std::shared_ptr<ConnectionRecord> const& record)
+{
+    {
+        std::lock_guard lock(m_mutex);
+        auto it = m_connections.find(id);
+        if (it != m_connections.end() && it->second == record) m_connections.erase(it);
+    }
+    record->session->ClearClosedHandler();
+    record->session->Close();
+}
+
+void WinRtDeviceProvider::Disconnect(std::wstring_view deviceId, LogContext const&)
+{
+    std::shared_ptr<ConnectionRecord> record;
+    {
+        std::lock_guard lock(m_mutex);
+        auto it = m_connections.find(std::wstring(deviceId));
+        if (it == m_connections.end()) return;
+        record = std::move(it->second);
         m_connections.erase(it);
     }
-
-    // 必须在锁外 Close：Close 会同步触发 StateChanged，
-    // 上面那个 lambda 会再取锁。锁内调用 = 非递归 mutex 自死锁。
-    try
-    {
-        connection.Close();
-    }
-    catch (winrt::hresult_error const& error)
-    {
-        log.Write(LogEvent::ProviderStage, { .stage = LogStage::Close, .outcome = LogOutcome::Failed, .hresult = error.code() }, LogLevel::Warning);
-        // 关不掉也不要紧：连接对象已从表里移除并在此析构，
-        // AudioPlaybackConnection 的析构同样会关闭底层会话。
-    }
+    // 退订和 Close 均可能同步触发系统调用，不得持有 Provider 状态锁。
+    record->session->ClearClosedHandler();
+    record->session->Close();
 }
-
-} // namespace AudioBule::Core
+}

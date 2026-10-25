@@ -11,7 +11,7 @@ class QuickPanel
 public:
     struct Callbacks
     {
-        std::function<void(std::wstring const&, bool)> operate;
+        std::function<void(std::wstring const&, DeviceAction)> operate;
         std::function<void(std::wstring const&)> navigate;
         std::function<void()> exit, restoreFocus;
     };

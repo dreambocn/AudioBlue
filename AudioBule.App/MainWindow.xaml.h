@@ -5,6 +5,7 @@
 #include "DiagnosticsController.h"
 #include <functional>
 #include <set>
+#include <optional>
 
 namespace winrt::AudioBule::App::implementation
 {
@@ -13,7 +14,7 @@ struct MainWindow : MainWindowT<MainWindow>
     MainWindow() = default;
     // 组件初始化在 make_self 完成以后执行。
     void Initialize(::AudioBule::App::UI::UiText& text, std::function<void()> refresh,
-        std::function<void()> addDevice, std::function<void(std::wstring const&, bool)> operate,
+        std::function<void()> addDevice, std::function<void(std::wstring const&, ::AudioBule::App::UI::DeviceAction)> operate,
         std::function<void()> exit, std::function<void(::AudioBule::Core::AppSettings const&)> preferences,
         ::AudioBule::Core::LogContext log = {}, std::function<void(::AudioBule::App::UI::DiagnosticsAction)> diagnostics = {});
     void ApplyPreferences(::AudioBule::Core::AppSettings const& settings, bool startupPending = false, bool notificationsAvailable = true);
@@ -24,8 +25,9 @@ struct MainWindow : MainWindowT<MainWindow>
     void SetStopping();
     void SetDiagnostics(::AudioBule::Core::LogStatus status, bool busy);
     void RestoreDiagnosticsFocus();
-    void SetStatus(std::wstring const& status);
-    void SetStatusKey(wchar_t const* key);
+    void SetStatus(std::wstring const& status, Microsoft::UI::Xaml::Controls::InfoBarSeverity severity = Microsoft::UI::Xaml::Controls::InfoBarSeverity::Error);
+    void SetStatusKey(wchar_t const* key, Microsoft::UI::Xaml::Controls::InfoBarSeverity severity = Microsoft::UI::Xaml::Controls::InfoBarSeverity::Error);
+    void SetDeviceError(wchar_t const* key, ::AudioBule::Core::ConnectionEntry const& entry);
     void Show();
     void Toggle();
     winrt::fire_and_forget ConfirmExit();
@@ -54,6 +56,7 @@ private:
     std::vector<::AudioBule::Core::ConnectionEntry> m_entries;
     std::set<std::wstring> m_pendingDevices;
     std::wstring m_statusKey;
+    std::optional<::AudioBule::Core::ConnectionEntry> m_statusError;
     std::function<void()> m_addDevice, m_exit;
     std::function<void(::AudioBule::Core::AppSettings const&)> m_preferences;
     bool m_allowClose = false, m_stopping = false, m_filtered = false, m_refreshing = false;

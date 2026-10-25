@@ -240,10 +240,10 @@ Spike 实测证明两条独立事实，各自都足以否决「每设备音量�
 
 ### 会静默产生错误结果
 
-1. **`OpenAsync` 返回 `Success` ≠ 连接已建立。**
-   实测返回 Success 后 `State` 长时间停留在 `1(Connecting)`，而音频实际已在流。
-   `ConnectionManager` 的状态机**不能**把 `OpenAsync` 返回值当作唯一成功判据，
-   必须结合 `StateChanged` 事件。
+1. **连接打开与实际音频流应分别观测。**
+   2026-10-25 勘误：原记录的 `State=1` 应解释为 `Opened`，不是 Connecting。
+   Open 成功后仍需核对当前状态并处理 `StateChanged`，但 `Opened` 本身也不能证明
+   手机正在送出非静音音频；不能据此伪造播放状态。
 
 2. **验证「音频是否在流」必须用 `IAudioMeterInformation` 峰值表。**
    不能依赖人工确认播放 —— 否则无法区分「端点不存在」与「根本没播放」，

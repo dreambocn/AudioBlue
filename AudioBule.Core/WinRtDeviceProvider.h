@@ -1,12 +1,13 @@
 #pragma once
 
 #include "IAudioDeviceProvider.h"
+#include "IAudioPlaybackSession.h"
+#include "CallbackGate.h"
 
 #include <mutex>
+#include <chrono>
 #include <unordered_map>
 #include <vector>
-
-#include <winrt/Windows.Media.Audio.h>
 
 namespace AudioBule::Core
 {
@@ -18,19 +19,32 @@ namespace AudioBule::Core
 class WinRtDeviceProvider final : public IAudioDeviceProvider
 {
 public:
-    explicit WinRtDeviceProvider(LogContext log = {});
+    using SessionFactory = std::function<std::shared_ptr<IAudioPlaybackSession>(std::wstring_view)>;
+    explicit WinRtDeviceProvider(LogContext log = {}, SessionFactory factory = {},
+        std::chrono::milliseconds openStateTimeout = std::chrono::seconds(2));
     ~WinRtDeviceProvider() override;
 
     bool IsSupported() const override;
     std::vector<DeviceInfo> EnumerateDevices() override;
-    ConnectResult Connect(std::wstring_view deviceId, LogContext const& log = {}) override;
+    ConnectResult Connect(std::wstring_view deviceId, LogContext const& log = {}, uint64_t connectionId = 0) override;
     void Disconnect(std::wstring_view deviceId, LogContext const& log = {}) override;
 
 private:
+    struct ConnectionRecord
+    {
+        std::shared_ptr<IAudioPlaybackSession> session;
+        uint64_t connectionId = 0;
+        bool opening = true;
+        bool closed = false;
+    };
+    void ObserveClosed(std::wstring const& id, std::shared_ptr<ConnectionRecord> const& record);
+    void RemoveAndClose(std::wstring const& id, std::shared_ptr<ConnectionRecord> const& record);
     LogContext m_log;
+    SessionFactory m_factory;
+    std::chrono::milliseconds m_openStateTimeout;
+    std::shared_ptr<CallbackGate> m_callbacks = std::make_shared<CallbackGate>();
     std::mutex m_mutex;
-    std::unordered_map<std::wstring, winrt::Windows::Media::Audio::AudioPlaybackConnection>
-        m_connections;
+    std::unordered_map<std::wstring, std::shared_ptr<ConnectionRecord>> m_connections;
 };
 
 } // namespace AudioBule::Core

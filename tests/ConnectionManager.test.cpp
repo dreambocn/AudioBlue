@@ -28,6 +28,7 @@ public:
     std::vector<DeviceInfo> devices;
     bool supported = true;
     bool throwOnEnumerate = false;
+    bool throwOnDisconnect = false;
     std::atomic<HRESULT> connectApartmentResult{ E_FAIL };
     std::atomic<HRESULT> disconnectApartmentResult{ E_FAIL };
 
@@ -67,7 +68,7 @@ public:
         return devices;
     }
 
-    ConnectResult Connect(std::wstring_view deviceId, LogContext const& = {}) override
+    ConnectResult Connect(std::wstring_view deviceId, LogContext const& = {}, uint64_t connectionId = 0) override
     {
         APTTYPE type{};
         APTTYPEQUALIFIER qualifier{};
@@ -76,6 +77,7 @@ public:
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             ++m_connectCounts[id];
+            m_connectionIds[id] = connectionId;
             if (m_throwingDevices.count(id) > 0)
             {
                 throw winrt::hresult_error(E_FAIL, L"simulated");
@@ -94,14 +96,25 @@ public:
         APTTYPE type{};
         APTTYPEQUALIFIER qualifier{};
         disconnectApartmentResult = ::CoGetApartmentType(&type, &qualifier);
+        if (throwOnDisconnect) throw winrt::hresult_error(E_FAIL);
         std::lock_guard<std::mutex> lock(m_mutex);
         m_disconnected.insert(std::wstring(deviceId));
     }
+
+    uint64_t Generation(std::wstring const& id) const
+    {
+        std::lock_guard lock(m_mutex);
+        auto it = m_connectionIds.find(id);
+        return it == m_connectionIds.end() ? 0 : it->second;
+    }
+
+    void Lose(std::wstring const& id) { ConnectionLost.Raise(id, Generation(id)); }
 
 private:
     mutable std::mutex m_mutex;
     std::map<std::wstring, ConnectResult> m_connectResults;
     std::map<std::wstring, int> m_connectCounts;
+    std::map<std::wstring, uint64_t> m_connectionIds;
     std::set<std::wstring> m_throwingDevices;
     std::set<std::wstring> m_disconnected;
 };
@@ -173,13 +186,13 @@ TEST(ConnectionManager, UnsupportedSystemYieldsEmptyList)
     EXPECT_TRUE(manager.Snapshot().empty());
 }
 
-TEST(ConnectionManager, EnumerateThrowingYieldsEmptyListAndDoesNotCrash)
+TEST(ConnectionManager, InitialEnumerateFailureIsReportedAndDoesNotCrash)
 {
     FakeDeviceProvider provider;
     provider.throwOnEnumerate = true;
     ConnectionManager manager(provider);
 
-    manager.Refresh();   // 不得抛出
+    EXPECT_FALSE(manager.Refresh());   // 失败可被调用方识别，不抛出。
     EXPECT_TRUE(manager.Snapshot().empty());
 }
 
@@ -333,7 +346,7 @@ TEST(ConnectionManager, ExternalConnectionLostMovesEntryToDisconnected)
     manager.Refresh();
     manager.ConnectAsync(L"devA").get();
 
-    provider.ConnectionLost.Raise(L"devA");
+    provider.Lose(L"devA");
 
     EXPECT_TRUE(StateOf(manager, L"devA") == ConnectionState::Disconnected);
 }
@@ -344,7 +357,7 @@ TEST(ConnectionManager, ConnectionLostForUnknownDeviceIsIgnored)
     ConnectionManager manager(provider);
     manager.Refresh();
 
-    provider.ConnectionLost.Raise(L"never-seen");   // 不得崩溃
+    provider.Lose(L"never-seen");   // 不得崩溃
 
     EXPECT_TRUE(manager.Snapshot().empty());
 }
@@ -526,7 +539,7 @@ TEST(ConnectionManager, ConnectedDeviceIdsEmptyAfterExternalLoss)
     manager.Refresh();
     manager.ConnectAsync(L"devA").get();
 
-    provider.ConnectionLost.Raise(L"devA");
+    provider.Lose(L"devA");
 
     EXPECT_TRUE(manager.ConnectedDeviceIds().empty());
 }
@@ -559,7 +572,7 @@ TEST(ConnectionManager, DestructionWaitsForInFlightWork)
     manager->Refresh();
     manager->ConnectAsync(L"devA").get();
 
-    provider.ConnectionLost.Raise(L"devA");
+    provider.Lose(L"devA");
     manager.reset();   // 不得崩溃、不得挂起
 }
 
@@ -630,7 +643,7 @@ public:
     {
         return includeA ? std::vector<DeviceInfo>{ {L"A", L"手机 A"}, {L"B", L"手机 B"} } : std::vector<DeviceInfo>{ {L"B", L"手机 B"} };
     }
-    ConnectResult Connect(std::wstring_view id, LogContext const& = {}) override
+    ConnectResult Connect(std::wstring_view id, LogContext const& = {}, uint64_t = 0) override
     {
         if (id == L"A") { ++attempts; started.set_value(); released.wait(); return result; }
         return { true, ConnectFailure::None, 0 };
@@ -712,4 +725,395 @@ TEST(ConnectionManager, ErrorCodesSurviveForLocalizationAndClearAfterRetry)
     EXPECT_EQ(connected->failure, ConnectFailure::None);
     EXPECT_EQ(connected->extendedError, 0);
     EXPECT_TRUE(connected->errorMessage.empty());
+}
+
+TEST(ConnectionManager, RefreshFailureKeepsConnectedSnapshot)
+{
+    FakeDeviceProvider provider;
+    provider.devices = {{L"A", L"手机 A"}};
+    ConnectionManager manager(provider);
+    ASSERT_TRUE(manager.Refresh());
+    manager.ConnectAsync(L"A").get();
+    provider.throwOnEnumerate = true;
+    EXPECT_FALSE(manager.Refresh());
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Connected);
+    EXPECT_EQ(manager.ConnectedDeviceIds(), std::vector<std::wstring>{L"A"});
+    EXPECT_FALSE(provider.IsDisconnected(L"A"));
+}
+
+TEST(ConnectionManager, RemovingConnectedDeviceClosesProviderSession)
+{
+    FakeDeviceProvider provider;
+    provider.devices = {{L"A", L"手机 A"}};
+    ConnectionManager manager(provider);
+    manager.Refresh(); manager.ConnectAsync(L"A").get();
+    provider.devices.clear();
+    EXPECT_TRUE(manager.Refresh());
+    EXPECT_TRUE(manager.Snapshot().empty());
+    EXPECT_TRUE(provider.IsDisconnected(L"A"));
+}
+
+TEST(ConnectionManager, DelayedOldCloseCannotOverwriteReconnectedDevice)
+{
+    FakeDeviceProvider provider;
+    provider.devices = {{L"A", L"手机 A"}};
+    ConnectionManager manager(provider);
+    manager.Refresh(); manager.ConnectAsync(L"A").get();
+    auto oldGeneration = provider.Generation(L"A");
+    manager.DisconnectAsync(L"A").get();
+    manager.ConnectAsync(L"A").get();
+    ASSERT_NE(provider.Generation(L"A"), oldGeneration);
+    provider.ConnectionLost.Raise(L"A", oldGeneration);
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Connected);
+    provider.Lose(L"A");
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Disconnected);
+}
+
+TEST(ConnectionManager, CopiedLostCallbackIsSafeAfterManagerDestruction)
+{
+    FakeDeviceProvider provider;
+    provider.devices = {{L"A", L"手机 A"}};
+    std::promise<void> copied, release;
+    auto resume = release.get_future().share();
+    // 先注册阻塞处理器，让 Raise 已复制的 Manager 回调延后到析构之后执行。
+    auto blocker = provider.ConnectionLost.Add([&](auto const&, auto) { copied.set_value(); resume.wait(); });
+    auto manager = std::make_unique<ConnectionManager>(provider);
+    manager->Refresh(); manager->ConnectAsync(L"A").get();
+    std::atomic<int> notifications{0};
+    manager->EntryChanged.Add([&](auto const&) { ++notifications; });
+    std::thread lost([&] { provider.Lose(L"A"); });
+    copied.get_future().wait();
+    manager.reset();
+    release.set_value(); lost.join();
+    provider.ConnectionLost.Remove(blocker);
+    EXPECT_EQ(notifications.load(), 0);
+}
+
+TEST(ConnectionManager, DestructionWaitsForActiveExternalCallback)
+{
+    FakeDeviceProvider provider;
+    provider.devices = {{L"A", L"手机 A"}};
+    auto manager = std::make_unique<ConnectionManager>(provider);
+    manager->Refresh(); manager->ConnectAsync(L"A").get();
+    std::promise<void> entered, release, destroying;
+    auto resume = release.get_future().share();
+    manager->EntryChanged.Add([&](auto const&) { entered.set_value(); resume.wait(); });
+    std::thread lost([&] { provider.Lose(L"A"); });
+    entered.get_future().wait();
+    auto destroy = std::async(std::launch::async, [&] { destroying.set_value(); manager.reset(); });
+    destroying.get_future().wait();
+    EXPECT_EQ(destroy.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+    release.set_value(); lost.join(); destroy.get();
+}
+
+namespace
+{
+class FakePlaybackSession final : public IAudioPlaybackSession
+{
+public:
+    ConnectResult result{true, ConnectFailure::None, 0};
+    std::function<void()> onOpen;
+    std::function<void(bool)> onIsOpen;
+    std::atomic<bool> opened{false};
+    std::atomic<int> closes{0};
+    std::atomic<bool> subscribedBeforeOpen{false};
+    void SetClosedHandler(std::function<void()> handler) override { std::lock_guard lock(mutex); closed = std::move(handler); }
+    void ClearClosedHandler() noexcept override { std::lock_guard lock(mutex); closed = {}; }
+    ConnectResult Open() override
+    {
+        subscribedBeforeOpen = static_cast<bool>(CaptureClosed());
+        opened = result.succeeded;
+        if (onOpen) onOpen();
+        return result;
+    }
+    bool IsOpen() const override
+    {
+        bool value = opened;
+        if (onIsOpen) onIsOpen(value);
+        return value;
+    }
+    void Close() noexcept override { opened = false; ++closes; }
+    std::function<void()> CaptureClosed() { std::lock_guard lock(mutex); return closed; }
+    void Lose() { opened = false; if (auto handler = CaptureClosed()) handler(); }
+private:
+    std::mutex mutex;
+    std::function<void()> closed;
+};
+}
+
+TEST(WinRtDeviceProvider, ListensBeforeOpeningAndRejectsClosedSuccess)
+{
+    auto session = std::make_shared<FakePlaybackSession>();
+    session->onOpen = [session] { session->Lose(); };
+    WinRtDeviceProvider provider({}, [session](auto) { return session; });
+    auto result = provider.Connect(L"A", {}, 1);
+    EXPECT_TRUE(session->subscribedBeforeOpen);
+    EXPECT_FALSE(result.succeeded);
+    EXPECT_EQ(session->closes.load(), 1);
+    EXPECT_FALSE(static_cast<bool>(session->CaptureClosed()));
+    session->onOpen = {};
+}
+
+TEST(WinRtDeviceProvider, RejectsClosedStateEvenWithoutAnEvent)
+{
+    auto session = std::make_shared<FakePlaybackSession>();
+    session->onOpen = [session] { session->opened = false; };
+    WinRtDeviceProvider provider({}, [session](auto) { return session; }, std::chrono::milliseconds(20));
+    EXPECT_FALSE(provider.Connect(L"A", {}, 1).succeeded);
+    EXPECT_EQ(session->closes.load(), 1);
+    session->onOpen = {};
+}
+
+TEST(WinRtDeviceProvider, SuccessfulOpenWaitsForDelayedOpenedState)
+{
+    auto session = std::make_shared<FakePlaybackSession>();
+    session->onOpen = [session] { session->opened = false; };
+    std::promise<void> firstClosedRead;
+    std::atomic<bool> reported{false};
+    session->onIsOpen = [&](bool open) { if (!open && !reported.exchange(true)) firstClosedRead.set_value(); };
+    WinRtDeviceProvider provider({}, [session](auto) { return session; });
+    auto connection = std::async(std::launch::async, [&] { return provider.Connect(L"A", {}, 1); });
+    firstClosedRead.get_future().wait();
+    // 原生 API 已成功，但 State 仍未更新，此时不能立即失败并关闭连接。
+    EXPECT_EQ(connection.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
+    session->opened = true;
+    EXPECT_TRUE(connection.get().succeeded);
+    EXPECT_EQ(session->closes.load(), 0);
+    provider.Disconnect(L"A");
+    session->onOpen = {};
+    session->onIsOpen = {};
+}
+
+TEST(WinRtDeviceProvider, RealCloseDuringStateSynchronizationStillFails)
+{
+    auto session = std::make_shared<FakePlaybackSession>();
+    session->onOpen = [session] { session->opened = false; };
+    std::promise<void> firstClosedRead;
+    std::atomic<bool> reported{false};
+    session->onIsOpen = [&](bool open) { if (!open && !reported.exchange(true)) firstClosedRead.set_value(); };
+    WinRtDeviceProvider provider({}, [session](auto) { return session; });
+    auto connection = std::async(std::launch::async, [&] { return provider.Connect(L"A", {}, 1); });
+    firstClosedRead.get_future().wait();
+    session->Lose();
+    EXPECT_FALSE(connection.get().succeeded);
+    EXPECT_EQ(session->closes.load(), 1);
+    session->onOpen = {};
+    session->onIsOpen = {};
+}
+
+TEST(WinRtDeviceProvider, OldCopiedCallbackCannotRemoveReplacementSession)
+{
+    auto oldSession = std::make_shared<FakePlaybackSession>();
+    auto newSession = std::make_shared<FakePlaybackSession>();
+    int created = 0;
+    WinRtDeviceProvider provider({}, [&](auto) { return created++ == 0 ? oldSession : newSession; });
+    ASSERT_TRUE(provider.Connect(L"A", {}, 1).succeeded);
+    auto oldCallback = oldSession->CaptureClosed();
+    provider.Disconnect(L"A");
+    ASSERT_TRUE(provider.Connect(L"A", {}, 2).succeeded);
+    int lost = 0;
+    provider.ConnectionLost.Add([&](auto const&, auto) { ++lost; });
+    oldCallback();
+    EXPECT_EQ(lost, 0);
+    EXPECT_TRUE(newSession->opened);
+    provider.Disconnect(L"A");
+    EXPECT_EQ(newSession->closes.load(), 1);
+}
+
+TEST(WinRtDeviceProvider, CopiedCallbackIsSafeAfterProviderDestruction)
+{
+    auto session = std::make_shared<FakePlaybackSession>();
+    std::function<void()> copied;
+    {
+        WinRtDeviceProvider provider({}, [session](auto) { return session; });
+        ASSERT_TRUE(provider.Connect(L"A", {}, 1).succeeded);
+        copied = session->CaptureClosed();
+    }
+    EXPECT_EQ(session->closes.load(), 1);
+    EXPECT_FALSE(static_cast<bool>(session->CaptureClosed()));
+    copied();   // 宿主已释放，旧委托只能看到已关闭的生命周期入口。
+}
+
+TEST(WinRtDeviceProvider, DestructionWaitsForActiveStateCallback)
+{
+    auto session = std::make_shared<FakePlaybackSession>();
+    auto provider = std::make_unique<WinRtDeviceProvider>(LogContext{}, [session](auto) { return session; });
+    ASSERT_TRUE(provider->Connect(L"A", {}, 1).succeeded);
+    std::promise<void> entered, release, destroying;
+    auto resume = release.get_future().share();
+    provider->ConnectionLost.Add([&](auto const&, auto) { entered.set_value(); resume.wait(); });
+    std::thread lost([&] { session->Lose(); });
+    entered.get_future().wait();
+    auto destroy = std::async(std::launch::async, [&] { destroying.set_value(); provider.reset(); });
+    destroying.get_future().wait();
+    EXPECT_EQ(destroy.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+    release.set_value(); lost.join(); destroy.get();
+}
+
+TEST(ConnectionManager, RefreshCleanupFailureKeepsAnOperableConnection)
+{
+    FakeDeviceProvider provider;
+    provider.devices = {{L"A", L"手机 A"}};
+    ConnectionManager manager(provider);
+    manager.Refresh(); manager.ConnectAsync(L"A").get();
+    provider.devices.clear(); provider.throwOnDisconnect = true;
+    EXPECT_FALSE(manager.Refresh());
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Connected);
+    EXPECT_FALSE(manager.IsConnectionPending(L"A"));
+    provider.throwOnDisconnect = false;
+    manager.DisconnectAsync(L"A").get();
+    EXPECT_TRUE(provider.IsDisconnected(L"A"));
+}
+
+TEST(ConnectionManager, CollectionHandlerCanRefreshAgainWithoutDeadlock)
+{
+    FakeDeviceProvider provider;
+    provider.devices = {{L"A", L"手机 A"}};
+    ConnectionManager manager(provider);
+    bool reentered = false;
+    manager.EntriesChanged.Add([&] { reentered = manager.Refresh(); });
+    EXPECT_TRUE(manager.Refresh());
+    EXPECT_TRUE(reentered);
+}
+
+TEST(ConnectionManager, ManualReconnectClosesThenOpensExactlyOnce)
+{
+    FakeDeviceProvider provider;
+    provider.devices = {{L"A", L"手机 A"}};
+    ConnectionManager manager(provider);
+    manager.Refresh(); manager.ConnectAsync(L"A").get();
+    // 没有播放信号这一输入；空闲刷新不能自行重建或误报失败。
+    manager.Refresh(); manager.Refresh();
+    EXPECT_EQ(provider.ConnectCount(L"A"), 1);
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Connected);
+    auto generation = provider.Generation(L"A");
+    manager.ReconnectAsync(L"A").get();
+    EXPECT_TRUE(provider.IsDisconnected(L"A"));
+    EXPECT_EQ(provider.ConnectCount(L"A"), 2);
+    EXPECT_NE(provider.Generation(L"A"), generation);
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Connected);
+}
+
+TEST(ConnectionManager, ReconnectRequiresAnExistingConnectedDevice)
+{
+    FakeDeviceProvider provider;
+    provider.devices = {{L"A", L"手机 A"}};
+    ConnectionManager manager(provider); manager.Refresh();
+    manager.ReconnectAsync(L"A").get();
+    manager.ReconnectAsync(L"unknown").get();
+    EXPECT_EQ(provider.ConnectCount(L"A"), 0);
+    EXPECT_EQ(manager.Snapshot().size(), 1u);
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Disconnected);
+}
+
+TEST(ConnectionManager, ReconnectOpenFailureIsReportedWithoutAutomaticRetry)
+{
+    FakeDeviceProvider provider;
+    provider.devices = {{L"A", L"手机 A"}};
+    ConnectionManager manager(provider); manager.Refresh(); manager.ConnectAsync(L"A").get();
+    provider.SetConnectResult(L"A", {false, ConnectFailure::RequestTimedOut, E_FAIL});
+    manager.ReconnectAsync(L"A").get();
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Failed);
+    EXPECT_EQ(provider.ConnectCount(L"A"), 2);
+    auto entry = Find(manager, L"A"); ASSERT_TRUE(entry.has_value());
+    EXPECT_EQ(entry->failure, ConnectFailure::RequestTimedOut);
+    EXPECT_EQ(entry->extendedError, E_FAIL);
+}
+
+TEST(ConnectionManager, ReconnectCloseFailurePreservesOriginalConnectionAndGeneration)
+{
+    FakeDeviceProvider provider;
+    provider.devices = {{L"A", L"手机 A"}};
+    ConnectionManager manager(provider); manager.Refresh(); manager.ConnectAsync(L"A").get();
+    auto generation = provider.Generation(L"A");
+    provider.throwOnDisconnect = true;
+    EXPECT_THROW(manager.ReconnectAsync(L"A").get(), winrt::hresult_error);
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Connected);
+    EXPECT_EQ(provider.ConnectCount(L"A"), 1);
+    auto entry = Find(manager, L"A"); ASSERT_TRUE(entry.has_value());
+    EXPECT_EQ(entry->extendedError, E_FAIL);
+    EXPECT_FALSE(manager.IsConnectionPending(L"A"));
+    // 原会话仍属于原代次，后续系统关闭通知仍须生效。
+    provider.ConnectionLost.Raise(L"A", generation);
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Disconnected);
+}
+
+namespace
+{
+class ReconnectGateProvider final : public IAudioDeviceProvider
+{
+public:
+    bool blockClose = false, blockOpen = false, includeA = true;
+    std::atomic<int> opens{0}, closes{0};
+    std::promise<void> closeEntered, closeRelease, openEntered, openRelease;
+    std::shared_future<void> closeReady = closeRelease.get_future().share();
+    std::shared_future<void> openReady = openRelease.get_future().share();
+    bool IsSupported() const override { return true; }
+    std::vector<DeviceInfo> EnumerateDevices() override
+    {
+        return includeA ? std::vector<DeviceInfo>{{L"A", L"手机 A"},{L"B", L"手机 B"}} : std::vector<DeviceInfo>{{L"B", L"手机 B"}};
+    }
+    ConnectResult Connect(std::wstring_view id, LogContext const& = {}, uint64_t = 0) override
+    {
+        if (id == L"A" && ++opens > 1 && blockOpen) { openEntered.set_value(); openReady.wait(); }
+        return {true, ConnectFailure::None, 0};
+    }
+    void Disconnect(std::wstring_view id, LogContext const& = {}) override
+    {
+        if (id == L"A" && closes.fetch_add(1) == 0 && blockClose) { closeEntered.set_value(); closeReady.wait(); }
+    }
+};
+}
+
+TEST(ConnectionManager, ReconnectReservesDeviceAcrossCloseAndKeepsOtherDevicesIndependent)
+{
+    ReconnectGateProvider provider; provider.blockClose = true;
+    ConnectionManager manager(provider); manager.Refresh(); manager.ConnectAsync(L"A").get();
+    auto operation = manager.ReconnectAsync(L"A"); provider.closeEntered.get_future().wait();
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Reconnecting);
+    EXPECT_TRUE(manager.IsConnectionPending(L"A"));
+    manager.ReconnectAsync(L"A").get(); manager.ConnectAsync(L"A").get();
+    manager.ConnectAsync(L"B").get();
+    EXPECT_EQ(provider.opens.load(), 1);
+    EXPECT_EQ(StateOf(manager, L"B"), ConnectionState::Connected);
+    provider.closeRelease.set_value(); operation.get();
+    EXPECT_EQ(provider.opens.load(), 2);
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Connected);
+}
+
+TEST(ConnectionManager, CancelDuringReconnectClosePreventsReopening)
+{
+    ReconnectGateProvider provider; provider.blockClose = true;
+    ConnectionManager manager(provider); manager.Refresh(); manager.ConnectAsync(L"A").get();
+    auto operation = manager.ReconnectAsync(L"A"); provider.closeEntered.get_future().wait();
+    EXPECT_TRUE(manager.CancelConnection(L"A"));
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Disconnected);
+    manager.ConnectAsync(L"A").get();
+    EXPECT_EQ(provider.opens.load(), 1);
+    provider.closeRelease.set_value(); operation.get();
+    EXPECT_EQ(provider.opens.load(), 1);
+    EXPECT_FALSE(manager.IsConnectionPending(L"A"));
+}
+
+TEST(ConnectionManager, CancelDuringReconnectOpenClosesLateSuccess)
+{
+    ReconnectGateProvider provider; provider.blockOpen = true;
+    ConnectionManager manager(provider); manager.Refresh(); manager.ConnectAsync(L"A").get();
+    auto operation = manager.ReconnectAsync(L"A"); provider.openEntered.get_future().wait();
+    EXPECT_TRUE(manager.CancelConnection(L"A"));
+    provider.openRelease.set_value(); operation.get();
+    EXPECT_EQ(StateOf(manager, L"A"), ConnectionState::Disconnected);
+    EXPECT_EQ(provider.closes.load(), 2);
+    EXPECT_FALSE(manager.IsConnectionPending(L"A"));
+}
+
+TEST(ConnectionManager, DeviceRemovalDuringReconnectCloseStopsReopening)
+{
+    ReconnectGateProvider provider; provider.blockClose = true;
+    ConnectionManager manager(provider); manager.Refresh(); manager.ConnectAsync(L"A").get();
+    auto operation = manager.ReconnectAsync(L"A"); provider.closeEntered.get_future().wait();
+    provider.includeA = false; manager.Refresh();
+    provider.closeRelease.set_value(); operation.get();
+    EXPECT_FALSE(Find(manager, L"A").has_value());
+    EXPECT_EQ(provider.opens.load(), 1);
 }

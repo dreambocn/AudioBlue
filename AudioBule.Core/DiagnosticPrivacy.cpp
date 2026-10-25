@@ -58,7 +58,9 @@ constexpr EventDefinition kEvents[] = {
     {"diagnostics.detailed_enabled", L"已临时开启详细日志", "diagnostics"},
     {"diagnostics.detailed_disabled", L"详细日志已关闭或到期", "diagnostics"},
     {"diagnostics.export_completed", L"诊断导出已结束", "diagnostics"},
-    {"diagnostics.events_suppressed", L"重复环境告警已聚合，状态编号对应原始事件", "diagnostics"}
+    {"diagnostics.events_suppressed", L"重复环境告警已聚合，状态编号对应原始事件", "diagnostics"},
+    {"connection.reconnect_requested", L"已接受手动重新连接请求", "connection"},
+    {"provider.state_synchronized", L"原生连接状态同步已结束", "provider"}
 };
 static_assert(std::size(kEvents) == static_cast<size_t>(LogEvent::Count));
 }

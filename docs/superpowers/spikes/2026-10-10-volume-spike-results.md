@@ -100,9 +100,10 @@ System.Devices.ContainerId
 
 对主工程有直接价值：
 
-- `OpenAsync` 返回 `Success` **不等于**连接已建立。测试中观察到
-  `State` 长时间停留在 `1(Connecting)`，而音频实际已经在流。
-  **不能把 `OpenAsync` 的返回值当作「连接成功」的唯一判据。**
+- **2026-10-25 勘误**：原记录将 `State=1` 误写为 Connecting，实际是 `Opened`；
+  `AudioPlaybackConnectionState` 只有 `Closed=0` 和 `Opened=1`。
+  Open 成功及 Opened 表示控制连接已打开，不能单独证明手机正在送出非静音音频。
+  主工程应同时处理关闭事件，并把连接状态和音频流证据分开。
 - PC 只在**程序持有活动连接期间**才会在手机的音频输出列表中出现。
   程序退出后 PC 立即消失 —— 这是符合预期的行为。
 - Redmi Note 11T Pro+ 的 `OpenAsync` 失败于 `0x8007001F`

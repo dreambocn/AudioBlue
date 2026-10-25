@@ -31,7 +31,8 @@ public:
         return id;
     }
 
-    // id 无效或已退订时静默忽略
+    // id 无效或已退订时静默忽略；已被 Raise 复制的回调仍可能执行。
+    // 捕获宿主对象的外部事件应另用 CallbackGate 协调销毁。
     void Remove(SubscriptionId id)
     {
         std::lock_guard<std::mutex> lock(m_mutex);

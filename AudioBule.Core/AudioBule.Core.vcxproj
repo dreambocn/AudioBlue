@@ -100,6 +100,8 @@
     <ClInclude Include="DiagnosticExport.h" />
     <ClInclude Include="Settings.h" />
     <ClInclude Include="ConnectionEntry.h" />
+    <ClInclude Include="CallbackGate.h" />
+    <ClInclude Include="IAudioPlaybackSession.h" />
     <ClInclude Include="Messages.h" />
     <ClInclude Include="IAudioDeviceProvider.h" />
     <ClInclude Include="ConnectionManager.h" />

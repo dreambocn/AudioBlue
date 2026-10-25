@@ -1,7 +1,8 @@
 param(
     [string]$Executable = (Join-Path $PSScriptRoot '..\..\AudioBule.App\bin\AudioBule.exe'),
     [string]$ScreenshotPath,
-    [switch]$TestDiagnosticPicker
+    [switch]$TestDiagnosticPicker,
+    [switch]$TestTrayRecovery
 )
 
 $ErrorActionPreference = 'Stop'
@@ -113,6 +114,7 @@ function Wait-Condition([scriptblock]$Condition, [int]$TimeoutMs = 8000) {
 $testData = Join-Path ([IO.Path]::GetTempPath()) ('AudioBuleSmoke_' + [Guid]::NewGuid().ToString('N'))
 $originalLocalAppData = $env:LOCALAPPDATA
 $originalSmoke = $env:AUDIOBULE_SMOKE_TEST
+$originalTrayFailure = $env:AUDIOBULE_SMOKE_FAIL_FIRST_TRAY_ADD
 $application = $null
 $runtime = Get-ChildItem "$env:ProgramFiles\dotnet\shared\Microsoft.WindowsDesktop.App" -Directory |
     Where-Object { $_.Name.StartsWith([Environment]::Version.Major.ToString() + '.') } |
@@ -189,8 +191,10 @@ try {
     $null = New-Item -ItemType Directory -Path (Join-Path $testData 'AudioBule') -Force
     '{"language":"zh-CN","theme":"light","autoReconnect":true,"lastConnectedDevices":[]}' | Set-Content (Join-Path $testData 'AudioBule\settings.json') -Encoding utf8
     $env:LOCALAPPDATA = $testData; $env:AUDIOBULE_SMOKE_TEST = '1'
+    $env:AUDIOBULE_SMOKE_FAIL_FIRST_TRAY_ADD = if ($TestTrayRecovery) { '1' } else { $null }
     $application = Start-Process -FilePath $Executable -ArgumentList '--startup' -WindowStyle Hidden -PassThru
     $env:LOCALAPPDATA = $originalLocalAppData; $env:AUDIOBULE_SMOKE_TEST = $originalSmoke
+    $env:AUDIOBULE_SMOKE_FAIL_FIRST_TRAY_ADD = $originalTrayFailure
     Assert-Condition (Wait-Condition {
         $application.Refresh()
         if ($application.HasExited) { throw ('应用启动崩溃：0x{0:X8}' -f $application.ExitCode) }
@@ -205,8 +209,18 @@ try {
     $iconPath = Join-Path (Split-Path ([IO.Path]::GetFullPath($Executable))) 'Assets\AppIcon.ico'
     Assert-Condition (Test-WindowIcon $window $iconPath 1) '主窗口大图标与品牌图标一致'
     Assert-Condition (Test-WindowIcon $window $iconPath 0) '主窗口小图标与品牌图标一致'
-    Assert-Condition (-not [AudioBuleSmoke.Native]::IsWindowVisible($window)) '开机启动模式不弹出主窗口'
-    Assert-Condition ([AudioBuleSmoke.Native]::HasIcon($callback)) 'Shell 已登记托盘图标'
+    if ($TestTrayRecovery) {
+        # 首次登记失败后服务仍须存活，并在定时重试成功后恢复关闭到托盘。
+        $registered = Wait-Condition { [AudioBuleSmoke.Native]::SendMessage($callback, 0x8003, [IntPtr]0, [IntPtr]0) -eq [IntPtr]1 }
+        Write-Output "托盘恢复诊断：Shell 登记结果=$registered；Shell 图标矩形可查询=$([AudioBuleSmoke.Native]::HasIcon($callback))"
+        Assert-Condition $registered '首次登记失败后自动恢复托盘登记'
+        $null = [AudioBuleSmoke.Native]::PostMessage($window, 0x10, [IntPtr]0, [IntPtr]0)
+        Assert-Condition (Wait-Condition { -not [AudioBuleSmoke.Native]::IsWindowVisible($window) }) '托盘恢复后关闭窗口继续驻留'
+        Assert-Condition (-not $application.HasExited) '托盘恢复后关闭窗口不退出进程'
+    } else {
+        Assert-Condition (-not [AudioBuleSmoke.Native]::IsWindowVisible($window)) '开机启动模式不弹出主窗口'
+    }
+    Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::HasIcon($callback) }) 'Shell 已登记托盘图标'
     $null = [AudioBuleSmoke.Native]::PostMessage($callback, 0x8001, [IntPtr]0, [IntPtr]0x10400)
     Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::IsWindowVisible($panel) }) '托盘左键显示快速面板'
     Assert-Condition (([AudioBuleSmoke.Native]::GetWindowLongPtr($panel, -16).ToInt64() -band 0xC40000) -eq 0) '托盘窗口没有传统对话框和调整大小边框'
@@ -217,6 +231,15 @@ try {
     Assert-Condition (Wait-Condition { [AudioBuleSmoke.Native]::IsWindowVisible($window) -and -not [AudioBuleSmoke.Native]::IsWindowVisible($panel) }) '快速面板打开主窗口并收起'
     $root = [System.Windows.Automation.AutomationElement]::FromHandle($window)
     Assert-Condition ($null -ne (Find-Ui $root '设备' -Name)) '主窗口设备页使用中文资源'
+    $allFilter = Find-Ui $root 'AllFilter'
+    $connectedFilter = Find-Ui $root 'ConnectedFilter'
+    $allSelection = $allFilter.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+    $connectedSelection = $connectedFilter.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+    Assert-Condition ($allSelection.Current.IsSelected -and -not $connectedSelection.Current.IsSelected) '默认筛选通过原生选择语义暴露全部设备'
+    $connectedSelection.Select()
+    Assert-Condition (Wait-Condition { $connectedSelection.Current.IsSelected -and -not $allSelection.Current.IsSelected }) '辅助技术可切换到已连接筛选且保持互斥'
+    $allSelection.Select()
+    Assert-Condition (Wait-Condition { $allSelection.Current.IsSelected -and -not $connectedSelection.Current.IsSelected }) '辅助技术可恢复全部设备筛选'
     Invoke-Ui (Find-Ui $root 'RefreshButton')
     Assert-Condition (Wait-Condition { (Find-Ui $root 'RefreshButton').Current.IsEnabled }) '真实设备枚举和刷新不阻塞界面'
     Save-WindowImage $window ''
@@ -475,6 +498,7 @@ try {
     Assert-Condition ($application.WaitForExit(10000) -and $application.ExitCode -eq 0) '第二次启动也正常退出'
 } finally {
     $env:LOCALAPPDATA = $originalLocalAppData; $env:AUDIOBULE_SMOKE_TEST = $originalSmoke
+    $env:AUDIOBULE_SMOKE_FAIL_FIRST_TRAY_ADD = $originalTrayFailure
     if ($application) {
         $application.Refresh()
         if (-not $application.HasExited) {

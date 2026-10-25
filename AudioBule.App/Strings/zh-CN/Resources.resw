@@ -297,4 +297,9 @@
   <data name="DiagnosticsExportSuccess" xml:space="preserve"><value>诊断文件已保存到所选位置，未自动上传。</value></data>
   <data name="DiagnosticsExportPartial" xml:space="preserve"><value>诊断文件已保存，但包含丢失、跳过或不完整记录的说明。</value></data>
   <data name="DiagnosticsExportFailed" xml:space="preserve"><value>无法保存诊断文件，请检查所选位置的权限与可用空间。</value></data>
+  <data name="ConnectedAudioHint" xml:space="preserve"><value>手机未播放时会保持连接；正在播放却无声时，可点击右侧的重新连接按钮。</value></data>
+  <data name="Reconnect" xml:space="preserve"><value>重新连接</value></data>
+  <data name="ReconnectDescription" xml:space="preserve"><value>先断开，再重新建立音频连接。手机未播放声音时无需操作。</value></data>
+  <data name="ReconnectFailed" xml:space="preserve"><value>重新连接失败：</value></data>
+  <data name="Reconnecting" xml:space="preserve"><value>重新连接中</value></data>
 </root>

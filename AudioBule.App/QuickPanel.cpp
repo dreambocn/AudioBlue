@@ -128,7 +128,11 @@ void QuickPanel::Position()
     // 坐标夹在当前显示器工作区，支持负坐标和不同任务栏位置。
     int x = std::clamp(static_cast<int>(m_anchor.x) - width + 20, static_cast<int>(work.left) + 8, std::max(static_cast<int>(work.left) + 8, static_cast<int>(work.right) - width - 8));
     int y = std::clamp(static_cast<int>(m_anchor.y) - height - 12, static_cast<int>(work.top) + 8, std::max(static_cast<int>(work.top) + 8, static_cast<int>(work.bottom) - height - 8));
-    m_appWindow.MoveAndResize({ x, y, width, height });
+    auto position = m_appWindow.Position();
+    auto size = m_appWindow.Size();
+    // 设备状态变化不应反复重设相同窗口边界，以免扰动面板激活与输入焦点。
+    if (position.X != x || position.Y != y || size.Width != width || size.Height != height)
+        m_appWindow.MoveAndResize({ x, y, width, height });
     // 移到另一缩放比例的显示器后，重新计算一次物理尺寸。
     if (::GetDpiForWindow(m_handle) != static_cast<UINT>(dpi)) Position();
 }

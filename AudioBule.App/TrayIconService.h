@@ -25,6 +25,7 @@ public:
         std::function<void(POINT, bool)> onToggled;
         std::function<void(POINT, bool)> onContextMenu;
         std::function<void()> onThemeShouldRefresh;
+        std::function<void(bool)> onAvailabilityChanged;
     };
 
     TrayIconService(winrt::Microsoft::UI::Dispatching::DispatcherQueue const& queue,
@@ -34,6 +35,7 @@ public:
     TrayIconService& operator=(TrayIconService const&) = delete;
 
     bool WaitUntilReady(unsigned timeoutMs = 5000);
+    bool IsAvailable() const noexcept { return m_available; }
     void UpdateIcon(bool darkTheme, bool connected = false);
     void UpdateTooltip(std::wstring text);
     void RestoreFocus();
@@ -50,6 +52,7 @@ private:
     void ThreadMain() noexcept;
     void ProcessMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     bool AddIcon();
+    void SetAvailable(bool available);
     void Cleanup() noexcept;
     void PostWork(std::function<void()> work);
     void Dispatch(std::function<void(Callbacks const&)> callback);
@@ -65,6 +68,9 @@ private:
     bool m_ready = false;
     bool m_started = false;
     std::atomic<bool> m_stopping{ false };
+    std::atomic<bool> m_available{ false };
+    // 冒烟模式专用的首次登记故障注入，不修改 Explorer 或系统设置。
+    bool m_failFirstAdd = false;
 
     // 以下成员只由托盘线程访问，广播窗口不显示、不进入任务栏。
     HWND m_window = nullptr;

@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include <vector>
+#include <algorithm>
 
 using namespace AudioBule::Core;
 
@@ -84,8 +85,7 @@ TEST(IconFactory, DarkTrayIconIsCreated)
 
 TEST(IconFactory, IconHasPlausibleDimensions)
 {
-    // .ico 内含 16/24/32/48 四档，LoadImage 按系统缩放比挑选其中一档，
-    // 所以不能断言固定 32x32，只验证落在托盘图标的合理区间内。
+    // .ico 内含 16/24/32/48 四档，运行时按系统小图标尺寸选择并缩放。
     TrayIcon icon = CreateTrayIcon(false);
     ASSERT_TRUE(static_cast<bool>(icon));
 
@@ -98,7 +98,7 @@ TEST(IconFactory, IconHasPlausibleDimensions)
     BITMAP colorBitmap = {};
     GetObjectW(info.hbmColor, sizeof(colorBitmap), &colorBitmap);
     EXPECT_GE(colorBitmap.bmWidth, 16L);
-    EXPECT_LE(colorBitmap.bmWidth, 48L);
+    EXPECT_LE(colorBitmap.bmWidth, static_cast<LONG>((std::max)(48, GetSystemMetrics(SM_CXSMICON))));
     EXPECT_EQ(colorBitmap.bmHeight, colorBitmap.bmWidth);
 
     // 注意：带 alpha 通道的图标，其 hbmMask 与 hbmColor 同高（而不是 2 倍）。

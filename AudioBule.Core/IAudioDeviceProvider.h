@@ -17,8 +17,8 @@ namespace AudioBule::Core
 // 实现约定：
 //  - Connect / Disconnect 会被 ConnectionManager 在**工作线程**上调用，
 //    不得在 UI 线程直接调用。
-//  - EnumerateDevices 允许抛异常；ConnectionManager 会吞掉并视为空列表。
-//  - 底层连接被系统关闭时，必须 Raise ConnectionLost。
+//  - EnumerateDevices 允许抛异常；ConnectionManager 保留原快照并返回刷新失败。
+//  - 底层连接被系统关闭时，必须携带原连接代次 Raise ConnectionLost。
 class IAudioDeviceProvider
 {
 public:
@@ -26,12 +26,11 @@ public:
 
     virtual bool IsSupported() const = 0;
     virtual std::vector<DeviceInfo> EnumerateDevices() = 0;
-    virtual ConnectResult Connect(std::wstring_view deviceId, LogContext const& log = {}) = 0;
+    virtual ConnectResult Connect(std::wstring_view deviceId, LogContext const& log = {}, uint64_t connectionId = 0) = 0;
     virtual void Disconnect(std::wstring_view deviceId, LogContext const& log = {}) = 0;
 
-    // 参数为 deviceId（宽字符，与 ConnectionEntry::deviceId 同类型）。
-    // 由 provider 在观察到连接被系统关闭时触发。
-    SimpleEvent<std::wstring> ConnectionLost;
+    // 代次由 Manager 在连接开始前分配，迟到事件不能关闭同设备的新连接。
+    SimpleEvent<std::wstring, uint64_t> ConnectionLost;
 };
 
 } // namespace AudioBule::Core
