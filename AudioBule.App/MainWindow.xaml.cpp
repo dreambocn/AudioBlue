@@ -127,11 +127,19 @@ void MainWindow::Initialize(::AudioBule::App::UI::UiText& text, std::function<vo
 void MainWindow::ApplyPreferences(Core::AppSettings const& settings, bool startupPending, bool notificationsAvailable)
 {
     m_updating = true;
+    bool rebuild = m_syncSettings.empty() || m_settingsLocale != m_text->Locale() ||
+        m_notificationsAvailable != notificationsAvailable;
     m_settings = settings;
     m_startupPending = startupPending;
     m_notificationsAvailable = notificationsAvailable;
     RootPanel().Language(m_text->Locale());
     RootPanel().RequestedTheme(settings.theme == L"dark" ? ElementTheme::Dark : settings.theme == L"light" ? ElementTheme::Light : ElementTheme::Default);
+    if (!rebuild) {
+        // 异步启动项确认或失败回退也更新原控件，不移除用户正在操作的开关。
+        for (auto const& sync : m_syncSettings) sync();
+        m_updating = false;
+        return;
+    }
     DevicesNav().Content(box_value(m_text->Get(L"Devices")));
     SettingsNav().Content(box_value(m_text->Get(L"Settings")));
     AboutNav().Content(box_value(m_text->Get(L"About")));
@@ -149,6 +157,8 @@ void MainWindow::ApplyPreferences(Core::AppSettings const& settings, bool startu
 }
 void MainWindow::BuildSettings()
 {
+    m_syncSettings.clear();
+    m_settingsLocale = m_text->Locale();
     auto panel = SettingsRows();
     panel.Children().Clear();
     panel.Children().Append(Label(m_text->Get(L"Settings"), 28, true));
@@ -181,6 +191,14 @@ void MainWindow::BuildSettings()
         control.VerticalAlignment(VerticalAlignment::Center);
         action.Children().Append(control);
         Automation::AutomationProperties::SetName(control, m_text->Get(key)); Automation::AutomationProperties::SetAutomationId(control, key);
+        m_syncSettings.push_back([this, control, state, member] {
+            bool enabled = member == &Core::AppSettings::runAtStartup ? !m_startupPending :
+                member == &Core::AppSettings::connectionNotifications ? m_notificationsAvailable : true;
+            if (control.IsOn() != m_settings.*member) control.IsOn(m_settings.*member);
+            control.IsEnabled(enabled);
+            state.Text(m_text->Get(m_settings.*member ? L"On" : L"Off"));
+            state.Opacity(enabled ? 1.0 : 0.4);
+        });
         auto weak = get_weak();
         control.Toggled([weak, member, state](auto const& sender, auto const&) {
             if (auto self = weak.get(); self && !self->m_updating) {
@@ -211,6 +229,15 @@ void MainWindow::BuildSettings()
             if (auto self = weak.get(); self && !self->m_updating) {
                 auto selected = sender.template as<ComboBox>().SelectedItem().template try_as<ComboBoxItem>();
                 if (selected) { auto settings = self->m_settings; settings.*member = unbox_value<hstring>(selected.Tag()); self->m_preferences(settings); }
+            }
+        });
+        m_syncSettings.push_back([this, control, member] {
+            for (auto const& option : control.Items()) {
+                auto item = option.as<ComboBoxItem>();
+                if (unbox_value<hstring>(item.Tag()) == m_settings.*member) {
+                    if (control.SelectedItem() != item) control.SelectedItem(item);
+                    break;
+                }
             }
         });
         panel.Children().Append(SettingsCard(m_text->Get(key), m_text->Get(descriptionKey), glyph, control));

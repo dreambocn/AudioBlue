@@ -42,6 +42,9 @@ private:
     Microsoft::UI::Xaml::Controls::Button m_diagnosticsDetailed{ nullptr }, m_diagnosticsExport{ nullptr }, m_diagnosticsFolder{ nullptr };
     bool m_diagnosticsBusy = false;
     void BuildSettings();
+    // 保留控件实例，设置变化只同步状态，避免整页重建打断动画和焦点。
+    std::vector<std::function<void()>> m_syncSettings;
+    winrt::hstring m_settingsLocale;
     void BuildAbout();
     void UpdateCaption();
     static LRESULT CALLBACK WindowProcedure(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);

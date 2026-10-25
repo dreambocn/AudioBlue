@@ -316,13 +316,32 @@ try {
     Assert-Condition ([Math]::Abs($reconnect.Current.BoundingRectangle.Right - $startup.Current.BoundingRectangle.Right) -lt 2 -and [Math]::Abs($reconnect.Current.BoundingRectangle.Right - $notifications.Current.BoundingRectangle.Right) -lt 2) '设置页所有开关右边缘对齐'
     Assert-Condition ($null -eq (Find-Ui $root '始终开启' -Name) -and $null -eq (Find-Ui $root '关闭窗口后继续运行' -Name)) '固定行为不再作为设置项展示'
     # 验证开关真实可修改且保存，然后恢复测试配置。
+    $reconnect.SetFocus()
+    $reconnectIdentity = $reconnect.GetRuntimeId() -join ','
+    $startupIdentity = $startup.GetRuntimeId() -join ','
+    $settingsOffset = $settingsScroll.Current.VerticalScrollPercent
     $reconnect.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
     Assert-Condition (Wait-Condition { -not ([IO.File]::ReadAllText((Join-Path $testData 'AudioBule\settings.json')) | ConvertFrom-Json).autoReconnect }) '自动重连开关可关闭并保存'
+    # 等待排队的偏好同步完成，捕获旧实现异步销毁整页的回归。
+    Start-Sleep -Milliseconds 300
+    Assert-Condition (((Find-Ui $root 'AutoReconnect').GetRuntimeId() -join ',') -eq $reconnectIdentity -and ((Find-Ui $root 'RunAtStartup').GetRuntimeId() -join ',') -eq $startupIdentity) '切换设置不重建开关及相邻控件'
+    Assert-Condition (([System.Windows.Automation.AutomationElement]::FocusedElement.GetRuntimeId() -join ',') -eq $reconnectIdentity) '切换设置保留键盘焦点'
+    Assert-Condition ([Math]::Abs($settingsScroll.Current.VerticalScrollPercent - $settingsOffset) -lt 0.1) '切换设置保留滚动位置'
     (Find-Ui $root 'AutoReconnect').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
     Assert-Condition (Wait-Condition { ([IO.File]::ReadAllText((Join-Path $testData 'AudioBule\settings.json')) | ConvertFrom-Json).autoReconnect }) '自动重连开关可重新开启'
+    if ($notifications.Current.IsEnabled) {
+        $notificationPattern = $notifications.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+        $originalNotificationState = $notificationPattern.Current.ToggleState
+        $notificationPattern.Toggle()
+        Start-Sleep -Milliseconds 300
+        Assert-Condition (((Find-Ui $root 'RunAtStartup').GetRuntimeId() -join ',') -eq $startupIdentity -and $notificationPattern.Current.ToggleState -ne $originalNotificationState) '通知开关切换不重建设置页'
+        $notificationPattern.Toggle()
+    }
     Save-WindowImage $window 'settings'
     Select-Combo $root 'Theme' '深色'
     Assert-Condition (Wait-Condition { ([IO.File]::ReadAllText((Join-Path $testData 'AudioBule\settings.json')) | ConvertFrom-Json).theme -eq 'dark' }) '深色主题即时生效并保存'
+    Start-Sleep -Milliseconds 300
+    Assert-Condition (((Find-Ui $root 'AutoReconnect').GetRuntimeId() -join ',') -eq $reconnectIdentity) '主题变化通过原生资源更新并保留设置控件'
     $null = [AudioBuleSmoke.Native]::SetWindowPos($window, [IntPtr]::Zero, 0, 0, 976, 880, 0x6)
     Start-Sleep -Milliseconds 200
     $settingsScroll = (Find-Ui $root 'SettingsPage').GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)

@@ -183,10 +183,12 @@ void App::ChangePreferences(Core::AppSettings const& settings)
     m_settings.autoReconnect = settings.autoReconnect;
     m_settings.connectionNotifications = settings.connectionNotifications;
     m_settings.theme = settings.theme;
-    m_settings.language = settings.language;
-    m_text->SetLanguage(m_settings.language);
+    if (m_settings.language != settings.language) {
+        m_settings.language = settings.language;
+        m_text->SetLanguage(m_settings.language);
+    }
     SaveConfiguration();
-    // 清理并重建设置项必须离开发起事件的控件调用栈。
+    // 语言变化可能重建文案，统一离开发起事件的控件调用栈再同步界面。
     auto weak = get_weak();
     m_queue.TryEnqueue([weak] { if (auto self = weak.get(); self && !self->m_stopping) self->ApplyPreferences(); });
     if (startupChanged && !m_startupPending) ChangeStartup(settings.runAtStartup);
